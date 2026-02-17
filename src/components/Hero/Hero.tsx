@@ -60,7 +60,7 @@ const Hero = () => {
           align-items: center;
           position: relative;
           z-index: 1;
-          margin-top: 0px;
+          margin-top: -10px;
         }
 
         /* ── LEFT CONTENT ─────────────────────────────────── */
@@ -392,9 +392,9 @@ const Hero = () => {
         }
 
         @media (max-width: 480px) {
-          .hero-container { padding: 28px 16px; }
-          .hero-headline { font-size: 30px; }
-          .hero-subtext { font-size: 15px; }
+          .hero-container { padding: 60px 16px; }
+          .hero-headline { font-size: 28px; }
+          .hero-subtext { font-size: 14px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
