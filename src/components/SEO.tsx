@@ -21,7 +21,6 @@ const SEO = ({
   noIndex = false,
 }: SEOProps) => {
   const siteUrl = "https://www.zimserv.co.zw";
-  const siteName = "ZimServ - Zimbabwe's Trusted Service Directory";
 
   const fullUrl = url ? `${siteUrl}${url}` : siteUrl;
   const fullImage = image.startsWith("http") ? image : `${siteUrl}${image}`;
