@@ -60,7 +60,7 @@ const Hero = () => {
           align-items: center;
           position: relative;
           z-index: 1;
-          margin-top: -20px;
+          margin-top: 0px;
         }
 
         /* ── LEFT CONTENT ─────────────────────────────────── */

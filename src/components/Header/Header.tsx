@@ -137,7 +137,7 @@ const Header = () => {
           transition: height var(--transition-base);
         }
 
-        .hdr-root.scrolled .hdr-inner { height: 90px; }
+        
 
         /* ── LOGO ─────────────────────────────────────────── */
         .hdr-logo {
@@ -156,7 +156,7 @@ const Header = () => {
           transition: height var(--transition-base);
         }
 
-        .hdr-root.scrolled .hdr-logo img { height: 50px; }
+        
 
         .hdr-logo:hover {
           transform: translateY(-1px);
@@ -418,8 +418,8 @@ const Header = () => {
         /* ── MOBILE HAMBURGER ─────────────────────────────── */
         .hdr-hamburger {
           display: none;
-          width: 44px;
-          height: 44px;
+          width: 37px;
+          height: 37px;
           border: 1.5px solid var(--color-border);
           background: var(--color-bg);
           border-radius: var(--radius-md);
@@ -662,8 +662,8 @@ const Header = () => {
         }
 
         @media (max-width: 480px) {
-          .hdr-inner { padding: 0 16px; }
-          .hdr-logo img { height: 38px; }
+          .hdr-inner { padding: 0 16px; height: 80px; }
+          .hdr-logo img { height: 35px; }
           .mob-drawer { width: 100%; }
         }
 
