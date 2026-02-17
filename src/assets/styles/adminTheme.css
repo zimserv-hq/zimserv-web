@@ -1,0 +1,168 @@
+/* ========================================
+   ADMIN THEME CONFIGURATION
+   Change colors here to rebrand for different companies
+   ======================================== */
+
+:root {
+  /* ===== PRIMARY BRAND COLORS ===== */
+  --admin-primary: #6366f1;
+  --admin-primary-hover: #4f46e5;
+  --admin-primary-light: #eef2ff;
+  --admin-primary-dark: #3730a3;
+  
+  /* ===== SECONDARY & ACCENT COLORS ===== */
+  --admin-secondary: #8b5cf6;
+  --admin-accent: #ec4899;
+  --admin-success: #10b981;
+  --admin-warning: #f59e0b;
+  --admin-danger: #ef4444;
+  --admin-info: #3b82f6;
+  
+  /* ===== LIGHT MODE COLORS ===== */
+  --admin-bg-primary: #ffffff;
+  --admin-bg-secondary: #f9fafb;
+  --admin-bg-tertiary: #f3f4f6;
+  --admin-bg-hover: #f0f1f3;
+  
+  --admin-text-primary: #111827;
+  --admin-text-secondary: #6b7280;
+  --admin-text-tertiary: #9ca3af;
+  --admin-text-disabled: #d1d5db;
+  
+  --admin-border-color: #e5e7eb;
+  --admin-border-hover: #d1d5db;
+  --admin-border-focus: #6366f1;
+  
+  /* ===== STATUS COLORS ===== */
+  --admin-status-active: #10b981;
+  --admin-status-active-bg: #d1fae5;
+  --admin-status-inactive: #6b7280;
+  --admin-status-inactive-bg: #f3f4f6;
+  --admin-status-pending: #f59e0b;
+  --admin-status-pending-bg: #fef3c7;
+  --admin-status-completed: #3b82f6;
+  --admin-status-completed-bg: #dbeafe;
+  --admin-status-draft: #8b5cf6;
+  --admin-status-draft-bg: #ede9fe;
+  --admin-status-cancelled: #ef4444;
+  --admin-status-cancelled-bg: #fee2e2;
+  
+  /* ===== SHADOWS ===== */
+  --admin-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --admin-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --admin-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --admin-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* ===== LAYOUT DIMENSIONS ===== */
+  --admin-sidebar-width: 260px;
+  --admin-sidebar-collapsed-width: 80px;
+  --admin-header-height: 70px;
+  --admin-border-radius: 8px;
+  --admin-border-radius-lg: 12px;
+  
+  /* ===== TRANSITIONS ===== */
+  --admin-transition-speed: 0.3s;
+  --admin-transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* ===== RESPONSIVE BREAKPOINTS ===== */
+  --admin-breakpoint-mobile: 768px;
+  --admin-breakpoint-tablet: 1024px;
+  --admin-breakpoint-desktop: 1280px;
+}
+
+/* ===== DARK MODE THEME ===== */
+[data-theme="dark"] {
+  /* Dark Mode Backgrounds */
+  --admin-bg-primary: #1f2937;
+  --admin-bg-secondary: #111827;
+  --admin-bg-tertiary: #374151;
+  --admin-bg-hover: #4b5563;
+  
+  /* Dark Mode Text */
+  --admin-text-primary: #f9fafb;
+  --admin-text-secondary: #d1d5db;
+  --admin-text-tertiary: #9ca3af;
+  --admin-text-disabled: #6b7280;
+  
+  /* Dark Mode Borders */
+  --admin-border-color: #374151;
+  --admin-border-hover: #4b5563;
+  
+  /* Dark Mode Shadows */
+  --admin-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --admin-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --admin-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+  --admin-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.5);
+  
+  /* Dark Mode Primary Light Adjustment */
+  --admin-primary-light: rgba(99, 102, 241, 0.15);
+}
+
+/* ===== GLOBAL ADMIN STYLES ===== */
+* {
+  box-sizing: border-box;
+}
+
+/* ===== FIX: REMOVE WHITE MARGINS/BACKGROUND ===== */
+html {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  background-color: var(--admin-bg-secondary);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--admin-bg-secondary);
+  overflow-x: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+  background-color: var(--admin-bg-secondary);
+}
+
+/* Ensure no white background in dark mode */
+[data-theme="dark"] html,
+[data-theme="dark"] body,
+[data-theme="dark"] #root {
+  background-color: #111827;
+}
+
+/* Ensure no white background in light mode */
+[data-theme="light"] html,
+[data-theme="light"] body,
+[data-theme="light"] #root {
+  background-color: #f9fafb;
+}
+
+/* ===== SCROLLBAR STYLING ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--admin-bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--admin-border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--admin-border-hover);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--admin-bg-tertiary);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--admin-border-hover);
+}

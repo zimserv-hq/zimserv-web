@@ -1,0 +1,271 @@
+/* ========================================
+   FONTS
+   ======================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+/* ========================================
+   ZIMSERV DESIGN SYSTEM (Stable + Compatible)
+   Clean, Structured, Scalable
+   ======================================== */
+
+:root {
+  /* PRIMARY BRAND COLORS */
+  --color-primary: #1C1917;        /* Stone 900 */
+  --color-primary-900: #0C0A09;
+  --color-primary-800: #292524;
+
+  /* ACCENT COLORS */
+  --color-accent: #ec6f16;         /* Orange 500 */
+  --color-accent-hover: #EA580C;   /* Orange 600 */
+  --color-accent-light: #FB923C;   /* Orange 400 */
+  --color-accent-soft: #FFEDD5;    /* Orange 100 */
+
+  /* BACKGROUNDS */
+  --color-bg: #FFFFFF;
+  --color-bg-section: #FFFBEB;     /* Amber 50 */
+  --color-bg-soft: #FEF3C7;        /* Amber 100 */
+
+  /* NEUTRALS */
+  --color-text-primary: #44403C;   /* Stone 700 */
+  --color-text-secondary: #78716C; /* Stone 500 */
+  --color-border: #E7E5E4;         /* Stone 200 */
+  --color-divider: #F5F5F4;
+
+  /* SHADOW SYSTEM */
+  --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  /* TRANSITIONS */
+  --transition-base: 0.25s ease;
+  --transition-fast: 0.15s ease;
+
+  /* LAYOUT */
+  --container-max-width: 1280px;
+  --container-padding: 48px;
+
+  /* BORDER RADIUS */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* TYPOGRAPHY */
+  --font-primary: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
+
+  /* ========================================
+     🔁 BACKWARD COMPATIBILITY (IMPORTANT)
+     Keeps Header from breaking
+     ======================================== */
+
+  --primary-navy: var(--color-primary);
+  --primary-dark: var(--color-primary);
+
+  --accent-blue: var(--color-accent);
+  --accent-blue-hover: var(--color-accent-hover);
+  --accent-blue-light: var(--color-accent-light);
+
+  --bg-white: var(--color-bg);
+  --bg-section: var(--color-bg-section);
+
+  --neutral-dark: var(--color-text-primary);
+  --neutral-medium: var(--color-text-secondary);
+  --neutral-light: var(--color-border);
+  --neutral-lighter: var(--color-bg-soft);
+}
+
+
+/* ========================================
+   GLOBAL RESET (Sticky Safe)
+   ======================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  overflow-x: clip;
+}
+
+body {
+  font-family: var(--font-primary);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-width: 320px;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+
+/* ========================================
+   TYPOGRAPHY
+   ======================================== */
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-primary);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+p {
+  color: var(--color-text-primary);
+  line-height: 1.6;
+}
+
+
+/* ========================================
+   LINKS
+   ======================================== */
+
+a {
+  text-decoration: none;
+  color: inherit;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--color-accent);
+}
+
+
+/* ========================================
+   FORM ELEMENTS
+   ======================================== */
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+
+/* ========================================
+   BUTTON SYSTEM
+   ======================================== */
+
+.btn-primary {
+  background: var(--color-accent);
+  color: #FFFFFF;
+  border: none;
+  padding: 12px 24px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  transition: var(--transition-base);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  transition: var(--transition-base);
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+
+/* ========================================
+   SCROLL REVEAL ANIMATIONS
+   ======================================== */
+
+/* Base state: hidden and below viewport */
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+/* Visible state */
+.scroll-reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Staggered reveals for grids */
+.scroll-reveal-stagger {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.scroll-reveal-stagger.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger delays */
+.scroll-reveal-stagger:nth-child(1) { transition-delay: 0.05s; }
+.scroll-reveal-stagger:nth-child(2) { transition-delay: 0.1s; }
+.scroll-reveal-stagger:nth-child(3) { transition-delay: 0.15s; }
+.scroll-reveal-stagger:nth-child(4) { transition-delay: 0.2s; }
+.scroll-reveal-stagger:nth-child(5) { transition-delay: 0.25s; }
+.scroll-reveal-stagger:nth-child(6) { transition-delay: 0.3s; }
+.scroll-reveal-stagger:nth-child(7) { transition-delay: 0.35s; }
+.scroll-reveal-stagger:nth-child(8) { transition-delay: 0.4s; }
+.scroll-reveal-stagger:nth-child(9) { transition-delay: 0.45s; }
+.scroll-reveal-stagger:nth-child(10) { transition-delay: 0.5s; }
+.scroll-reveal-stagger:nth-child(11) { transition-delay: 0.55s; }
+.scroll-reveal-stagger:nth-child(12) { transition-delay: 0.6s; }
+
+
+/* ========================================
+   MAGNETIC BUTTON EFFECT
+   ======================================== */
+
+.btn-magnetic {
+  position: relative;
+  transition: transform 0.15s ease;
+}
+
+@media (hover: hover) {
+  .btn-magnetic:hover {
+    transform: scale(1.02);
+  }
+  
+  .btn-magnetic:active {
+    transform: scale(0.98);
+  }
+}
+
+
+/* ========================================
+   ACCESSIBILITY: REDUCED MOTION
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-reveal,
+  .scroll-reveal-stagger,
+  .btn-magnetic {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
