@@ -1,24 +1,21 @@
 {
-  "name": "SEACH Clothing & Printing",
-  "short_name": "SEACH",
-  "description": "Get creative with customised printing solutions",
+  "name": "MyWebSite",
+  "short_name": "MySite",
   "icons": [
     {
-      "src": "/android-chrome-192x192.png",
-      "type": "image/png",
+      "src": "/web-app-manifest-192x192.png",
       "sizes": "192x192",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
-      "src": "/android-chrome-512x512.png",
-      "type": "image/png",
+      "src": "/web-app-manifest-512x512.png",
       "sizes": "512x512",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "theme_color": "#ffffff",
   "background_color": "#ffffff",
-  "display": "standalone",
-  "start_url": "/",
-  "scope": "/"
+  "display": "standalone"
 }
