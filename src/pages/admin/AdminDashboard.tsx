@@ -10,8 +10,6 @@ import {
   MessageCircle,
   ArrowUpRight,
   ArrowDownRight,
-  MapPin,
-  TrendingUp,
 } from "lucide-react";
 import StatCard from "../../components/Admin/StatCard";
 import { useNavigate } from "react-router-dom";
@@ -63,86 +61,9 @@ const TOP_PROVIDERS_BY_LEADS = [
   },
 ];
 
-const RECENT_LEAD_EVENTS = [
-  {
-    id: "1",
-    provider: "ABC Plumbing",
-    eventType: "click_to_call",
-    timestamp: "2m ago",
-    city: "Harare",
-  },
-  {
-    id: "2",
-    provider: "Elite Electrical",
-    eventType: "click_to_whatsapp",
-    timestamp: "5m ago",
-    city: "Bulawayo",
-  },
-  {
-    id: "3",
-    provider: "Sparkle Cleaning",
-    eventType: "profile_view",
-    timestamp: "8m ago",
-    city: "Harare",
-  },
-  {
-    id: "4",
-    provider: "Tech Solutions",
-    eventType: "click_to_call",
-    timestamp: "12m ago",
-    city: "Harare",
-  },
-  {
-    id: "5",
-    provider: "ABC Plumbing",
-    eventType: "click_to_whatsapp",
-    timestamp: "15m ago",
-    city: "Borrowdale",
-  },
-];
-
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const [timeFilter, setTimeFilter] = useState("7days");
-
-  const getEventIcon = (eventType: string) => {
-    switch (eventType) {
-      case "click_to_call":
-        return <Phone size={14} />;
-      case "click_to_whatsapp":
-        return <MessageCircle size={14} />;
-      case "profile_view":
-        return <Eye size={14} />;
-      default:
-        return <MousePointerClick size={14} />;
-    }
-  };
-
-  const getEventLabel = (eventType: string) => {
-    switch (eventType) {
-      case "click_to_call":
-        return "Call";
-      case "click_to_whatsapp":
-        return "WhatsApp";
-      case "profile_view":
-        return "View";
-      default:
-        return eventType.replace("_", " ");
-    }
-  };
-
-  const getEventColor = (eventType: string) => {
-    switch (eventType) {
-      case "click_to_call":
-        return { light: "#10b981", dark: "#4ADE80" };
-      case "click_to_whatsapp":
-        return { light: "#25D366", dark: "#34D399" };
-      case "profile_view":
-        return { light: "#6b7280", dark: "#9CA3AF" };
-      default:
-        return { light: "#FF6B35", dark: "#FF8A5B" };
-    }
-  };
 
   return (
     <>

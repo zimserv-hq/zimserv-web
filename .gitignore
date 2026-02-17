@@ -12,13 +12,16 @@ lerna-debug.log*
 # ===================================
 # Dependencies
 # ===================================
-node_modules
+node_modules/
 
 # ===================================
-# Build outputs
+# Build outputs (NEVER COMMIT)
 # ===================================
-dist
-dist-ssr
+dist/
+dist-ssr/
+docs/          # vite build output you accidentally pushed
+build/
+coverage/
 
 # ===================================
 # Environment variables (DO NOT COMMIT!)
@@ -33,21 +36,25 @@ dist-ssr
 !.env.example
 
 # ===================================
-# Firebase
+# Supabase
 # ===================================
-.firebase/
-.firebaserc
-firebase-debug.log
-firestore-debug.log
-ui-debug.log
-storage.rules
+.supabase/
+supabase/.temp/
+supabase/.branches/
+
+# ===================================
+# TypeScript / cache
+# ===================================
+*.tsbuildinfo
+*.vite
+.vite/
 
 # ===================================
 # Editor directories and files
 # ===================================
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
