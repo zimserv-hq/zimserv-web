@@ -266,20 +266,40 @@ export default function BecomeProviderPage(): JSX.Element {
       }
 
       // Step 2: Validate category ID exists
+      // Step 2: Validate category ID exists
       if (!formData.category) {
         setErrors({ category: "Please select a category" });
         setIsSubmitting(false);
         return;
       }
 
-      // Step 3: Insert application with category ID (FIXED)
+      // Step 2b: Find the selected category object (for name + id)
+      const selectedCategory = categories.find(
+        (cat) => cat.id === formData.category,
+      );
+
+      if (!selectedCategory) {
+        console.error("Selected category ID not found in categories list", {
+          selectedId: formData.category,
+          categories,
+        });
+        setErrors({
+          category:
+            "Selected category is no longer available. Please choose another option.",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Step 3: Insert application with both category name AND ID
       const insertData = {
         full_name: formData.fullName.trim(),
         email: formData.email.toLowerCase().trim(),
         phone_number: formData.phone.trim(),
         whatsapp_number: formData.whatsapp?.trim() || null,
         city: formData.city,
-        primary_category_id: formData.category, // ✅ Now sends UUID
+        primary_category: selectedCategory.name, // ✅ text column (NOT NULL)
+        primary_category_id: selectedCategory.id, // ✅ UUID FK
         years_experience: formData.yearsExperience,
         work_type: formData.workType,
         availability: formData.availability || null,
