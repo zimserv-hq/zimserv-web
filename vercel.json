@@ -1,0 +1,15 @@
+{
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "zimserv.co.zw"
+        }
+      ],
+      "destination": "https://www.zimserv.co.zw/:path*",
+      "permanent": true
+    }
+  ]
+}
