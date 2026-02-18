@@ -45,7 +45,7 @@ interface ProviderProfileData {
 const ProviderProfile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [providerId, setProviderId] = useState<string | null>(null);
@@ -69,7 +69,9 @@ const ProviderProfile = () => {
     status: "",
   });
 
-  const [editProfile, setEditProfile] = useState<ProviderProfileData>({ ...profile });
+  const [editProfile, setEditProfile] = useState<ProviderProfileData>({
+    ...profile,
+  });
 
   useEffect(() => {
     fetchProfile();
@@ -77,12 +79,16 @@ const ProviderProfile = () => {
 
   const fetchProfile = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
 
       const { data: provider } = await supabase
         .from("providers")
-        .select("id, full_name, email, phone, city, business_name, category, status")
+        .select(
+          "id, full_name, email, phone, city, business_name, category, status",
+        )
         .eq("email", user.email)
         .single();
 
@@ -105,8 +111,11 @@ const ProviderProfile = () => {
         .select("file_url, type")
         .eq("provider_id", provider.id);
 
-      const profilePhoto = media?.find((m) => m.type === "profile")?.file_url || null;
-      const galleryImages = media?.filter((m) => m.type === "portfolio").map((m) => m.file_url) || [];
+      const profilePhoto =
+        media?.find((m) => m.type === "profile")?.file_url || null;
+      const galleryImages =
+        media?.filter((m) => m.type === "portfolio").map((m) => m.file_url) ||
+        [];
 
       const profileObj: ProviderProfileData = {
         fullName: provider.full_name || "",
@@ -141,31 +150,43 @@ const ProviderProfile = () => {
     setSaveError("");
     try {
       // Update providers table
-      await supabase.from("providers").update({
-        full_name: editProfile.fullName,
-        phone: editProfile.phone,
-        city: editProfile.city,
-        business_name: editProfile.businessName,
-        category: editProfile.category,
-        has_pending_edits: true,
-        updated_at: new Date().toISOString(),
-      }).eq("id", providerId);
+      await supabase
+        .from("providers")
+        .update({
+          full_name: editProfile.fullName,
+          phone: editProfile.phone,
+          city: editProfile.city,
+          business_name: editProfile.businessName,
+          category: editProfile.category,
+          has_pending_edits: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", providerId);
 
       // Upsert provider_profile
-      await supabase.from("provider_profile").upsert({
-        provider_id: providerId,
-        description: editProfile.description,
-        years_experience: parseInt(editProfile.yearsExperience) || 0,
-        certifications: editProfile.certifications,
-        website: editProfile.website,
-        address: editProfile.address,
-      }, { onConflict: "provider_id" });
+      await supabase.from("provider_profile").upsert(
+        {
+          provider_id: providerId,
+          description: editProfile.description,
+          years_experience: parseInt(editProfile.yearsExperience) || 0,
+          certifications: editProfile.certifications,
+          website: editProfile.website,
+          address: editProfile.address,
+        },
+        { onConflict: "provider_id" },
+      );
 
       // Update services - delete existing then insert new
-      await supabase.from("provider_services").delete().eq("provider_id", providerId);
+      await supabase
+        .from("provider_services")
+        .delete()
+        .eq("provider_id", providerId);
       if (editProfile.services.length > 0) {
         await supabase.from("provider_services").insert(
-          editProfile.services.map((s) => ({ provider_id: providerId, service_name: s }))
+          editProfile.services.map((s) => ({
+            provider_id: providerId,
+            service_name: s,
+          })),
         );
       }
 
@@ -192,51 +213,87 @@ const ProviderProfile = () => {
   };
 
   const handleAddService = () => {
-    if (newService.trim() && !editProfile.services.includes(newService.trim())) {
-      setEditProfile((prev) => ({ ...prev, services: [...prev.services, newService.trim()] }));
+    if (
+      newService.trim() &&
+      !editProfile.services.includes(newService.trim())
+    ) {
+      setEditProfile((prev) => ({
+        ...prev,
+        services: [...prev.services, newService.trim()],
+      }));
       setNewService("");
     }
   };
 
   const handleRemoveService = (index: number) => {
-    setEditProfile((prev) => ({ ...prev, services: prev.services.filter((_, i) => i !== index) }));
+    setEditProfile((prev) => ({
+      ...prev,
+      services: prev.services.filter((_, i) => i !== index),
+    }));
   };
 
-  const handleProfileImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProfileImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = e.target.files?.[0];
     if (!file || !providerId) return;
     try {
       const ext = file.name.split(".").pop();
       const path = `${providerId}/profile/photo.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("provider-media").upload(path, file, { upsert: true });
+      const { error: uploadError } = await supabase.storage
+        .from("provider-media")
+        .upload(path, file, { upsert: true });
       if (uploadError) throw uploadError;
-      const { data: { publicUrl } } = supabase.storage.from("provider-media").getPublicUrl(path);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("provider-media").getPublicUrl(path);
 
-      await supabase.from("provider_media").upsert({
-        provider_id: providerId,
-        type: "profile",
-        file_url: publicUrl,
-      }, { onConflict: "provider_id,type" });
+      await supabase.from("provider_media").upsert(
+        {
+          provider_id: providerId,
+          type: "profile",
+          file_url: publicUrl,
+        },
+        { onConflict: "provider_id,type" },
+      );
 
       setEditProfile((prev) => ({ ...prev, profilePhotoUrl: publicUrl }));
-      if (!isEditing) setProfile((prev) => ({ ...prev, profilePhotoUrl: publicUrl }));
+      if (!isEditing)
+        setProfile((prev) => ({ ...prev, profilePhotoUrl: publicUrl }));
     } catch (error) {
       console.error("Error uploading image:", error);
     }
   };
 
-  const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGalleryUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const files = e.target.files;
     if (!files || !providerId) return;
     for (const file of Array.from(files)) {
       try {
         const path = `${providerId}/portfolio/${Date.now()}-${file.name}`;
-        const { error: uploadError } = await supabase.storage.from("provider-media").upload(path, file);
+        const { error: uploadError } = await supabase.storage
+          .from("provider-media")
+          .upload(path, file);
         if (uploadError) throw uploadError;
-        const { data: { publicUrl } } = supabase.storage.from("provider-media").getPublicUrl(path);
-        await supabase.from("provider_media").insert({ provider_id: providerId, type: "portfolio", file_url: publicUrl });
-        setEditProfile((prev) => ({ ...prev, galleryImages: [...prev.galleryImages, publicUrl] }));
-        if (!isEditing) setProfile((prev) => ({ ...prev, galleryImages: [...prev.galleryImages, publicUrl] }));
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("provider-media").getPublicUrl(path);
+        await supabase.from("provider_media").insert({
+          provider_id: providerId,
+          type: "portfolio",
+          file_url: publicUrl,
+        });
+        setEditProfile((prev) => ({
+          ...prev,
+          galleryImages: [...prev.galleryImages, publicUrl],
+        }));
+        if (!isEditing)
+          setProfile((prev) => ({
+            ...prev,
+            galleryImages: [...prev.galleryImages, publicUrl],
+          }));
       } catch (error) {
         console.error("Error uploading gallery image:", error);
       }
@@ -246,22 +303,20 @@ const ProviderProfile = () => {
   const handleRemoveGalleryImage = async (index: number, url: string) => {
     try {
       await supabase.from("provider_media").delete().eq("file_url", url);
-      setEditProfile((prev) => ({ ...prev, galleryImages: prev.galleryImages.filter((_, i) => i !== index) }));
-      setProfile((prev) => ({ ...prev, galleryImages: prev.galleryImages.filter((_, i) => i !== index) }));
+      setEditProfile((prev) => ({
+        ...prev,
+        galleryImages: prev.galleryImages.filter((_, i) => i !== index),
+      }));
+      setProfile((prev) => ({
+        ...prev,
+        galleryImages: prev.galleryImages.filter((_, i) => i !== index),
+      }));
     } catch (error) {
       console.error("Error removing image:", error);
     }
   };
 
   const displayProfile = isEditing ? editProfile : profile;
-
-  const getStatusColors = (status: string) => {
-    if (status === "active") return { bg: "#dcfce7", color: "#15803d", darkBg: "rgba(21,128,61,0.2)", darkColor: "#4ade80" };
-    if (status === "suspended") return { bg: "#fee2e2", color: "#dc2626", darkBg: "rgba(220,38,38,0.2)", darkColor: "#f87171" };
-    return { bg: "#fef7e0", color: "#8f5d00", darkBg: "rgba(143,93,0,0.2)", darkColor: "#fcd34d" };
-  };
-
-  const statusColors = getStatusColors(profile.status);
 
   return (
     <>
@@ -725,7 +780,11 @@ const ProviderProfile = () => {
       `}</style>
 
       <div className="provider-profile">
-        <PageHeader title="My Profile" subtitle="Manage your provider profile and settings" icon={User} />
+        <PageHeader
+          title="My Profile"
+          subtitle="Manage your provider profile and settings"
+          icon={User}
+        />
 
         {saveSuccess && (
           <div className="save-alert success">
@@ -748,18 +807,37 @@ const ProviderProfile = () => {
                 {displayProfile.profilePhotoUrl ? (
                   <img src={displayProfile.profilePhotoUrl} alt="Profile" />
                 ) : (
-                  displayProfile.fullName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "PR"
+                  displayProfile.fullName
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2) || "PR"
                 )}
               </div>
-              <input type="file" id="profilePhoto" className="file-input-hidden" accept="image/*" onChange={handleProfileImageUpload} />
-              <button className="upload-avatar-btn" onClick={() => document.getElementById("profilePhoto")?.click()} title="Change photo">
+              <input
+                type="file"
+                id="profilePhoto"
+                className="file-input-hidden"
+                accept="image/*"
+                onChange={handleProfileImageUpload}
+              />
+              <button
+                className="upload-avatar-btn"
+                onClick={() => document.getElementById("profilePhoto")?.click()}
+                title="Change photo"
+              >
                 <Upload size={14} />
               </button>
             </div>
 
             <div className="profile-hero-info">
-              <div className="profile-name">{profile.fullName || "Your Name"}</div>
-              <div className="profile-business">{profile.businessName || "Your Business"} • {profile.category}</div>
+              <div className="profile-name">
+                {profile.fullName || "Your Name"}
+              </div>
+              <div className="profile-business">
+                {profile.businessName || "Your Business"} • {profile.category}
+              </div>
               <div className="profile-status-badge">
                 <CheckCircle size={12} />
                 {profile.status || "Active"}
@@ -769,17 +847,32 @@ const ProviderProfile = () => {
             <div className="profile-hero-actions">
               {isEditing ? (
                 <>
-                  <button className="hero-btn secondary" onClick={handleCancel} disabled={isSaving}>
+                  <button
+                    className="hero-btn secondary"
+                    onClick={handleCancel}
+                    disabled={isSaving}
+                  >
                     <X size={16} />
                     Cancel
                   </button>
-                  <button className="hero-btn primary" onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+                  <button
+                    className="hero-btn primary"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? (
+                      <Loader2 size={16} className="spin" />
+                    ) : (
+                      <Save size={16} />
+                    )}
                     {isSaving ? "Saving..." : "Save Changes"}
                   </button>
                 </>
               ) : (
-                <button className="hero-btn secondary" onClick={() => setIsEditing(true)}>
+                <button
+                  className="hero-btn secondary"
+                  onClick={() => setIsEditing(true)}
+                >
                   <Edit2 size={16} />
                   Edit Profile
                 </button>
@@ -789,7 +882,9 @@ const ProviderProfile = () => {
 
           <div className="profile-stats-row">
             <div className="stat-box">
-              <div className="stat-number">{profile.yearsExperience || "—"}</div>
+              <div className="stat-number">
+                {profile.yearsExperience || "—"}
+              </div>
               <div className="stat-name">Years Experience</div>
             </div>
             <div className="stat-box">
@@ -813,20 +908,55 @@ const ProviderProfile = () => {
             {/* Personal Info */}
             <div className="profile-card">
               <div className="profile-card-header">
-                <div className="section-icon"><User size={18} /></div>
+                <div className="section-icon">
+                  <User size={18} />
+                </div>
                 <div className="section-title">Personal Information</div>
               </div>
               <div className="profile-card-body">
                 <div className="form-grid">
                   {[
-                    { label: "Full Name", field: "fullName" as const, icon: <User size={12} />, type: "text" },
-                    { label: "Email Address", field: "email" as const, icon: <Mail size={12} />, type: "email", disabled: true },
-                    { label: "Phone Number", field: "phone" as const, icon: <Phone size={12} />, type: "tel" },
-                    { label: "City", field: "city" as const, icon: <MapPin size={12} />, type: "text" },
-                    { label: "Address", field: "address" as const, icon: <MapPin size={12} />, type: "text", fullWidth: true },
+                    {
+                      label: "Full Name",
+                      field: "fullName" as const,
+                      icon: <User size={12} />,
+                      type: "text",
+                    },
+                    {
+                      label: "Email Address",
+                      field: "email" as const,
+                      icon: <Mail size={12} />,
+                      type: "email",
+                      disabled: true,
+                    },
+                    {
+                      label: "Phone Number",
+                      field: "phone" as const,
+                      icon: <Phone size={12} />,
+                      type: "tel",
+                    },
+                    {
+                      label: "City",
+                      field: "city" as const,
+                      icon: <MapPin size={12} />,
+                      type: "text",
+                    },
+                    {
+                      label: "Address",
+                      field: "address" as const,
+                      icon: <MapPin size={12} />,
+                      type: "text",
+                      fullWidth: true,
+                    },
                   ].map(({ label, field, icon, type, disabled, fullWidth }) => (
-                    <div key={field} className={`form-field ${fullWidth ? "full-width" : ""}`}>
-                      <label className="field-label">{icon}{label}</label>
+                    <div
+                      key={field}
+                      className={`form-field ${fullWidth ? "full-width" : ""}`}
+                    >
+                      <label className="field-label">
+                        {icon}
+                        {label}
+                      </label>
                       <input
                         type={type}
                         className="field-input"
@@ -843,34 +973,98 @@ const ProviderProfile = () => {
             {/* Business Info */}
             <div className="profile-card">
               <div className="profile-card-header">
-                <div className="section-icon"><Briefcase size={18} /></div>
+                <div className="section-icon">
+                  <Briefcase size={18} />
+                </div>
                 <div className="section-title">Business Information</div>
               </div>
               <div className="profile-card-body">
                 <div className="form-grid">
                   <div className="form-field">
-                    <label className="field-label"><Briefcase size={12} />Business Name</label>
-                    <input type="text" className="field-input" value={displayProfile.businessName} onChange={(e) => handleChange("businessName", e.target.value)} disabled={!isEditing} />
+                    <label className="field-label">
+                      <Briefcase size={12} />
+                      Business Name
+                    </label>
+                    <input
+                      type="text"
+                      className="field-input"
+                      value={displayProfile.businessName}
+                      onChange={(e) =>
+                        handleChange("businessName", e.target.value)
+                      }
+                      disabled={!isEditing}
+                    />
                   </div>
                   <div className="form-field">
-                    <label className="field-label"><Briefcase size={12} />Service Category</label>
-                    <input type="text" className="field-input" value={displayProfile.category} onChange={(e) => handleChange("category", e.target.value)} disabled={!isEditing} />
+                    <label className="field-label">
+                      <Briefcase size={12} />
+                      Service Category
+                    </label>
+                    <input
+                      type="text"
+                      className="field-input"
+                      value={displayProfile.category}
+                      onChange={(e) => handleChange("category", e.target.value)}
+                      disabled={!isEditing}
+                    />
                   </div>
                   <div className="form-field">
-                    <label className="field-label"><Clock size={12} />Years of Experience</label>
-                    <input type="number" className="field-input" value={displayProfile.yearsExperience} onChange={(e) => handleChange("yearsExperience", e.target.value)} disabled={!isEditing} min="0" />
+                    <label className="field-label">
+                      <Clock size={12} />
+                      Years of Experience
+                    </label>
+                    <input
+                      type="number"
+                      className="field-input"
+                      value={displayProfile.yearsExperience}
+                      onChange={(e) =>
+                        handleChange("yearsExperience", e.target.value)
+                      }
+                      disabled={!isEditing}
+                      min="0"
+                    />
                   </div>
                   <div className="form-field">
-                    <label className="field-label"><Globe size={12} />Website</label>
-                    <input type="url" className="field-input" value={displayProfile.website} onChange={(e) => handleChange("website", e.target.value)} disabled={!isEditing} placeholder="https://..." />
+                    <label className="field-label">
+                      <Globe size={12} />
+                      Website
+                    </label>
+                    <input
+                      type="url"
+                      className="field-input"
+                      value={displayProfile.website}
+                      onChange={(e) => handleChange("website", e.target.value)}
+                      disabled={!isEditing}
+                      placeholder="https://..."
+                    />
                   </div>
                   <div className="form-field full-width">
-                    <label className="field-label"><FileText size={12} />Business Description</label>
-                    <textarea className="field-input field-textarea" value={displayProfile.description} onChange={(e) => handleChange("description", e.target.value)} disabled={!isEditing} />
+                    <label className="field-label">
+                      <FileText size={12} />
+                      Business Description
+                    </label>
+                    <textarea
+                      className="field-input field-textarea"
+                      value={displayProfile.description}
+                      onChange={(e) =>
+                        handleChange("description", e.target.value)
+                      }
+                      disabled={!isEditing}
+                    />
                   </div>
                   <div className="form-field full-width">
-                    <label className="field-label"><Award size={12} />Certifications & Licenses</label>
-                    <textarea className="field-input field-textarea" value={displayProfile.certifications} onChange={(e) => handleChange("certifications", e.target.value)} disabled={!isEditing} />
+                    <label className="field-label">
+                      <Award size={12} />
+                      Certifications & Licenses
+                    </label>
+                    <textarea
+                      className="field-input field-textarea"
+                      value={displayProfile.certifications}
+                      onChange={(e) =>
+                        handleChange("certifications", e.target.value)
+                      }
+                      disabled={!isEditing}
+                    />
                   </div>
                 </div>
               </div>
@@ -879,19 +1073,26 @@ const ProviderProfile = () => {
             {/* Services */}
             <div className="profile-card">
               <div className="profile-card-header">
-                <div className="section-icon"><Star size={18} /></div>
+                <div className="section-icon">
+                  <Star size={18} />
+                </div>
                 <div className="section-title">Services Offered</div>
               </div>
               <div className="profile-card-body">
                 <div className="services-display">
                   {displayProfile.services.length === 0 && (
-                    <p style={{ color: "var(--text-tertiary)", fontSize: 13 }}>No services added yet</p>
+                    <p style={{ color: "var(--text-tertiary)", fontSize: 13 }}>
+                      No services added yet
+                    </p>
                   )}
                   {displayProfile.services.map((service, i) => (
                     <div key={i} className="service-tag">
                       {service}
                       {isEditing && (
-                        <button className="remove-service-btn" onClick={() => handleRemoveService(i)}>
+                        <button
+                          className="remove-service-btn"
+                          onClick={() => handleRemoveService(i)}
+                        >
                           <X size={13} strokeWidth={2.5} />
                         </button>
                       )}
@@ -908,7 +1109,12 @@ const ProviderProfile = () => {
                       onChange={(e) => setNewService(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleAddService()}
                     />
-                    <button className="add-service-btn" onClick={handleAddService}>Add</button>
+                    <button
+                      className="add-service-btn"
+                      onClick={handleAddService}
+                    >
+                      Add
+                    </button>
                   </div>
                 )}
               </div>
@@ -920,17 +1126,25 @@ const ProviderProfile = () => {
             {/* Profile Photo */}
             <div className="image-card">
               <div className="image-card-header">
-                <div className="section-icon"><User size={16} /></div>
+                <div className="section-icon">
+                  <User size={16} />
+                </div>
                 <div className="image-card-title">Profile Photo</div>
               </div>
-              <p className="image-card-desc">Upload a professional photo for your public profile.</p>
+              <p className="image-card-desc">
+                Upload a professional photo for your public profile.
+              </p>
 
               <div className="provider-image-preview">
                 {displayProfile.profilePhotoUrl ? (
                   <>
                     <img src={displayProfile.profilePhotoUrl} alt="Provider" />
                     <div className="image-overlay">
-                      <button className="remove-image-btn" onClick={() => handleChange("profilePhotoUrl", "")} title="Remove">
+                      <button
+                        className="remove-image-btn"
+                        onClick={() => handleChange("profilePhotoUrl", "")}
+                        title="Remove"
+                      >
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -943,25 +1157,51 @@ const ProviderProfile = () => {
                 )}
               </div>
 
-              <input type="file" id="providerImage" className="file-input-hidden" accept="image/*" onChange={handleProfileImageUpload} />
-              <button className="upload-btn" onClick={() => document.getElementById("providerImage")?.click()}>
+              <input
+                type="file"
+                id="providerImage"
+                className="file-input-hidden"
+                accept="image/*"
+                onChange={handleProfileImageUpload}
+              />
+              <button
+                className="upload-btn"
+                onClick={() =>
+                  document.getElementById("providerImage")?.click()
+                }
+              >
                 <Upload size={15} />
-                {displayProfile.profilePhotoUrl ? "Change Photo" : "Upload Photo"}
+                {displayProfile.profilePhotoUrl
+                  ? "Change Photo"
+                  : "Upload Photo"}
               </button>
             </div>
 
             {/* Gallery */}
             <div className="image-card">
               <div className="image-card-header">
-                <div className="section-icon"><ImageIcon size={16} /></div>
+                <div className="section-icon">
+                  <ImageIcon size={16} />
+                </div>
                 <div className="image-card-title">Work Gallery</div>
               </div>
-              <p className="image-card-desc">Showcase your best work with up to 10 photos.</p>
+              <p className="image-card-desc">
+                Showcase your best work with up to 10 photos.
+              </p>
 
-              <input type="file" id="galleryImages" className="file-input-hidden" accept="image/*" multiple onChange={handleGalleryUpload} />
+              <input
+                type="file"
+                id="galleryImages"
+                className="file-input-hidden"
+                accept="image/*"
+                multiple
+                onChange={handleGalleryUpload}
+              />
               <button
                 className="upload-btn"
-                onClick={() => document.getElementById("galleryImages")?.click()}
+                onClick={() =>
+                  document.getElementById("galleryImages")?.click()
+                }
                 disabled={displayProfile.galleryImages.length >= 10}
                 style={{ marginBottom: 16 }}
               >
@@ -980,7 +1220,10 @@ const ProviderProfile = () => {
                     <div key={i} className="gallery-item">
                       <img src={img} alt={`Gallery ${i + 1}`} />
                       <div className="image-overlay">
-                        <button className="remove-image-btn" onClick={() => handleRemoveGalleryImage(i, img)}>
+                        <button
+                          className="remove-image-btn"
+                          onClick={() => handleRemoveGalleryImage(i, img)}
+                        >
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -989,7 +1232,9 @@ const ProviderProfile = () => {
                 )}
               </div>
               {displayProfile.galleryImages.length > 0 && (
-                <p className="gallery-count">{displayProfile.galleryImages.length} of 10 photos</p>
+                <p className="gallery-count">
+                  {displayProfile.galleryImages.length} of 10 photos
+                </p>
               )}
             </div>
           </div>

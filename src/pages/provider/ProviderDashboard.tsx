@@ -8,7 +8,6 @@ import {
   Eye,
   MessageCircle,
   ArrowUpRight,
-  ArrowDownRight,
   Plus,
   Briefcase,
   TrendingUp,
@@ -42,7 +41,7 @@ const ProviderDashboard = () => {
   const navigate = useNavigate();
   const [timeFilter, setTimeFilter] = useState("7days");
   const [loading, setLoading] = useState(true);
-  const [providerId, setProviderId] = useState<string | null>(null);
+  const [, setProviderId] = useState<string | null>(null);
 
   const [stats, setStats] = useState<DashboardStats>({
     totalViews: 0,
@@ -65,17 +64,24 @@ const ProviderDashboard = () => {
   const getDateFilter = () => {
     const now = new Date();
     switch (timeFilter) {
-      case "today": return new Date(now.setHours(0, 0, 0, 0)).toISOString();
-      case "7days": return new Date(Date.now() - 7 * 86400000).toISOString();
-      case "30days": return new Date(Date.now() - 30 * 86400000).toISOString();
-      case "90days": return new Date(Date.now() - 90 * 86400000).toISOString();
-      default: return new Date(Date.now() - 7 * 86400000).toISOString();
+      case "today":
+        return new Date(now.setHours(0, 0, 0, 0)).toISOString();
+      case "7days":
+        return new Date(Date.now() - 7 * 86400000).toISOString();
+      case "30days":
+        return new Date(Date.now() - 30 * 86400000).toISOString();
+      case "90days":
+        return new Date(Date.now() - 90 * 86400000).toISOString();
+      default:
+        return new Date(Date.now() - 7 * 86400000).toISOString();
     }
   };
 
   const fetchProviderAndData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
 
       const { data: provider } = await supabase
@@ -110,21 +116,46 @@ const ProviderDashboard = () => {
         { count: activeJobs },
         { count: completedJobs },
       ] = await Promise.all([
-        supabase.from("provider_analytics").select("*", { count: "exact", head: true })
-          .eq("provider_id", pid).eq("event_type", "view").gte("created_at", since),
-        supabase.from("provider_analytics").select("*", { count: "exact", head: true })
-          .eq("provider_id", pid).in("event_type", ["call", "whatsapp"]).gte("created_at", since),
-        supabase.from("provider_analytics").select("*", { count: "exact", head: true })
-          .eq("provider_id", pid).eq("event_type", "call").gte("created_at", since),
-        supabase.from("provider_analytics").select("*", { count: "exact", head: true })
-          .eq("provider_id", pid).eq("event_type", "whatsapp").gte("created_at", since),
+        supabase
+          .from("provider_analytics")
+          .select("*", { count: "exact", head: true })
+          .eq("provider_id", pid)
+          .eq("event_type", "view")
+          .gte("created_at", since),
+        supabase
+          .from("provider_analytics")
+          .select("*", { count: "exact", head: true })
+          .eq("provider_id", pid)
+          .in("event_type", ["call", "whatsapp"])
+          .gte("created_at", since),
+        supabase
+          .from("provider_analytics")
+          .select("*", { count: "exact", head: true })
+          .eq("provider_id", pid)
+          .eq("event_type", "call")
+          .gte("created_at", since),
+        supabase
+          .from("provider_analytics")
+          .select("*", { count: "exact", head: true })
+          .eq("provider_id", pid)
+          .eq("event_type", "whatsapp")
+          .gte("created_at", since),
         supabase.from("reviews").select("rating").eq("provider_id", pid),
-        supabase.from("reviews").select("*", { count: "exact", head: true })
-          .eq("provider_id", pid).is("provider_reply", null),
-        supabase.from("provider_jobs").select("*", { count: "exact", head: true })
-          .eq("provider_id", pid).in("status", ["pending", "in_progress"]),
-        supabase.from("provider_jobs").select("*", { count: "exact", head: true })
-          .eq("provider_id", pid).eq("status", "completed"),
+        supabase
+          .from("reviews")
+          .select("*", { count: "exact", head: true })
+          .eq("provider_id", pid)
+          .is("provider_reply", null),
+        supabase
+          .from("provider_jobs")
+          .select("*", { count: "exact", head: true })
+          .eq("provider_id", pid)
+          .in("status", ["pending", "in_progress"]),
+        supabase
+          .from("provider_jobs")
+          .select("*", { count: "exact", head: true })
+          .eq("provider_id", pid)
+          .eq("status", "completed"),
       ]);
 
       const avgRating = reviewsData?.length
@@ -151,20 +182,24 @@ const ProviderDashboard = () => {
     try {
       const { data } = await supabase
         .from("reviews")
-        .select("id, customer_nickname, rating, comment, created_at, provider_reply")
+        .select(
+          "id, customer_nickname, rating, comment, created_at, provider_reply",
+        )
         .eq("provider_id", pid)
         .order("created_at", { ascending: false })
         .limit(4);
 
       if (data) {
-        setRecentReviews(data.map((r) => ({
-          id: r.id,
-          customerNickname: r.customer_nickname,
-          rating: r.rating,
-          comment: r.comment,
-          createdAt: r.created_at,
-          providerReply: r.provider_reply,
-        })));
+        setRecentReviews(
+          data.map((r) => ({
+            id: r.id,
+            customerNickname: r.customer_nickname,
+            rating: r.rating,
+            comment: r.comment,
+            createdAt: r.created_at,
+            providerReply: r.provider_reply,
+          })),
+        );
       }
     } catch (error) {
       console.error("Error fetching reviews:", error);
@@ -172,7 +207,9 @@ const ProviderDashboard = () => {
   };
 
   const getTimeAgo = (dateString: string) => {
-    const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
+    const seconds = Math.floor(
+      (Date.now() - new Date(dateString).getTime()) / 1000,
+    );
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
@@ -489,12 +526,20 @@ const ProviderDashboard = () => {
         <div className="page-title-row">
           <h1 className="page-title">My Dashboard</h1>
           <div className="title-actions">
-            <button className="new-job-btn" onClick={() => navigate("/provider/jobs")}>
+            <button
+              className="new-job-btn"
+              onClick={() => navigate("/provider/jobs")}
+            >
               <Plus size={18} strokeWidth={2.5} />
               Add Job
             </button>
             <div className="time-filter">
-              {[["Today", "today"], ["7 Days", "7days"], ["30 Days", "30days"], ["90 Days", "90days"]].map(([label, value]) => (
+              {[
+                ["Today", "today"],
+                ["7 Days", "7days"],
+                ["30 Days", "30days"],
+                ["90 Days", "90days"],
+              ].map(([label, value]) => (
                 <button
                   key={value}
                   className={`filter-btn ${timeFilter === value ? "active" : ""}`}
@@ -508,10 +553,34 @@ const ProviderDashboard = () => {
         </div>
 
         <div className="stats-grid">
-          <StatCard label="Profile Views" value={stats.totalViews.toLocaleString()} icon={Eye} iconColor="blue" trend={{ value: 18, isPositive: true }} />
-          <StatCard label="Total Leads" value={stats.totalLeads.toLocaleString()} icon={MousePointerClick} iconColor="orange" trend={{ value: 12, isPositive: true }} />
-          <StatCard label="Calls Received" value={stats.clickToCall} icon={Phone} iconColor="green" trend={{ value: 15, isPositive: true }} />
-          <StatCard label="WhatsApp Clicks" value={stats.clickToWhatsApp} icon={MessageCircle} iconColor="purple" trend={{ value: 22, isPositive: true }} />
+          <StatCard
+            label="Profile Views"
+            value={stats.totalViews.toLocaleString()}
+            icon={Eye}
+            iconColor="blue"
+            trend={{ value: 18, isPositive: true }}
+          />
+          <StatCard
+            label="Total Leads"
+            value={stats.totalLeads.toLocaleString()}
+            icon={MousePointerClick}
+            iconColor="orange"
+            trend={{ value: 12, isPositive: true }}
+          />
+          <StatCard
+            label="Calls Received"
+            value={stats.clickToCall}
+            icon={Phone}
+            iconColor="green"
+            trend={{ value: 15, isPositive: true }}
+          />
+          <StatCard
+            label="WhatsApp Clicks"
+            value={stats.clickToWhatsApp}
+            icon={MessageCircle}
+            iconColor="purple"
+            trend={{ value: 22, isPositive: true }}
+          />
         </div>
 
         <div className="dashboard-grid">
@@ -519,38 +588,79 @@ const ProviderDashboard = () => {
           <div className="dashboard-card">
             <div className="card-header">
               <h2 className="card-title">Recent Reviews</h2>
-              <span className="card-link" onClick={() => navigate("/provider/reviews")}>
+              <span
+                className="card-link"
+                onClick={() => navigate("/provider/reviews")}
+              >
                 View all <ArrowUpRight size={14} strokeWidth={2.5} />
               </span>
             </div>
             <div className="reviews-list">
               {loading ? (
                 [...Array(3)].map((_, i) => (
-                  <div key={i} style={{ padding: "18px 24px", borderBottom: "1px solid var(--border-color)" }}>
-                    <div className="loading-skeleton" style={{ height: 14, width: "60%", marginBottom: 8 }} />
-                    <div className="loading-skeleton" style={{ height: 12, width: "90%" }} />
+                  <div
+                    key={i}
+                    style={{
+                      padding: "18px 24px",
+                      borderBottom: "1px solid var(--border-color)",
+                    }}
+                  >
+                    <div
+                      className="loading-skeleton"
+                      style={{ height: 14, width: "60%", marginBottom: 8 }}
+                    />
+                    <div
+                      className="loading-skeleton"
+                      style={{ height: 12, width: "90%" }}
+                    />
                   </div>
                 ))
               ) : recentReviews.length === 0 ? (
-                <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-tertiary)" }}>
-                  <MessageCircle size={32} strokeWidth={1.5} style={{ margin: "0 auto 12px", display: "block" }} />
+                <div
+                  style={{
+                    padding: "40px 24px",
+                    textAlign: "center",
+                    color: "var(--text-tertiary)",
+                  }}
+                >
+                  <MessageCircle
+                    size={32}
+                    strokeWidth={1.5}
+                    style={{ margin: "0 auto 12px", display: "block" }}
+                  />
                   <p style={{ fontSize: 14 }}>No reviews yet</p>
                 </div>
               ) : (
                 recentReviews.map((review) => (
-                  <div key={review.id} className="review-item" onClick={() => navigate("/provider/reviews")}>
+                  <div
+                    key={review.id}
+                    className="review-item"
+                    onClick={() => navigate("/provider/reviews")}
+                  >
                     <div className="review-item-header">
-                      <span className="reviewer-name">{review.customerNickname}</span>
+                      <span className="reviewer-name">
+                        {review.customerNickname}
+                      </span>
                       <div className="review-rating">
                         {[...Array(5)].map((_, i) => (
-                          <Star key={i} size={14} fill={i < review.rating ? "#f9ab00" : "none"} stroke={i < review.rating ? "#f9ab00" : "#dadce0"} strokeWidth={2} />
+                          <Star
+                            key={i}
+                            size={14}
+                            fill={i < review.rating ? "#f9ab00" : "none"}
+                            stroke={i < review.rating ? "#f9ab00" : "#dadce0"}
+                            strokeWidth={2}
+                          />
                         ))}
                       </div>
                     </div>
                     <p className="review-comment">{review.comment}</p>
                     <div className="review-footer">
-                      <span className="review-timestamp">{getTimeAgo(review.createdAt)}</span>
-                      <span className={`reply-status ${review.providerReply ? "replied" : "pending"}`}>
+                      <span className="review-timestamp">
+                        {getTimeAgo(review.createdAt)}
+                      </span>
+                      <span
+                        className={`reply-status ${review.providerReply ? "replied" : "pending"}`}
+                      >
                         {review.providerReply ? "Replied" : "Needs reply"}
                       </span>
                     </div>
@@ -566,55 +676,112 @@ const ProviderDashboard = () => {
               <h2 className="card-title">Performance</h2>
             </div>
             <div className="quick-actions">
-              <div className="action-item" onClick={() => navigate("/provider/reviews")}>
-                <div className="action-icon" style={{ background: "var(--orange-light-bg)", color: "var(--orange-primary)" }}>
+              <div
+                className="action-item"
+                onClick={() => navigate("/provider/reviews")}
+              >
+                <div
+                  className="action-icon"
+                  style={{
+                    background: "var(--orange-light-bg)",
+                    color: "var(--orange-primary)",
+                  }}
+                >
                   <MessageCircle size={20} strokeWidth={2.5} />
                 </div>
                 <div className="action-content">
                   <div className="action-title">Pending Reviews</div>
                   <div className="action-count">Awaiting your response</div>
                 </div>
-                {stats.pendingReviews > 0 && <span className="action-badge">{stats.pendingReviews}</span>}
+                {stats.pendingReviews > 0 && (
+                  <span className="action-badge">{stats.pendingReviews}</span>
+                )}
               </div>
 
-              <div className="action-item" onClick={() => navigate("/provider/jobs")}>
-                <div className="action-icon" style={{ background: "rgba(37, 99, 235, 0.1)", color: "#2563EB" }}>
+              <div
+                className="action-item"
+                onClick={() => navigate("/provider/jobs")}
+              >
+                <div
+                  className="action-icon"
+                  style={{
+                    background: "rgba(37, 99, 235, 0.1)",
+                    color: "#2563EB",
+                  }}
+                >
                   <Briefcase size={20} strokeWidth={2.5} />
                 </div>
                 <div className="action-content">
                   <div className="action-title">Active Jobs</div>
                   <div className="action-count">Currently in progress</div>
                 </div>
-                {stats.activeJobs > 0 && <span className="action-badge" style={{ background: "#2563EB" }}>{stats.activeJobs}</span>}
+                {stats.activeJobs > 0 && (
+                  <span
+                    className="action-badge"
+                    style={{ background: "#2563EB" }}
+                  >
+                    {stats.activeJobs}
+                  </span>
+                )}
               </div>
 
-              <div className="action-item" onClick={() => navigate("/provider/jobs")}>
-                <div className="action-icon" style={{ background: "rgba(21, 128, 61, 0.1)", color: "#15803D" }}>
+              <div
+                className="action-item"
+                onClick={() => navigate("/provider/jobs")}
+              >
+                <div
+                  className="action-icon"
+                  style={{
+                    background: "rgba(21, 128, 61, 0.1)",
+                    color: "#15803D",
+                  }}
+                >
                   <CheckCircle size={20} strokeWidth={2.5} />
                 </div>
                 <div className="action-content">
                   <div className="action-title">Completed Jobs</div>
-                  <div className="action-count">{stats.completedJobs} total finished</div>
+                  <div className="action-count">
+                    {stats.completedJobs} total finished
+                  </div>
                 </div>
               </div>
 
-              <div className="action-item" onClick={() => navigate("/provider/reviews")}>
-                <div className="action-icon" style={{ background: "rgba(234, 179, 8, 0.1)", color: "#EAB308" }}>
+              <div
+                className="action-item"
+                onClick={() => navigate("/provider/reviews")}
+              >
+                <div
+                  className="action-icon"
+                  style={{
+                    background: "rgba(234, 179, 8, 0.1)",
+                    color: "#EAB308",
+                  }}
+                >
                   <Star size={20} strokeWidth={2.5} />
                 </div>
                 <div className="action-content">
                   <div className="action-title">Your Rating</div>
-                  <div className="action-count">{stats.avgRating}/5.0 • {stats.totalReviews} reviews</div>
+                  <div className="action-count">
+                    {stats.avgRating}/5.0 • {stats.totalReviews} reviews
+                  </div>
                 </div>
               </div>
 
               <div className="action-item">
-                <div className="action-icon" style={{ background: "rgba(139, 92, 246, 0.1)", color: "#7C3AED" }}>
+                <div
+                  className="action-icon"
+                  style={{
+                    background: "rgba(139, 92, 246, 0.1)",
+                    color: "#7C3AED",
+                  }}
+                >
                   <TrendingUp size={20} strokeWidth={2.5} />
                 </div>
                 <div className="action-content">
                   <div className="action-title">Profile Views</div>
-                  <div className="action-count">{stats.totalViews.toLocaleString()} in selected period</div>
+                  <div className="action-count">
+                    {stats.totalViews.toLocaleString()} in selected period
+                  </div>
                 </div>
               </div>
             </div>
