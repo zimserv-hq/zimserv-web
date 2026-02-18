@@ -222,7 +222,6 @@ export default function BecomeProviderPage(): JSX.Element {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     console.log("=== FORM SUBMISSION STARTED ===");
-    console.log("Form data:", formData);
 
     if (!validate()) {
       console.log("❌ Validation failed");
@@ -237,21 +236,13 @@ export default function BecomeProviderPage(): JSX.Element {
     try {
       let verificationFileUrl: string | null = null;
 
-      // Step 1: Upload verification file if provided
+      // Step 1: Upload verification file (keep as is)
       if (verificationFile) {
-        console.log("📤 Starting file upload:", {
-          name: verificationFile.name,
-          size: verificationFile.size,
-          type: verificationFile.type,
-        });
-
         const fileExt = verificationFile.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
         const filePath = `${fileName}`;
 
-        console.log("📁 File path:", filePath);
-
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        const { error: uploadError } = await supabase.storage
           .from("verification-documents")
           .upload(filePath, verificationFile);
 
@@ -266,19 +257,23 @@ export default function BecomeProviderPage(): JSX.Element {
 
         verificationFileUrl = filePath;
         console.log("✅ File uploaded successfully:", filePath);
-        console.log("Upload data:", uploadData);
-      } else {
-        console.log("ℹ️ No file to upload");
       }
 
-      // Step 2: Insert application into database
+      // Step 2: Validate category ID exists
+      if (!formData.category) {
+        setErrors({ category: "Please select a category" });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Step 3: Insert application with category ID (FIXED)
       const insertData = {
         full_name: formData.fullName.trim(),
         email: formData.email.toLowerCase().trim(),
         phone_number: formData.phone.trim(),
         whatsapp_number: formData.whatsapp?.trim() || null,
         city: formData.city,
-        primary_category: formData.category,
+        primary_category_id: formData.category, // ✅ Now sends UUID
         years_experience: formData.yearsExperience,
         work_type: formData.workType,
         availability: formData.availability || null,
@@ -298,14 +293,8 @@ export default function BecomeProviderPage(): JSX.Element {
 
       if (error) {
         console.error("❌ Database insertion error:", error);
-        console.error("Error code:", error.code);
-        console.error("Error message:", error.message);
-        console.error("Error details:", error.details);
-        console.error("Error hint:", error.hint);
 
-        // Handle duplicate email error
         if (error.code === "23505" && error.message.includes("email")) {
-          console.log("⚠️ Duplicate email detected");
           setErrors({
             email:
               "An application with this email already exists. Please check your inbox or contact support.",
@@ -313,7 +302,6 @@ export default function BecomeProviderPage(): JSX.Element {
           const emailInput = document.querySelector('[name="email"]');
           emailInput?.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
-          console.log("⚠️ Unknown database error");
           setErrors({
             fullName:
               "Failed to submit application. Please try again or contact support.",
@@ -326,20 +314,15 @@ export default function BecomeProviderPage(): JSX.Element {
 
       // Success!
       console.log("✅ Application submitted successfully!");
-      console.log("Inserted data:", data);
       console.log("Application ID:", data?.id);
       setSubmitSuccess(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
-      console.error("❌ Unexpected error in try-catch:", err);
-      console.error("Error type:", typeof err);
-      console.error("Error details:", JSON.stringify(err, null, 2));
+      console.error("❌ Unexpected error:", err);
       setErrors({
         fullName: "An unexpected error occurred. Please refresh and try again.",
       });
       setIsSubmitting(false);
-    } finally {
-      console.log("=== FORM SUBMISSION ENDED ===");
     }
   }
 

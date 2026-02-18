@@ -1,106 +1,76 @@
 // src/pages/provider/ProviderReviews.tsx
-import { useState } from "react";
-import { Star, Reply, MessageSquare, Send, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Star, Reply, MessageSquare, Send, X, Loader2 } from "lucide-react";
 import PageHeader from "../../components/Admin/PageHeader";
 import SearchBar from "../../components/Admin/SearchBar";
+import { supabase } from "../../lib/supabaseClient";
 
 interface Review {
   id: string;
   customerNickname: string;
   rating: number;
   comment: string;
-  createdAt: Date;
-  providerReply?: {
-    message: string;
-    repliedAt: Date;
-  };
+  createdAt: string;
+  providerReply: string | null;
+  repliedAt: string | null;
 }
 
-const MOCK_REVIEWS: Review[] = [
-  {
-    id: "1",
-    customerNickname: "John from Borrowdale",
-    rating: 5,
-    comment: "Excellent service! Fixed my geyser quickly and professionally.",
-    createdAt: new Date("2026-02-14T10:30:00"),
-    providerReply: {
-      message:
-        "Thank you so much for your kind words! We're glad we could help you quickly.",
-      repliedAt: new Date("2026-02-14T14:20:00"),
-    },
-  },
-  {
-    id: "2",
-    customerNickname: "Sarah M.",
-    rating: 4,
-    comment:
-      "Good work but took longer than expected. Still satisfied overall.",
-    createdAt: new Date("2026-02-14T09:15:00"),
-  },
-  {
-    id: "3",
-    customerNickname: "Mike",
-    rating: 5,
-    comment: "Amazing service. Very thorough and professional work.",
-    createdAt: new Date("2026-02-13T14:20:00"),
-  },
-  {
-    id: "4",
-    customerNickname: "Anonymous",
-    rating: 2,
-    comment: "Poor communication and didn't solve my problem completely.",
-    createdAt: new Date("2026-02-13T11:00:00"),
-  },
-  {
-    id: "5",
-    customerNickname: "Lisa K.",
-    rating: 3,
-    comment: "Average service. Could have been better.",
-    createdAt: new Date("2026-02-12T16:45:00"),
-  },
-  {
-    id: "6",
-    customerNickname: "David T.",
-    rating: 5,
-    comment: "Outstanding work. Highly recommend!",
-    createdAt: new Date("2026-02-12T08:30:00"),
-    providerReply: {
-      message:
-        "We appreciate your recommendation! It was a pleasure working with you.",
-      repliedAt: new Date("2026-02-12T11:00:00"),
-    },
-  },
-  {
-    id: "7",
-    customerNickname: "Rachel P.",
-    rating: 4,
-    comment: "Professional and punctual. Would hire again.",
-    createdAt: new Date("2026-02-11T15:20:00"),
-  },
-  {
-    id: "8",
-    customerNickname: "Peter W.",
-    rating: 5,
-    comment: "Exceeded expectations! Great attention to detail.",
-    createdAt: new Date("2026-02-10T09:45:00"),
-    providerReply: {
-      message: "Thank you for the wonderful feedback!",
-      repliedAt: new Date("2026-02-10T12:30:00"),
-    },
-  },
-];
-
 const ProviderReviews = () => {
-  const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const [filterRating, setFilterRating] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchReviews();
+  }, []);
+
+  const fetchReviews = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: provider } = await supabase
+        .from("providers")
+        .select("id")
+        .eq("email", user.email)
+        .single();
+
+      if (!provider) return;
+      setProviderId(provider.id);
+
+      const { data } = await supabase
+        .from("reviews")
+        .select("id, customer_nickname, rating, comment, created_at, provider_reply, replied_at")
+        .eq("provider_id", provider.id)
+        .order("created_at", { ascending: false });
+
+      if (data) {
+        setReviews(data.map((r) => ({
+          id: r.id,
+          customerNickname: r.customer_nickname,
+          rating: r.rating,
+          comment: r.comment,
+          createdAt: r.created_at,
+          providerReply: r.provider_reply,
+          repliedAt: r.replied_at,
+        })));
+      }
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleReply = (reviewId: string) => {
     setReplyingToId(reviewId);
     const review = reviews.find((r) => r.id === reviewId);
-    setReplyText(review?.providerReply?.message || "");
+    setReplyText(review?.providerReply || "");
   };
 
   const cancelReply = () => {
@@ -108,81 +78,90 @@ const ProviderReviews = () => {
     setReplyText("");
   };
 
-  const submitReply = () => {
-    if (!replyingToId || !replyText.trim()) return;
-
+  const submitReply = async () => {
+    if (!replyingToId || !replyText.trim() || !providerId) return;
     setIsSubmitting(true);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from("reviews")
+        .update({ provider_reply: replyText.trim(), replied_at: now })
+        .eq("id", replyingToId)
+        .eq("provider_id", providerId);
 
-    setTimeout(() => {
-      setReviews((prev) =>
-        prev.map((review) =>
-          review.id === replyingToId
-            ? {
-                ...review,
-                providerReply: {
-                  message: replyText.trim(),
-                  repliedAt: new Date(),
-                },
-              }
-            : review,
-        ),
-      );
+      if (!error) {
+        setReviews((prev) =>
+          prev.map((r) =>
+            r.id === replyingToId ? { ...r, providerReply: replyText.trim(), repliedAt: now } : r
+          )
+        );
+        setReplyingToId(null);
+        setReplyText("");
+      }
+    } catch (error) {
+      console.error("Error submitting reply:", error);
+    } finally {
       setIsSubmitting(false);
-      setReplyingToId(null);
-      setReplyText("");
-    }, 800);
-  };
-
-  const getFilteredReviews = () => {
-    let filtered = reviews;
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (r) =>
-          r.customerNickname.toLowerCase().includes(query) ||
-          r.comment.toLowerCase().includes(query),
-      );
     }
-
-    return filtered.sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
   };
 
-  const filteredReviews = getFilteredReviews();
+  const filteredReviews = reviews.filter((r) => {
+    const matchesSearch = !searchQuery.trim() ||
+      r.customerNickname.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.comment.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesRating = filterRating === null || r.rating === filterRating;
+    return matchesSearch && matchesRating;
+  });
 
-  const avgRating = (
-    reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-  ).toFixed(1);
+  const avgRating = reviews.length
+    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+    : "0.0";
+
+  const ratingCounts = [5, 4, 3, 2, 1].map((r) => ({
+    rating: r,
+    count: reviews.filter((rev) => rev.rating === r).length,
+    percentage: reviews.length ? (reviews.filter((rev) => rev.rating === r).length / reviews.length) * 100 : 0,
+  }));
+
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+  const getTimeAgo = (dateStr: string) => {
+    const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  };
 
   return (
     <>
       <style>{`
         .provider-reviews {
-          padding: 24px;
+          padding: 24px 28px;
           max-width: 1600px;
           margin: 0 auto;
+          width: 100%;
+          box-sizing: border-box;
         }
 
+        /* Reviews Summary */
         .reviews-summary {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #FF6B35 0%, #C0392B 100%);
           border-radius: 16px;
-          padding: 32px;
+          padding: 28px 32px;
           margin-bottom: 24px;
           color: #fff;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 24px;
-          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.25);
+          gap: 32px;
+          box-shadow: 0 8px 24px rgba(255, 107, 53, 0.3);
         }
 
-        .summary-main {
-          display: flex;
-          align-items: center;
-          gap: 32px;
-        }
+        .summary-main { display: flex; align-items: center; gap: 32px; flex: 1; }
 
         .rating-large {
           display: flex;
@@ -190,51 +169,35 @@ const ProviderReviews = () => {
           align-items: center;
           gap: 8px;
           background: rgba(255, 255, 255, 0.15);
-          padding: 24px;
-          border-radius: 12px;
+          padding: 20px 24px;
+          border-radius: 14px;
           backdrop-filter: blur(10px);
+          min-width: 120px;
         }
 
-        .rating-number {
-          font-size: 48px;
-          font-weight: 700;
-          line-height: 1;
-        }
+        .rating-number { font-size: 52px; font-weight: 800; line-height: 1; letter-spacing: -2px; }
+        .rating-stars { display: flex; gap: 3px; }
+        .rating-count { font-size: 13px; opacity: 0.9; font-weight: 500; }
 
-        .rating-stars {
-          display: flex;
-          gap: 4px;
-        }
+        .summary-divider { width: 1px; height: 80px; background: rgba(255, 255, 255, 0.2); flex-shrink: 0; }
 
-        .rating-count {
-          font-size: 14px;
+        .summary-stats { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+
+        .stat-row { display: flex; align-items: center; gap: 12px; }
+
+        .rating-label {
+          min-width: 52px;
+          font-size: 13px;
+          font-weight: 600;
           opacity: 0.9;
-        }
-
-        .summary-divider {
-          width: 1px;
-          height: 80px;
-          background: rgba(255, 255, 255, 0.25);
-        }
-
-        .summary-stats {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .stat-row {
           display: flex;
           align-items: center;
-          gap: 12px;
-          font-size: 14px;
+          gap: 4px;
+          cursor: pointer;
         }
 
-        .stat-label {
-          min-width: 80px;
-          opacity: 0.95;
-          font-weight: 500;
-        }
+        .rating-label:hover { opacity: 1; }
+        .rating-label.active { color: #fbbf24; }
 
         .stat-bar {
           flex: 1;
@@ -242,27 +205,62 @@ const ProviderReviews = () => {
           background: rgba(255, 255, 255, 0.2);
           border-radius: 5px;
           overflow: hidden;
-          min-width: 150px;
+          cursor: pointer;
         }
 
         .stat-fill {
           height: 100%;
           background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%);
           border-radius: 5px;
-          transition: width 0.3s ease;
-          box-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
+          transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
         }
 
-        .stat-value {
-          min-width: 30px;
-          text-align: right;
-          font-weight: 600;
-        }
+        .stat-count { min-width: 24px; text-align: right; font-weight: 700; font-size: 13px; }
 
-        .search-wrapper {
+        /* Filter Bar */
+        .filter-bar {
+          display: flex;
+          align-items: center;
+          gap: 12px;
           margin-bottom: 20px;
+          flex-wrap: wrap;
         }
 
+        .search-wrapper { flex: 1; min-width: 240px; }
+
+        .rating-filters { display: flex; gap: 6px; }
+
+        .rating-filter-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 8px 12px;
+          border: 1.5px solid var(--border-color);
+          border-radius: 8px;
+          background: var(--card-bg);
+          color: var(--text-secondary);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .rating-filter-btn.active {
+          border-color: #f59e0b;
+          background: #fef7e0;
+          color: #8f5d00;
+        }
+
+        .dark-mode .rating-filter-btn.active {
+          border-color: #f59e0b;
+          background: rgba(245, 158, 11, 0.15);
+          color: #fcd34d;
+        }
+
+        .rating-filter-btn:hover:not(.active) { border-color: var(--border-hover); color: var(--text-primary); }
+
+        /* Reviews Grid */
         .reviews-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -270,81 +268,64 @@ const ProviderReviews = () => {
         }
 
         .review-card {
-          background: #fff;
-          border: 1px solid #e3e5e8;
-          border-radius: 12px;
+          background: var(--card-bg);
+          border: 1.5px solid var(--border-color);
+          border-radius: 14px;
           padding: 20px;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
           display: flex;
           flex-direction: column;
+          gap: 14px;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+          overflow: hidden;
+        }
+
+        .review-card::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 3px;
+          background: #f9ab00;
+          transform: scaleX(0);
+          transition: transform 0.3s ease;
         }
 
         .review-card:hover {
-          border-color: #d0d3d7;
-          box-shadow: 0 1px 3px rgba(60, 64, 67, 0.12), 0 4px 8px 3px rgba(60, 64, 67, 0.08);
+          border-color: var(--border-hover);
+          box-shadow: 0 8px 24px var(--card-shadow);
+          transform: translateY(-2px);
         }
 
-        .review-card.needs-reply {
-          border-color: #fbbf24;
-          background: #fffbeb;
-        }
+        .review-card:hover::before { transform: scaleX(1); }
 
-        .review-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 16px;
-          gap: 12px;
-        }
+        .review-card.needs-reply { border-left: 3px solid #f59e0b; }
 
-        .reviewer-info {
-          flex: 1;
-          min-width: 0;
-        }
+        .review-header { display: flex; justify-content: space-between; align-items: flex-start; }
 
-        .reviewer-nickname {
-          font-size: 15px;
-          font-weight: 600;
-          color: #202124;
-          margin-bottom: 4px;
-        }
+        .reviewer-info { }
+        .reviewer-nickname { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
+        .review-date { font-size: 11px; color: var(--text-tertiary); }
 
-        .review-date {
-          font-size: 12px;
-          color: #5f6368;
-        }
-
-        .review-rating {
-          display: flex;
-          gap: 3px;
-          flex-shrink: 0;
-        }
-
-        .review-body {
-          flex: 1;
-          margin-bottom: 16px;
-        }
+        .review-rating { display: flex; gap: 2px; flex-shrink: 0; }
 
         .review-comment {
-          font-size: 14px;
-          color: #5f6368;
+          font-size: 13px;
+          color: var(--text-secondary);
           line-height: 1.6;
-          margin-bottom: 0;
+          flex: 1;
         }
 
-        /* Provider Reply Section */
-        .provider-reply-section {
-          margin-top: 16px;
-          padding-top: 16px;
-          border-top: 1px solid #f1f3f4;
-        }
+        /* Reply Section */
+        .provider-reply-section { border-top: 1.5px solid var(--border-color); padding-top: 14px; }
 
         .existing-reply {
-          background: #f8f9fa;
-          border-left: 3px solid #667eea;
-          padding: 12px;
-          border-radius: 8px;
-          margin-bottom: 12px;
+          background: var(--hover-bg);
+          border-radius: 10px;
+          padding: 12px 14px;
+          margin-bottom: 10px;
+          border-left: 3px solid var(--orange-primary);
         }
 
         .reply-header {
@@ -352,308 +333,144 @@ const ProviderReviews = () => {
           align-items: center;
           gap: 6px;
           margin-bottom: 6px;
+          color: var(--text-secondary);
+          font-size: 12px;
         }
 
-        .reply-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: #667eea;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
+        .reply-label { font-weight: 600; }
+        .reply-date { margin-left: auto; color: var(--text-tertiary); }
 
-        .reply-date {
-          font-size: 11px;
-          color: #5f6368;
-        }
+        .reply-message { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 
-        .reply-message {
-          font-size: 13px;
-          color: #202124;
-          line-height: 1.5;
-        }
-
-        /* Reply Form */
-        .reply-form {
-          background: #f8f9fa;
-          padding: 12px;
-          border-radius: 8px;
-          border: 1px solid #e3e5e8;
-        }
-
-        .reply-textarea {
-          width: 100%;
-          min-height: 80px;
-          padding: 10px;
-          border: 1px solid #dadce0;
-          border-radius: 6px;
-          font-size: 13px;
-          font-family: inherit;
-          resize: vertical;
-          margin-bottom: 8px;
-          transition: border-color 0.15s;
-        }
-
-        .reply-textarea:focus {
-          outline: none;
-          border-color: #667eea;
-          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .reply-actions {
-          display: flex;
-          gap: 8px;
-          justify-content: flex-end;
-        }
-
-        .reply-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 8px 14px;
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-          border: none;
-        }
-
-        .reply-btn.primary {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: #fff;
-        }
-
-        .reply-btn.primary:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-        }
-
-        .reply-btn.primary:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .reply-btn.secondary {
-          background: #fff;
-          color: #5f6368;
-          border: 1px solid #dadce0;
-        }
-
-        .reply-btn.secondary:hover {
-          background: #f8f9fa;
-        }
-
-        .review-footer {
-          display: flex;
-          justify-content: flex-end;
-          align-items: center;
-        }
+        .review-footer { display: flex; justify-content: flex-end; }
 
         .action-btn {
           display: inline-flex;
           align-items: center;
           gap: 6px;
           padding: 8px 14px;
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
           cursor: pointer;
-          transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-          border: 1px solid #dadce0;
-          background: #fff;
-          color: #667eea;
+          transition: all 0.2s;
+          border: 1.5px solid var(--orange-primary);
+          background: var(--orange-light-bg);
+          color: var(--orange-primary);
         }
 
-        .action-btn:hover {
-          background: #f5f7ff;
-          border-color: #667eea;
+        .action-btn:hover { background: var(--orange-primary); color: #fff; }
+
+        .action-btn.edit { border-color: var(--border-color); background: var(--card-bg); color: var(--text-secondary); }
+        .action-btn.edit:hover { border-color: var(--orange-primary); color: var(--orange-primary); background: var(--orange-light-bg); }
+
+        /* Reply Form */
+        .reply-form { display: flex; flex-direction: column; gap: 10px; }
+
+        .reply-textarea {
+          width: 100%;
+          min-height: 90px;
+          padding: 10px 12px;
+          border: 1.5px solid var(--input-border);
+          border-radius: 10px;
+          font-size: 13px;
+          font-family: inherit;
+          background: var(--input-bg);
+          color: var(--text-primary);
+          resize: vertical;
+          outline: none;
+          transition: border-color 0.2s;
         }
 
-        .action-btn.edit {
-          color: #1a73e8;
+        .reply-textarea:focus { border-color: var(--orange-primary); box-shadow: 0 0 0 3px var(--orange-shadow); }
+
+        .reply-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+        .reply-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 9px 14px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          border: 1.5px solid;
         }
 
-        .action-btn.edit:hover {
-          background: #e8f0fe;
-          border-color: #1a73e8;
+        .reply-btn.primary {
+          background: linear-gradient(135deg, #FF6B35 0%, #E85A28 100%);
+          color: #fff;
+          border-color: transparent;
+          box-shadow: 0 4px 12px rgba(255, 107, 53, 0.25);
         }
 
+        .reply-btn.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(255, 107, 53, 0.35); }
+        .reply-btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .reply-btn.secondary {
+          background: var(--card-bg);
+          color: var(--text-secondary);
+          border-color: var(--border-color);
+        }
+
+        .reply-btn.secondary:hover { border-color: var(--border-hover); color: var(--text-primary); }
+
+        /* Empty State */
         .empty-state {
           grid-column: 1 / -1;
-          padding: 60px 20px;
+          padding: 80px 20px;
           text-align: center;
-          border: 1px dashed #dadce0;
-          border-radius: 12px;
-          background: #fafbfc;
+          border: 1.5px dashed var(--border-color);
+          border-radius: 14px;
+          background: var(--card-bg);
         }
 
-        .empty-icon {
-          font-size: 48px;
-          margin-bottom: 16px;
-        }
+        .empty-icon { font-size: 48px; margin-bottom: 16px; }
+        .empty-title { font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+        .empty-text { font-size: 14px; color: var(--text-secondary); }
 
-        .empty-title {
-          font-size: 18px;
-          font-weight: 500;
-          color: #202124;
-          margin-bottom: 8px;
-        }
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1200px) { .reviews-grid { grid-template-columns: repeat(2, 1fr); } }
 
-        .empty-text {
-          font-size: 14px;
-          color: #5f6368;
-        }
-
-        /* Tablet: 2 columns */
-        @media (max-width: 1024px) and (min-width: 769px) {
-          .reviews-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-
-        /* Mobile: 1 column */
         @media (max-width: 768px) {
-          .provider-reviews {
-            padding: 16px;
-          }
-
-          .reviews-summary {
-            padding: 20px;
-          }
-
-          .summary-main {
-            flex-direction: row;
-            justify-content: space-between;
-            width: 100%;
-            gap: 16px;
-          }
-
-          .rating-large {
-            padding: 16px;
-            flex-shrink: 0;
-          }
-
-          .rating-number {
-            font-size: 36px;
-          }
-
-          .rating-stars {
-            gap: 2px;
-          }
-
-          .rating-stars svg {
-            width: 16px;
-            height: 16px;
-          }
-
-          .rating-count {
-            font-size: 12px;
-          }
-
-          .summary-divider {
-            display: block;
-            height: 60px;
-          }
-
-          .summary-stats {
-            width: auto;
-            flex: 1;
-            min-width: 0;
-            gap: 8px;
-          }
-
-          .stat-row {
-            font-size: 12px;
-          }
-
-          .stat-label {
-            min-width: 60px;
-            font-size: 12px;
-          }
-
-          .stat-bar {
-            height: 8px;
-            min-width: 80px;
-          }
-
-          .stat-value {
-            font-size: 12px;
-            min-width: 24px;
-          }
-
-          .reviews-grid {
-            grid-template-columns: 1fr;
-            gap: 12px;
-          }
-
-          .review-card {
-            padding: 16px;
-          }
-
-          .action-btn {
-            width: 100%;
-            justify-content: center;
-          }
-
-          .reply-actions {
-            flex-direction: column-reverse;
-          }
-
-          .reply-btn {
-            width: 100%;
-            justify-content: center;
-          }
+          .provider-reviews { padding: 16px; }
+          .reviews-summary { flex-direction: column; align-items: stretch; padding: 18px 16px; gap: 16px; }
+          .summary-main { flex-direction: row; gap: 16px; align-items: center; }
+          .summary-divider { display: none; }
+          .rating-large { padding: 14px 18px; gap: 6px; min-width: 100px; }
+          .rating-number { font-size: 40px; }
+          .rating-stars svg { width: 16px; height: 16px; }
+          .stat-bar { min-width: 80px; }
+          .filter-bar { flex-direction: column; align-items: stretch; gap: 10px; }
+          .reviews-grid { grid-template-columns: 1fr; gap: 12px; }
+          .review-card { padding: 14px 16px; }
+          .reply-actions { flex-direction: row; justify-content: flex-end; }
+          .reply-btn { padding: 8px 12px; font-size: 12px; }
         }
 
-        /* Extra small mobile */
         @media (max-width: 480px) {
-          .summary-main {
-            flex-direction: column;
-            gap: 12px;
-          }
-
-          .summary-divider {
-            display: none;
-          }
-
-          .rating-large {
-            width: 100%;
-          }
-
-          .summary-stats {
-            width: 100%;
-          }
-
-          .stat-bar {
-            min-width: 60px;
-          }
+          .provider-reviews { padding: 12px; }
+          .summary-main { flex-direction: column; align-items: stretch; gap: 12px; }
+          .rating-large { flex-direction: row; justify-content: space-around; align-items: center; }
+          .summary-stats { gap: 8px; }
+          .stat-bar { min-width: 60px; }
+          .rating-label { min-width: 44px; font-size: 12px; }
         }
       `}</style>
 
       <div className="provider-reviews">
-        <PageHeader
-          title="Reviews & Ratings"
-          subtitle="Manage and respond to customer reviews"
-          icon={MessageSquare}
-        />
+        <PageHeader title="Reviews & Ratings" subtitle="Manage and respond to customer reviews" icon={MessageSquare} />
 
-        {/* Reviews Summary Card */}
+        {/* Summary Card */}
         <div className="reviews-summary">
           <div className="summary-main">
             <div className="rating-large">
               <div className="rating-number">{avgRating}</div>
               <div className="rating-stars">
                 {[...Array(5)].map((_, i) => (
-                  <Star
-                    key={i}
-                    size={20}
-                    fill={
-                      i < Math.round(parseFloat(avgRating)) ? "#fbbf24" : "none"
-                    }
-                    stroke="#fbbf24"
-                    strokeWidth={2}
-                  />
+                  <Star key={i} size={20} fill={i < Math.round(parseFloat(avgRating)) ? "#fbbf24" : "none"} stroke="#fbbf24" strokeWidth={2} />
                 ))}
               </div>
               <div className="rating-count">{reviews.length} reviews</div>
@@ -662,108 +479,86 @@ const ProviderReviews = () => {
             <div className="summary-divider" />
 
             <div className="summary-stats">
-              {[5, 4, 3, 2, 1].map((rating) => {
-                const count = reviews.filter((r) => r.rating === rating).length;
-                const percentage = (count / reviews.length) * 100;
-                return (
-                  <div key={rating} className="stat-row">
-                    <span className="stat-label">{rating} stars</span>
-                    <div className="stat-bar">
-                      <div
-                        className="stat-fill"
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                    <span className="stat-value">{count}</span>
+              {ratingCounts.map(({ rating, count, percentage }) => (
+                <div key={rating} className="stat-row">
+                  <div
+                    className={`rating-label ${filterRating === rating ? "active" : ""}`}
+                    onClick={() => setFilterRating(filterRating === rating ? null : rating)}
+                  >
+                    {rating} <Star size={12} fill={filterRating === rating ? "#fbbf24" : "currentColor"} strokeWidth={2} />
                   </div>
-                );
-              })}
+                  <div className="stat-bar" onClick={() => setFilterRating(filterRating === rating ? null : rating)}>
+                    <div className="stat-fill" style={{ width: `${percentage}%` }} />
+                  </div>
+                  <span className="stat-count">{count}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="search-wrapper">
-          <SearchBar
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search by reviewer or comment..."
-          />
+        {/* Filter Bar */}
+        <div className="filter-bar">
+          <div className="search-wrapper">
+            <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="Search by reviewer or comment..." />
+          </div>
+          <div className="rating-filters">
+            {filterRating !== null && (
+              <button className="rating-filter-btn active" onClick={() => setFilterRating(null)}>
+                <X size={13} />
+                {filterRating} Stars
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* Reviews Grid */}
         <div className="reviews-grid">
-          {filteredReviews.length === 0 ? (
+          {loading ? (
+            [...Array(6)].map((_, i) => (
+              <div key={i} className="review-card" style={{ minHeight: 160, background: "var(--border-color)", opacity: 0.3 }} />
+            ))
+          ) : filteredReviews.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">📋</div>
+              <div className="empty-icon">⭐</div>
               <h3 className="empty-title">No reviews found</h3>
-              <p className="empty-text">No reviews match your search</p>
+              <p className="empty-text">{searchQuery || filterRating ? "No reviews match your search" : "No reviews yet"}</p>
             </div>
           ) : (
             filteredReviews.map((review) => (
-              <div
-                key={review.id}
-                className={`review-card ${!review.providerReply ? "needs-reply" : ""}`}
-              >
+              <div key={review.id} className={`review-card ${!review.providerReply ? "needs-reply" : ""}`}>
                 <div className="review-header">
                   <div className="reviewer-info">
-                    <div className="reviewer-nickname">
-                      {review.customerNickname}
-                    </div>
-                    <div className="review-date">
-                      {review.createdAt.toLocaleDateString("en-GB", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </div>
+                    <div className="reviewer-nickname">{review.customerNickname}</div>
+                    <div className="review-date">{formatDate(review.createdAt)}</div>
                   </div>
                   <div className="review-rating">
                     {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        size={16}
-                        fill={i < review.rating ? "#f9ab00" : "none"}
-                        stroke={i < review.rating ? "#f9ab00" : "#dadce0"}
-                        strokeWidth={2}
-                      />
+                      <Star key={i} size={15} fill={i < review.rating ? "#f9ab00" : "none"} stroke={i < review.rating ? "#f9ab00" : "#dadce0"} strokeWidth={2} />
                     ))}
                   </div>
                 </div>
 
-                <div className="review-body">
-                  <p className="review-comment">{review.comment}</p>
-                </div>
+                <p className="review-comment">{review.comment}</p>
 
-                {/* Provider Reply Section */}
                 <div className="provider-reply-section">
                   {replyingToId === review.id ? (
                     <div className="reply-form">
                       <textarea
                         className="reply-textarea"
-                        placeholder="Write your response to this review..."
+                        placeholder="Write your professional response..."
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         autoFocus
                       />
                       <div className="reply-actions">
-                        <button
-                          className="reply-btn secondary"
-                          onClick={cancelReply}
-                          disabled={isSubmitting}
-                        >
-                          <X size={14} />
+                        <button className="reply-btn secondary" onClick={cancelReply} disabled={isSubmitting}>
+                          <X size={13} />
                           Cancel
                         </button>
-                        <button
-                          className="reply-btn primary"
-                          onClick={submitReply}
-                          disabled={!replyText.trim() || isSubmitting}
-                        >
-                          <Send size={14} />
-                          {isSubmitting
-                            ? "Sending..."
-                            : review.providerReply
-                              ? "Update Reply"
-                              : "Send Reply"}
+                        <button className="reply-btn primary" onClick={submitReply} disabled={!replyText.trim() || isSubmitting}>
+                          {isSubmitting ? <Loader2 size={13} className="spin" /> : <Send size={13} />}
+                          {isSubmitting ? "Sending..." : review.providerReply ? "Update Reply" : "Send Reply"}
                         </button>
                       </div>
                     </div>
@@ -774,19 +569,9 @@ const ProviderReviews = () => {
                           <div className="reply-header">
                             <Reply size={12} />
                             <span className="reply-label">Your Response</span>
-                            <span className="reply-date">
-                              {review.providerReply.repliedAt.toLocaleDateString(
-                                "en-GB",
-                                {
-                                  day: "numeric",
-                                  month: "short",
-                                },
-                              )}
-                            </span>
+                            {review.repliedAt && <span className="reply-date">{getTimeAgo(review.repliedAt)}</span>}
                           </div>
-                          <p className="reply-message">
-                            {review.providerReply.message}
-                          </p>
+                          <p className="reply-message">{review.providerReply}</p>
                         </div>
                       )}
                       <div className="review-footer">
@@ -794,7 +579,7 @@ const ProviderReviews = () => {
                           className={`action-btn ${review.providerReply ? "edit" : ""}`}
                           onClick={() => handleReply(review.id)}
                         >
-                          <Reply size={14} strokeWidth={2} />
+                          <Reply size={13} strokeWidth={2} />
                           {review.providerReply ? "Edit Reply" : "Reply"}
                         </button>
                       </div>

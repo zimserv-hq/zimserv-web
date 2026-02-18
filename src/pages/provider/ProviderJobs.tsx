@@ -1,5 +1,5 @@
 // src/pages/provider/ProviderJobs.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Briefcase,
   Clock,
@@ -11,12 +11,14 @@ import {
   Phone,
   XCircle,
   Mail,
+  Loader2,
 } from "lucide-react";
 import PageHeader from "../../components/Admin/PageHeader";
 import StatCard from "../../components/Admin/StatCard";
 import SearchBar from "../../components/Admin/SearchBar";
 import FilterDropdown from "../../components/Admin/FilterDropdown";
 import AddJobModal from "../../components/ProviderPanel/AddJobModal";
+import { supabase } from "../../lib/supabaseClient";
 
 interface Job {
   id: string;
@@ -24,87 +26,101 @@ interface Job {
   customerName: string;
   location: string;
   status: "pending" | "in_progress" | "completed" | "cancelled";
-  createdAt: Date;
-  scheduledDate?: Date;
+  createdAt: string;
+  scheduledDate?: string;
   customerPhone?: string;
   customerEmail?: string;
+  budget?: string;
 }
 
-const MOCK_JOBS: Job[] = [
-  {
-    id: "1",
-    title: "Emergency Geyser Repair",
-    customerName: "John D.",
-    location: "Borrowdale, Harare",
-    status: "in_progress",
-    createdAt: new Date("2026-02-14T09:30:00"),
-    scheduledDate: new Date("2026-02-15T10:00:00"),
-    customerPhone: "+263 77 123 4567",
-  },
-  {
-    id: "2",
-    title: "Bathroom Renovation",
-    customerName: "Sarah M.",
-    location: "Avondale, Harare",
-    status: "pending",
-    createdAt: new Date("2026-02-13T14:20:00"),
-    scheduledDate: new Date("2026-02-20T08:00:00"),
-    customerEmail: "sarah.m@email.com",
-  },
-  {
-    id: "3",
-    title: "Kitchen Sink Installation",
-    customerName: "Mike T.",
-    location: "Mount Pleasant, Harare",
-    status: "completed",
-    createdAt: new Date("2026-02-10T11:00:00"),
-    scheduledDate: new Date("2026-02-12T14:00:00"),
-    customerPhone: "+263 77 345 6789",
-  },
-  {
-    id: "4",
-    title: "Toilet Repair",
-    customerName: "Lisa K.",
-    location: "Greendale, Harare",
-    status: "cancelled",
-    createdAt: new Date("2026-02-08T16:45:00"),
-    customerEmail: "lisa.k@email.com",
-  },
-  {
-    id: "5",
-    title: "Shower Installation",
-    customerName: "David W.",
-    location: "Highlands, Harare",
-    status: "in_progress",
-    createdAt: new Date("2026-02-12T10:15:00"),
-    scheduledDate: new Date("2026-02-16T09:00:00"),
-    customerPhone: "+263 77 456 7890",
-  },
-  {
-    id: "6",
-    title: "Pipe Leak Fixing",
-    customerName: "Robert K.",
-    location: "Borrowdale, Harare",
-    status: "pending",
-    createdAt: new Date("2026-02-13T08:15:00"),
-    scheduledDate: new Date("2026-02-17T11:00:00"),
-    customerEmail: "robert.k@email.com",
-  },
-];
-
 const ProviderJobs = () => {
-  const [jobs, setJobs] = useState<Job[]>(MOCK_JOBS);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [providerId, setProviderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchProviderAndJobs();
+  }, []);
+
+  const fetchProviderAndJobs = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: provider } = await supabase
+        .from("providers")
+        .select("id")
+        .eq("email", user.email)
+        .single();
+
+      if (!provider) return;
+      setProviderId(provider.id);
+      await fetchJobs(provider.id);
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchJobs = async (pid: string) => {
+    const { data, error } = await supabase
+      .from("provider_jobs")
+      .select("*")
+      .eq("provider_id", pid)
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      setJobs(
+        data.map((j) => ({
+          id: j.id,
+          title: j.title,
+          customerName: j.customer_name,
+          location: j.location,
+          status: j.status,
+          createdAt: j.created_at,
+          scheduledDate: j.scheduled_date,
+          customerPhone: j.customer_phone,
+          customerEmail: j.customer_email,
+          budget: j.budget,
+        })),
+      );
+    }
+  };
+
+  const handleUpdateStatus = async (
+    jobId: string,
+    newStatus: "completed" | "cancelled",
+  ) => {
+    setActionLoading(jobId + newStatus);
+    try {
+      const { error } = await supabase
+        .from("provider_jobs")
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", jobId);
+
+      if (!error) {
+        setJobs((prev) =>
+          prev.map((j) => (j.id === jobId ? { ...j, status: newStatus } : j)),
+        );
+      }
+    } catch (error) {
+      console.error("Error updating job:", error);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const getFilteredJobs = () => {
     let filtered = jobs;
-
-    if (filterStatus !== "All") {
+    if (filterStatus !== "All")
       filtered = filtered.filter((j) => j.status === filterStatus);
-    }
-
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -114,18 +130,16 @@ const ProviderJobs = () => {
           j.location.toLowerCase().includes(query),
       );
     }
-
-    return filtered.sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    );
+    return filtered;
   };
 
   const filteredJobs = getFilteredJobs();
 
-  const stats = {
+  const jobStats = {
     total: jobs.length,
     inProgress: jobs.filter((j) => j.status === "in_progress").length,
     completed: jobs.filter((j) => j.status === "completed").length,
+    pending: jobs.filter((j) => j.status === "pending").length,
   };
 
   const filterOptions = [
@@ -144,128 +158,144 @@ const ProviderJobs = () => {
           text: "#8f5d00",
           border: "#fbbf24",
           icon: Clock,
+          darkBg: "rgba(143,93,0,0.15)",
+          darkText: "#fcd34d",
         };
       case "in_progress":
         return {
-          bg: "#e8f0fe",
-          text: "#1a73e8",
-          border: "#1a73e8",
+          bg: "#eff6ff",
+          text: "#2563eb",
+          border: "#93c5fd",
           icon: Briefcase,
+          darkBg: "rgba(37,99,235,0.15)",
+          darkText: "#60a5fa",
         };
       case "completed":
         return {
-          bg: "#e6f4ea",
-          text: "#137333",
-          border: "#34a853",
+          bg: "#dcfce7",
+          text: "#15803d",
+          border: "#86efac",
           icon: CheckCircle,
+          darkBg: "rgba(21,128,61,0.15)",
+          darkText: "#4ade80",
         };
       case "cancelled":
         return {
-          bg: "#fce8e6",
-          text: "#c5221f",
-          border: "#ea4335",
+          bg: "#fee2e2",
+          text: "#dc2626",
+          border: "#fca5a5",
           icon: XCircle,
+          darkBg: "rgba(220,38,38,0.15)",
+          darkText: "#f87171",
         };
       default:
         return {
-          bg: "#f8f9fa",
-          text: "#5f6368",
-          border: "#dadce0",
+          bg: "#f3f4f6",
+          text: "#6b7280",
+          border: "#e5e7eb",
           icon: Briefcase,
+          darkBg: "#374151",
+          darkText: "#9ca3af",
         };
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    return status
+  const getStatusLabel = (status: string) =>
+    status
       .split("_")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
+
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return null;
+    return new Date(dateStr).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
   };
 
-  const handleCompleteJob = (jobId: string) => {
-    setJobs((prev) =>
-      prev.map((job) =>
-        job.id === jobId ? { ...job, status: "completed" as const } : job,
-      ),
-    );
-  };
-
-  const handleCancelJob = (jobId: string) => {
-    setJobs((prev) =>
-      prev.map((job) =>
-        job.id === jobId ? { ...job, status: "cancelled" as const } : job,
-      ),
-    );
+  const formatScheduled = (dateStr?: string) => {
+    if (!dateStr) return null;
+    return new Date(dateStr).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   return (
     <>
       <style>{`
         .provider-jobs {
-          padding: 24px;
+          padding: 24px 28px;
           max-width: 1600px;
           margin: 0 auto;
+          width: 100%;
+          box-sizing: border-box;
         }
 
         .stats-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          grid-template-columns: repeat(4, 1fr);
           gap: 16px;
-          margin-bottom: 23px;
+          margin-bottom: 20px;
         }
 
         .actions-bar {
           display: flex;
           align-items: center;
           gap: 12px;
-          margin-bottom: 20px;
+          margin-bottom: 24px;
         }
 
         .search-wrapper {
           flex: 1;
-          max-width: 500px;
+          max-width: 480px;
+          min-width: 0;
           margin-top: 20px;
         }
+
+        .filter-wrapper { flex-shrink: 0; }
 
         .add-job-btn {
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          padding: 10px 16px;
-          background: #FF6B35;
+          padding: 0 20px;
+          height: 44px;
+          background: linear-gradient(135deg, #FF6B35 0%, #E85A28 100%);
           color: #fff;
           border: none;
-          border-radius: 8px;
+          border-radius: 10px;
           font-size: 14px;
-          font-weight: 500;
+          font-weight: 600;
           cursor: pointer;
           transition: all 0.2s;
           white-space: nowrap;
-          height: 44px;
+          flex-shrink: 0;
+          box-shadow: 0 4px 12px rgba(255, 107, 53, 0.25);
+          margin-left: auto;
         }
 
         .add-job-btn:hover {
-          background: #E85A28;
           transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+          box-shadow: 0 6px 16px rgba(255, 107, 53, 0.35);
         }
 
         .jobs-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 16px;
-          position: relative;
-          z-index: 1;
         }
 
         .job-card {
-          background: #fff;
-          border: 1px solid #e3e5e8;
-          border-radius: 12px;
+          background: var(--card-bg);
+          border: 1.5px solid var(--border-color);
+          border-radius: 14px;
           padding: 20px;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           display: flex;
           flex-direction: column;
           position: relative;
@@ -285,95 +315,87 @@ const ProviderJobs = () => {
         }
 
         .job-card:hover {
-          border-color: #FF6B35;
-          box-shadow: 0 4px 16px rgba(255, 107, 53, 0.15);
+          border-color: var(--border-hover);
+          box-shadow: 0 8px 24px var(--card-shadow);
           transform: translateY(-2px);
         }
 
-        .job-card:hover::before {
-          transform: scaleX(1);
-        }
+        .job-card:hover::before { transform: scaleX(1); }
 
         .job-header {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          margin-bottom: 16px;
           gap: 12px;
+          margin-bottom: 16px;
         }
 
         .job-title {
-          font-size: 16px;
-          font-weight: 600;
-          color: #202124;
-          line-height: 1.3;
-          margin-bottom: 0;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text-primary);
+          letter-spacing: -0.2px;
           flex: 1;
+          line-height: 1.3;
         }
 
         .status-badge {
           display: inline-flex;
           align-items: center;
           gap: 5px;
-          padding: 6px 10px;
-          border-radius: 6px;
-          font-size: 11px;
+          padding: 4px 10px;
+          border-radius: 8px;
+          font-size: 12px;
           font-weight: 600;
           border: 1px solid;
           white-space: nowrap;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
           flex-shrink: 0;
         }
 
         .job-info {
-          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
           margin-bottom: 16px;
+          flex: 1;
         }
 
         .info-row {
           display: flex;
           align-items: center;
-          gap: 6px;
-          margin-bottom: 10px;
+          gap: 8px;
           font-size: 13px;
-          color: #5f6368;
+          color: var(--text-secondary);
         }
 
-        .info-row:last-child {
-          margin-bottom: 0;
-        }
+        .info-row svg { color: var(--text-tertiary); flex-shrink: 0; }
+        .info-row strong { color: var(--text-primary); font-weight: 600; }
 
-        .info-row svg {
-          flex-shrink: 0;
-        }
-
-        .info-row strong {
-          color: #202124;
-          font-weight: 500;
+        .budget-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px 10px;
+          background: rgba(255, 107, 53, 0.08);
+          color: var(--orange-primary);
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          border: 1px solid rgba(255, 107, 53, 0.2);
         }
 
         .job-actions-section {
+          border-top: 1.5px solid var(--border-color);
+          padding-top: 14px;
+          margin-top: auto;
           display: flex;
           flex-direction: column;
-          gap: 12px;
-          padding-top: 16px;
-          border-top: 1px solid #f1f3f4;
+          gap: 10px;
         }
 
-        .job-date {
-          font-size: 12px;
-          color: #80868b;
-        }
+        .job-date { font-size: 11px; color: var(--text-tertiary); }
 
-        .job-action-buttons {
-          display: flex;
-          gap: 8px;
-        }
+        .job-action-buttons { display: flex; gap: 8px; }
 
         .action-btn {
           flex: 1;
@@ -382,185 +404,95 @@ const ProviderJobs = () => {
           justify-content: center;
           gap: 6px;
           padding: 8px 12px;
-          border-radius: 6px;
-          font-size: 13px;
-          font-weight: 500;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
           cursor: pointer;
-          transition: all 0.15s;
-          border: 1px solid;
+          transition: all 0.2s ease;
+          border: 1.5px solid;
         }
+
+        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .action-btn.complete {
-          background: #e6f4ea;
-          color: #137333;
-          border-color: #34a853;
+          background: #dcfce7;
+          color: #15803d;
+          border-color: #86efac;
         }
 
-        .action-btn.complete:hover {
-          background: #d4edda;
-          transform: translateY(-1px);
+        .action-btn.complete:hover:not(:disabled) {
+          background: #15803d;
+          color: #fff;
+          border-color: #15803d;
         }
 
         .action-btn.cancel {
-          background: #fce8e6;
-          color: #c5221f;
-          border-color: #ea4335;
+          background: #fee2e2;
+          color: #dc2626;
+          border-color: #fca5a5;
         }
 
-        .action-btn.cancel:hover {
-          background: #f8d7da;
-          transform: translateY(-1px);
+        .action-btn.cancel:hover:not(:disabled) {
+          background: #dc2626;
+          color: #fff;
+          border-color: #dc2626;
         }
 
-        .contact-actions {
-          display: flex;
-          gap: 6px;
+        .dark-mode .action-btn.complete {
+          background: rgba(21,128,61,0.15);
+          color: #4ade80;
+          border-color: rgba(21,128,61,0.3);
         }
 
-        .contact-btn {
-          flex: 1;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          padding: 8px 12px;
-          border-radius: 6px;
-          border: 1px solid #dadce0;
-          background: #fff;
-          cursor: pointer;
-          transition: all 0.15s;
-          color: #5f6368;
-          font-size: 13px;
-          font-weight: 500;
+        .dark-mode .action-btn.cancel {
+          background: rgba(220,38,38,0.15);
+          color: #f87171;
+          border-color: rgba(220,38,38,0.3);
         }
 
-        .contact-btn:hover {
-          background: #f8f9fa;
-        }
-
-        .contact-btn.phone:hover {
-          border-color: #10b981;
-          color: #10b981;
-          background: #f0fdf4;
-        }
-
-        .contact-btn.whatsapp:hover {
-          border-color: #25D366;
-          color: #25D366;
-          background: #f0fdf4;
-        }
-
-        .contact-btn.email:hover {
-          border-color: #1a73e8;
-          color: #1a73e8;
-          background: #e8f0fe;
+        /* Dark mode status badges */
+        .dark-mode .status-badge {
+          background: rgba(var(--badge-rgb), 0.15) !important;
+          border-color: transparent !important;
         }
 
         .empty-state {
           grid-column: 1 / -1;
-          padding: 60px 20px;
+          padding: 80px 20px;
           text-align: center;
-          border: 1px dashed #dadce0;
-          border-radius: 12px;
-          background: #fafbfc;
+          border: 1.5px dashed var(--border-color);
+          border-radius: 14px;
+          background: var(--card-bg);
         }
 
-        .empty-icon {
-          font-size: 48px;
-          margin-bottom: 16px;
-        }
+        .empty-icon { font-size: 48px; margin-bottom: 16px; }
+        .empty-title { font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+        .empty-text { font-size: 14px; color: var(--text-secondary); }
 
-        .empty-title {
-          font-size: 18px;
-          font-weight: 500;
-          color: #202124;
-          margin-bottom: 8px;
-        }
-
-        .empty-text {
-          font-size: 14px;
-          color: #5f6368;
-        }
-
-        /* Responsive Breakpoints */
-        @media (max-width: 1200px) {
-          .jobs-grid {
-            grid-template-columns: repeat(3, 1fr);
-          }
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1400px) { .jobs-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 1100px) {
+          .jobs-grid { grid-template-columns: repeat(2, 1fr); }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 768px) {
-          .provider-jobs {
-            padding: 16px;
-          }
-
-          .stats-grid {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-          }
-
-          .actions-bar {
-            flex-direction: column;
-            align-items: stretch;
-          }
-
-          .search-wrapper {
-            max-width: none;
-          }
-
-          .add-job-btn {
-            width: 100%;
-            justify-content: center;
-          }
-
-          .jobs-grid {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-          }
-
-          .job-card {
-            padding: 16px;
-          }
-
-          .job-title {
-            font-size: 15px;
-          }
-
-          .info-row {
-            font-size: 12px;
-          }
-
-          .job-action-buttons {
-            flex-direction: column;
-          }
-
-          .contact-actions {
-            flex-direction: column;
-          }
+          .provider-jobs { padding: 16px; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+          .actions-bar { flex-direction: column; align-items: stretch; gap: 10px; }
+          .search-wrapper { max-width: none; }
+          .add-job-btn { margin-left: 0; width: 100%; justify-content: center; }
+          .jobs-grid { grid-template-columns: 1fr; gap: 12px; }
+          .job-card { padding: 16px; }
+          .job-title { font-size: 14px; }
+          .info-row { font-size: 12px; }
         }
 
         @media (max-width: 480px) {
-          .provider-jobs {
-            padding: 12px;
-          }
-
-          .stats-grid {
-            gap: 10px;
-          }
-
-          .jobs-grid {
-            grid-template-columns: 1fr;
-            gap: 12px;
-          }
-
-          .job-header {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-
-          .status-badge {
-            align-self: flex-start;
-          }
+          .provider-jobs { padding: 12px; }
+          .stats-grid { gap: 8px; }
+          .job-action-buttons { flex-direction: column; }
+          .action-btn { width: 100%; }
         }
       `}</style>
 
@@ -574,19 +506,25 @@ const ProviderJobs = () => {
         <div className="stats-grid">
           <StatCard
             label="Total Jobs"
-            value={stats.total}
+            value={jobStats.total}
             icon={Briefcase}
             iconColor="orange"
           />
           <StatCard
+            label="Pending"
+            value={jobStats.pending}
+            icon={Clock}
+            iconColor="yellow"
+          />
+          <StatCard
             label="In Progress"
-            value={stats.inProgress}
+            value={jobStats.inProgress}
             icon={Briefcase}
             iconColor="blue"
           />
           <StatCard
             label="Completed"
-            value={stats.completed}
+            value={jobStats.completed}
             icon={CheckCircle}
             iconColor="green"
           />
@@ -600,11 +538,13 @@ const ProviderJobs = () => {
               placeholder="Search by job title, customer, or location..."
             />
           </div>
-          <FilterDropdown
-            options={filterOptions}
-            value={filterStatus}
-            onChange={setFilterStatus}
-          />
+          <div className="filter-wrapper">
+            <FilterDropdown
+              options={filterOptions}
+              value={filterStatus}
+              onChange={setFilterStatus}
+            />
+          </div>
           <button className="add-job-btn" onClick={() => setShowAddModal(true)}>
             <Plus size={18} strokeWidth={2.5} />
             Add New Job
@@ -612,15 +552,34 @@ const ProviderJobs = () => {
         </div>
 
         <div className="jobs-grid">
-          {filteredJobs.length === 0 ? (
+          {loading ? (
+            [...Array(6)].map((_, i) => (
+              <div
+                key={i}
+                className="job-card"
+                style={{
+                  minHeight: 200,
+                  background: "var(--border-color)",
+                  opacity: 0.4,
+                }}
+              />
+            ))
+          ) : filteredJobs.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">📋</div>
               <h3 className="empty-title">No jobs found</h3>
-              <p className="empty-text">No jobs match your current filters</p>
+              <p className="empty-text">
+                {searchQuery || filterStatus !== "All"
+                  ? "No jobs match your current filters"
+                  : "Add your first job to get started"}
+              </p>
             </div>
           ) : (
             filteredJobs.map((job) => {
               const statusConfig = getStatusConfig(job.status);
+              const StatusIcon = statusConfig.icon;
+              const isActioning = actionLoading?.startsWith(job.id);
+
               return (
                 <div key={job.id} className="job-card">
                   <div className="job-header">
@@ -633,7 +592,7 @@ const ProviderJobs = () => {
                         borderColor: statusConfig.border,
                       }}
                     >
-                      <statusConfig.icon size={12} strokeWidth={2.5} />
+                      <StatusIcon size={12} strokeWidth={2.5} />
                       {getStatusLabel(job.status)}
                     </div>
                   </div>
@@ -662,46 +621,49 @@ const ProviderJobs = () => {
                     {job.scheduledDate && (
                       <div className="info-row">
                         <Calendar size={14} />
-                        {job.scheduledDate.toLocaleDateString("en-GB", {
-                          day: "numeric",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {formatScheduled(job.scheduledDate)}
+                      </div>
+                    )}
+                    {job.budget && (
+                      <div className="info-row">
+                        <span className="budget-badge">{job.budget}</span>
                       </div>
                     )}
                   </div>
 
                   <div className="job-actions-section">
                     <span className="job-date">
-                      {job.createdAt.toLocaleDateString("en-GB", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
+                      Added {formatDate(job.createdAt)}
                     </span>
-
                     {job.status !== "completed" &&
                       job.status !== "cancelled" && (
                         <div className="job-action-buttons">
                           <button
                             className="action-btn complete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCompleteJob(job.id);
-                            }}
+                            disabled={!!isActioning}
+                            onClick={() =>
+                              handleUpdateStatus(job.id, "completed")
+                            }
                           >
-                            <CheckCircle size={14} />
+                            {actionLoading === job.id + "completed" ? (
+                              <Loader2 size={13} className="spin" />
+                            ) : (
+                              <CheckCircle size={13} />
+                            )}
                             Complete
                           </button>
                           <button
                             className="action-btn cancel"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCancelJob(job.id);
-                            }}
+                            disabled={!!isActioning}
+                            onClick={() =>
+                              handleUpdateStatus(job.id, "cancelled")
+                            }
                           >
-                            <XCircle size={14} />
+                            {actionLoading === job.id + "cancelled" ? (
+                              <Loader2 size={13} className="spin" />
+                            ) : (
+                              <XCircle size={13} />
+                            )}
                             Cancel
                           </button>
                         </div>
@@ -713,7 +675,13 @@ const ProviderJobs = () => {
           )}
         </div>
 
-        {showAddModal && <AddJobModal onClose={() => setShowAddModal(false)} />}
+        {showAddModal && (
+          <AddJobModal
+            onClose={() => setShowAddModal(false)}
+            providerId={providerId}
+            onJobAdded={() => providerId && fetchJobs(providerId)}
+          />
+        )}
       </div>
     </>
   );
