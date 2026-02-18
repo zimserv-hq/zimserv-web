@@ -132,14 +132,20 @@ export default function BecomeProviderPage(): JSX.Element {
 
         const { data, error } = await supabase
           .from("categories")
-          .select("id, name, status")
-          .eq("status", "Active")
+          .select("id, name, status, display_order")
+          .eq("status", "Active") // matches your default 'Active'
           .order("display_order", { ascending: true });
 
-        if (error) throw error;
+        if (error) {
+          console.error("Supabase categories error:", error);
+          setCategoryError(
+            "Failed to load service categories. Please refresh.",
+          );
+          return;
+        }
 
         setCategories(data || []);
-      } catch (err: any) {
+      } catch (err) {
         console.error("Error loading categories:", err);
         setCategoryError(
           "Failed to load service categories. Please refresh the page.",
