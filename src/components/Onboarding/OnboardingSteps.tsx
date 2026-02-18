@@ -12,6 +12,8 @@ interface OnboardingStepsProps {
   updateFormData: (data: Partial<OnboardingData>) => void;
   nextStep: () => void;
   prevStep: () => void;
+  onAccountSubmit?: (email: string, password: string) => Promise<boolean>;
+  loadError?: string | null;
 }
 
 const OnboardingSteps = ({
@@ -20,6 +22,8 @@ const OnboardingSteps = ({
   updateFormData,
   nextStep,
   prevStep,
+  onAccountSubmit,
+  loadError,
 }: OnboardingStepsProps) => {
   // STEP 1: ACCOUNT (new – not in application)
   const [email, setEmail] = useState(formData.email || "");
@@ -32,7 +36,6 @@ const OnboardingSteps = ({
   >(null);
 
   // STEP 2: PROFILE (only fields NOT collected in application)
-  // These will be NEW in onboarding:
   const [teamSize, setTeamSize] = useState(formData.teamSize || "");
   const [callAvailable, setCallAvailable] = useState(
     formData.callAvailable ?? true,
@@ -47,7 +50,7 @@ const OnboardingSteps = ({
     formData.profilePhoto || null,
   );
 
-  // These fields come from the application; we only DISPLAY them (read-only)
+  // Read-only fields from application
   const fullName = formData.fullName;
   const businessName = formData.businessName;
   const phoneNumber = formData.phoneNumber;
@@ -57,7 +60,7 @@ const OnboardingSteps = ({
   const website = formData.website;
   const languages = formData.languages || ["English"];
 
-  // STEP 3: SERVICES – user did not choose detailed services or pricing in application
+  // STEP 3: SERVICES
   const [selectedServices, setSelectedServices] = useState<string[]>(
     formData.selectedServices || [],
   );
@@ -65,12 +68,12 @@ const OnboardingSteps = ({
     formData.pricingModel || "Quote-based",
   );
 
-  // STEP 4: AREAS – city comes from application, but detailed suburbs are new
+  // STEP 4: AREAS
   const city = formData.city;
   const [areas, setAreas] = useState<string[]>(formData.areas || []);
   const [areaInput, setAreaInput] = useState("");
 
-  // STEP 5: PORTFOLIO – new
+  // STEP 5: PORTFOLIO
   const [portfolioFiles, setPortfolioFiles] = useState<File[]>(
     formData.portfolioFiles || [],
   );
@@ -107,7 +110,7 @@ const OnboardingSteps = ({
 
   // ── Step validation ───────────────────────────────────────────────────────
 
-  const validateAccountAndContinue = () => {
+  const validateAccountAndContinue = async () => {
     if (!email || !confirmEmail || !password || !confirmPassword) {
       alert("Please fill in all required fields");
       return;
@@ -136,12 +139,21 @@ const OnboardingSteps = ({
       alert("You must accept the Terms of Service and Privacy Policy");
       return;
     }
+
+    // Save into parent state
     updateFormData({ email, password });
+
+    // Delegate to parent for auth + application preload
+    if (onAccountSubmit) {
+      await onAccountSubmit(email, password);
+      return;
+    }
+
+    // Fallback (if no handler provided)
     nextStep();
   };
 
   const validateProfileAndContinue = () => {
-    // Only validate NEW onboarding fields
     if (!teamSize) {
       alert("Please provide your team size");
       return;
@@ -193,7 +205,6 @@ const OnboardingSteps = ({
     setAreas(areas.filter((a) => a !== area));
 
   const validateAreasAndContinue = () => {
-    // city already comes from application; just ensure it exists and areas are set
     if (!city) {
       alert(
         "Your primary city is missing from your application. Please contact support.",
@@ -233,7 +244,6 @@ const OnboardingSteps = ({
     }
     const profileData = {
       ...formData,
-      // Onboarding-specific fields:
       email,
       password,
       teamSize,
@@ -308,6 +318,15 @@ const OnboardingSteps = ({
               Set up your login credentials to access your ZimServ provider
               dashboard.
             </p>
+
+            {loadError && (
+              <div
+                className="input-error"
+                style={{ marginBottom: "12px", fontWeight: 500 }}
+              >
+                {loadError}
+              </div>
+            )}
 
             <div className="form-group">
               <label className="form-label required">Email Address</label>
