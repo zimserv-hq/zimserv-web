@@ -65,7 +65,7 @@ const ProviderProfilePage = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch provider with related data
+      // 1) Provider core data
       const { data: providerData, error: providerError } = await supabase
         .from("providers")
         .select(
@@ -100,7 +100,7 @@ const ProviderProfilePage = () => {
       if (providerError) throw providerError;
       if (!providerData) throw new Error("Provider not found");
 
-      // Fetch service areas
+      // 2) Service areas
       const { data: serviceAreas, error: areasError } = await supabase
         .from("provider_service_areas")
         .select("city, suburb")
@@ -108,7 +108,7 @@ const ProviderProfilePage = () => {
 
       if (areasError) throw areasError;
 
-      // Fetch services
+      // 3) Services
       const { data: services, error: servicesError } = await supabase
         .from("provider_services")
         .select("service_name")
@@ -116,7 +116,7 @@ const ProviderProfilePage = () => {
 
       if (servicesError) throw servicesError;
 
-      // Fetch media/gallery
+      // 4) Media / gallery
       const { data: media, error: mediaError } = await supabase
         .from("provider_media")
         .select("file_path, media_type")
@@ -126,7 +126,7 @@ const ProviderProfilePage = () => {
 
       if (mediaError) throw mediaError;
 
-      // Fetch reviews
+      // 5) Reviews + replies
       const { data: reviews, error: reviewsError } = await supabase
         .from("reviews")
         .select(
@@ -149,16 +149,19 @@ const ProviderProfilePage = () => {
 
       if (reviewsError) throw reviewsError;
 
-      // Transform data to match component interface
+      // Transform to UI shape
       const transformedProvider: Provider = {
         id: providerData.id,
         slug:
           providerData.business_name
             ?.toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-") || providerData.id,
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "") || providerData.id,
         name: providerData.business_name || providerData.full_name,
         category: providerData.primary_category,
-        tagline: `${providerData.years_experience}+ Years Experience`,
+        tagline: providerData.years_experience
+          ? `${providerData.years_experience}+ Years Experience`
+          : undefined,
         description: providerData.bio || "No description available",
         city: providerData.city,
         areas:
@@ -186,10 +189,13 @@ const ProviderProfilePage = () => {
           weekends: "9:00 AM - 4:00 PM",
           emergency: providerData.call_available ? "Available 24/7" : undefined,
         },
-        gallery: media?.map((m) => getMediaUrl(m.file_path)) || [
-          providerData.profile_image_url ||
-            getDefaultImage(providerData.primary_category),
-        ],
+        gallery:
+          media && media.length > 0
+            ? media.map((m) => getMediaUrl(m.file_path))
+            : [
+                providerData.profile_image_url ||
+                  getDefaultImage(providerData.primary_category),
+              ],
         reviews:
           reviews?.map((review) => ({
             id: review.id,
@@ -210,7 +216,7 @@ const ProviderProfilePage = () => {
           responseTime: providerData.response_time_minutes
             ? `< ${Math.ceil(providerData.response_time_minutes / 60)} hours`
             : "N/A",
-          repeatCustomers: 0, // Calculate from bookings if needed
+          repeatCustomers: 0,
         },
       };
 
@@ -223,7 +229,7 @@ const ProviderProfilePage = () => {
     }
   };
 
-  // Helper functions
+  // Helpers
   const getPricingDisplay = (pricingModel: string | null): string => {
     if (!pricingModel) return "Contact for quote";
     if (pricingModel === "Hourly Rate") return "$25";
@@ -239,15 +245,14 @@ const ProviderProfilePage = () => {
   };
 
   const getMediaUrl = (filePath: string): string => {
-    // Get public URL from Supabase Storage
+    // Supabase v2 getPublicUrl response shape
     const { data } = supabase.storage
       .from("provider-media")
-      .getPublicUrl(filePath);
+      .getPublicUrl(filePath); // returns { data: { publicUrl } } [web:64][web:67]
     return data.publicUrl;
   };
 
   const getDefaultImage = (category: string): string => {
-    // Return category-specific placeholder
     const placeholders: Record<string, string> = {
       Plumbing:
         "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=800&h=600&fit=crop&q=80",
@@ -307,7 +312,7 @@ const ProviderProfilePage = () => {
     );
   }
 
-  // Error state
+  // Error / not found
   if (error || !provider) {
     return (
       <div
@@ -369,7 +374,6 @@ const ProviderProfilePage = () => {
           padding: 0 var(--container-padding);
         }
 
-        /* Back Button */
         .back-btn {
           display: inline-flex;
           align-items: center;
@@ -393,7 +397,6 @@ const ProviderProfilePage = () => {
           transform: translateX(-4px);
         }
 
-        /* Grid Layout: Equal width left and right */
         .profile-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -401,19 +404,17 @@ const ProviderProfilePage = () => {
           align-items: start;
         }
 
-        /* Loading spinner animation */
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
 
-        /* Responsive */
         @media (max-width: 1200px) {
-          .profile-container { 
-            padding: 0 32px; 
+          .profile-container {
+            padding: 0 32px;
           }
-          .profile-grid { 
-            gap: 24px; 
+          .profile-grid {
+            gap: 24px;
           }
         }
 
@@ -425,20 +426,20 @@ const ProviderProfilePage = () => {
         }
 
         @media (max-width: 920px) {
-          .profile-page { 
-            padding: 32px 0 60px; 
+          .profile-page {
+            padding: 32px 0 60px;
           }
-          .profile-container { 
-            padding: 0 20px; 
+          .profile-container {
+            padding: 0 20px;
           }
         }
 
         @media (max-width: 640px) {
-          .profile-page { 
-            padding: 24px 0 48px; 
+          .profile-page {
+            padding: 24px 0 48px;
           }
-          .profile-container { 
-            padding: 0 16px; 
+          .profile-container {
+            padding: 0 16px;
           }
           .profile-grid {
             gap: 20px;
@@ -446,34 +447,29 @@ const ProviderProfilePage = () => {
         }
       `}</style>
 
-      {/* Breadcrumb - OUTSIDE profile-page */}
       <Breadcrumb
         items={[
           { label: "Providers", path: "/providers" },
           { label: provider.city, path: `/providers?city=${provider.city}` },
           {
             label: provider.category,
-            path: `/providers?category=${provider.category}`,
+            path: `/providers?category=${encodeURIComponent(
+              provider.category,
+            )}`,
           },
           { label: provider.name },
         ]}
       />
 
-      {/* Main Content */}
       <div className="profile-page">
         <div className="profile-container">
-          {/* Back Button */}
           <button className="back-btn" onClick={() => navigate(-1)}>
             <ArrowLeft size={18} strokeWidth={2} />
             Back to Results
           </button>
 
-          {/* Grid: Equal Left (Provider Info) | Right (About/Reviews/Gallery) */}
           <div className="profile-grid">
-            {/* LEFT: Provider details in button-style cards */}
             <ProviderInfoCard provider={provider} />
-
-            {/* RIGHT: About, Reviews, Gallery tabs */}
             <ProviderContent provider={provider} />
           </div>
         </div>

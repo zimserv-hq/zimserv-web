@@ -111,24 +111,34 @@ const AdminProviders = () => {
       const { data, error } = await supabase.rpc("get_providers_with_stats");
       if (error) throw error;
 
-      const mappedProviders: Provider[] = (data || []).map((p: any) => ({
-        id: p.id,
-        name: p.business_name || p.full_name,
-        email: p.email || "",
-        phone: p.phone_number,
-        category: p.primary_category,
-        city: p.city,
-        rating: Number(p.average_rating) || 0, // ✅ Changed from quality_score
-        reviewCount: Number(p.review_count) || 0, // ✅ Added review count
-        jobsCompleted: 0, // TODO: Add jobs table later
-        status: mapStatus(p.status),
-        verified: p.status === "active",
-        joinedDate: new Date(p.created_at),
-        profileImage:
-          p.profile_image_url ||
-          `https://ui-avatars.com/api/?name=${encodeURIComponent(p.business_name || p.full_name)}&background=FF6B35&color=fff&size=128`, // ✅ Added fallback avatar
-        hasPendingEdits: p.has_pending_edits || false,
-      }));
+      const mappedProviders: Provider[] = (data || []).map((p: any) => {
+        // Here profile_image_url is already a full public URL
+        const profileImageUrl: string | null = p.profile_image_url ?? null;
+
+        return {
+          id: p.id,
+          name: p.business_name || p.full_name,
+          email: p.email || "",
+          phone: p.phone_number,
+          category: p.primary_category,
+          city: p.city,
+          rating: Number(p.average_rating) || 0,
+          reviewCount: Number(p.review_count) || 0,
+          jobsCompleted: 0,
+          status: mapStatus(p.status),
+          verified: p.status === "active",
+          joinedDate: new Date(p.created_at),
+
+          // Use the same URL stored by ProviderProfile, fallback to avatar
+          profileImage:
+            profileImageUrl ||
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(
+              p.business_name || p.full_name,
+            )}&background=FF6B35&color=fff&size=128`,
+
+          hasPendingEdits: p.has_pending_edits || false,
+        };
+      });
 
       setProviders(mappedProviders);
     } catch (error: any) {

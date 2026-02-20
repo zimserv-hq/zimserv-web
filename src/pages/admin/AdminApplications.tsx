@@ -9,6 +9,8 @@ import {
   XCircle,
   X,
   Eye,
+  MapPin,
+  Briefcase,
 } from "lucide-react";
 import PageHeader from "../../components/Admin/PageHeader";
 import StatCard from "../../components/Admin/StatCard";
@@ -81,6 +83,34 @@ const SkeletonRow = () => (
   </tr>
 );
 
+const SkeletonCard = () => (
+  <div className="app-card">
+    <div className="app-card-header">
+      <div
+        style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}
+      >
+        <div className="skeleton-block skeleton-name" />
+        <div className="skeleton-block skeleton-email" />
+        <div className="skeleton-pill" style={{ width: 80, marginTop: 4 }} />
+      </div>
+    </div>
+    <div className="app-card-meta">
+      <div className="skeleton-block skeleton-cell-md" />
+      <div className="skeleton-block skeleton-cell-sm" />
+    </div>
+    <div className="app-card-stats">
+      <div className="skeleton-block" style={{ height: 40, flex: 1 }} />
+      <div className="skeleton-block" style={{ height: 40, flex: 1 }} />
+    </div>
+    <div className="app-card-actions">
+      <div
+        className="skeleton-block skeleton-btn"
+        style={{ flex: 1, height: 38 }}
+      />
+    </div>
+  </div>
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AdminApplications = () => {
@@ -111,24 +141,15 @@ const AdminApplications = () => {
     try {
       const { data, error } = await supabase
         .from("provider_applications")
-        .select(
-          `
-          *,
-          categories (
-            name
-          )
-        `,
-        )
+        .select(`*, categories(name)`)
         .order("created_at", { ascending: false });
-
       if (error) {
-        console.error("❌ Error fetching applications:", error);
+        console.error("Error fetching applications:", error);
         return;
       }
-
       setApplications(data || []);
     } catch (err) {
-      console.error("❌ Unexpected error:", err);
+      console.error("Unexpected error:", err);
     } finally {
       setLoading(false);
     }
@@ -147,18 +168,17 @@ const AdminApplications = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showFilter]);
 
-  const handleView = (application: Application) => {
-    navigate(`/admin/applications/${application.id}`);
-  };
+  const handleView = (app: Application) =>
+    navigate(`/admin/applications/${app.id}`);
 
-  const handleApprove = (application: Application) => {
-    setSelectedApplication(application);
+  const handleApprove = (app: Application) => {
+    setSelectedApplication(app);
     setModalAction("approve");
     setShowStatusModal(true);
   };
 
-  const handleReject = (application: Application) => {
-    setSelectedApplication(application);
+  const handleReject = (app: Application) => {
+    setSelectedApplication(app);
     setModalAction("reject");
     setShowStatusModal(true);
   };
@@ -166,10 +186,8 @@ const AdminApplications = () => {
   const confirmStatusChange = async () => {
     if (!selectedApplication) return;
     setIsUpdating(true);
-
     try {
       const newStatus = modalAction === "approve" ? "approved" : "rejected";
-
       const { data, error } = await supabase
         .from("provider_applications")
         .update({ status: newStatus, reviewed_at: new Date().toISOString() })
@@ -193,7 +211,6 @@ const AdminApplications = () => {
             },
           },
         );
-
         if (functionError) {
           alert(
             "Application approved but failed to send invitation email. Please send manually.",
@@ -214,7 +231,6 @@ const AdminApplications = () => {
             : app,
         ),
       );
-
       setShowStatusModal(false);
       setSelectedApplication(null);
     } catch (err) {
@@ -226,9 +242,8 @@ const AdminApplications = () => {
 
   const getFilteredApplications = () => {
     let filtered = applications;
-    if (filterStatus !== "All") {
+    if (filterStatus !== "All")
       filtered = filtered.filter((app) => app.status === filterStatus);
-    }
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(
@@ -254,124 +269,56 @@ const AdminApplications = () => {
   return (
     <>
       <style>{`
-        /* ── Skeleton Animations ─────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; }
+
+        /* ── Skeleton ── */
         @keyframes shimmer {
           0%   { background-position: -600px 0; }
           100% { background-position:  600px 0; }
         }
-
-        .skeleton-block,
-        .skeleton-circle,
-        .skeleton-pill,
-        .skeleton-btn,
-        .skeleton-stat-card {
-          background: linear-gradient(
-            90deg,
-            var(--skeleton-base) 25%,
-            var(--skeleton-highlight) 50%,
-            var(--skeleton-base) 75%
-          );
+        .skeleton-block, .skeleton-circle, .skeleton-pill, .skeleton-btn, .skeleton-stat-card {
+          background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-highlight) 50%, var(--skeleton-base) 75%);
           background-size: 600px 100%;
           animation: shimmer 1.6s ease-in-out infinite;
           border-radius: 6px;
         }
+        :root { --skeleton-base: #f0f0f0; --skeleton-highlight: #e0e0e0; }
+        .dark-mode { --skeleton-base: #374151; --skeleton-highlight: #4b5563; }
 
-        :root {
-          --skeleton-base:      #f0f0f0;
-          --skeleton-highlight: #e0e0e0;
-        }
-
-        .dark-mode {
-          --skeleton-base:      #374151;
-          --skeleton-highlight: #4b5563;
-        }
-
-        /* Stat card skeleton */
         .skeleton-stat-card {
-          border-radius: 16px;
-          padding: 24px;
+          border-radius: 16px; padding: 24px;
           border: 1.5px solid var(--border-color);
-          background: var(--card-bg);
-          min-height: 110px;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
+          background: var(--card-bg); min-height: 110px;
+          display: flex; flex-direction: column; justify-content: space-between;
         }
-
-        .skeleton-stat-card .skeleton-block,
-        .skeleton-stat-card .skeleton-circle {
-          /* inherit shimmer from parent background won't work on children — use directly */
-        }
-
-        .skeleton-stat-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 16px;
-        }
-
-        .skeleton-stat-label {
-          height: 13px;
-          width: 80px;
-        }
-
-        .skeleton-stat-icon {
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
-        }
-
-        .skeleton-stat-value {
-          height: 28px;
-          width: 60px;
-        }
-
-        /* Table row skeleton */
-        .skeleton-row td {
-          padding: 18px 20px;
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .skeleton-applicant-cell {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .skeleton-name  { height: 14px; width: 120px; }
-        .skeleton-email { height: 12px; width: 160px; }
+        .skeleton-stat-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .skeleton-stat-label { height: 13px; width: 80px; }
+        .skeleton-stat-icon  { width: 40px; height: 40px; border-radius: 10px; }
+        .skeleton-stat-value { height: 28px; width: 60px; }
+        .skeleton-row td { padding: 18px 20px; border-bottom: 1px solid var(--border-color); }
+        .skeleton-applicant-cell { display: flex; flex-direction: column; gap: 8px; }
+        .skeleton-name    { height: 14px; width: 120px; }
+        .skeleton-email   { height: 12px; width: 160px; }
         .skeleton-cell-md { height: 14px; width: 90px; }
         .skeleton-cell-sm { height: 14px; width: 60px; }
+        .skeleton-pill    { height: 26px; width: 80px; border-radius: 20px; }
+        .skeleton-actions { display: flex; gap: 8px; }
+        .skeleton-btn     { height: 32px; width: 72px; border-radius: 8px; }
 
-        .skeleton-pill {
-          height: 26px;
-          width: 80px;
-          border-radius: 20px;
-        }
-
-        .skeleton-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .skeleton-btn {
-          height: 32px;
-          width: 72px;
-          border-radius: 8px;
-        }
-
-        /* ── Original Styles ─────────────────────────────────────── */
+        /* ── Page ── */
         .admin-applications {
           padding: 28px;
           max-width: 1600px;
           margin: 0 auto;
           background: var(--bg-primary);
           min-height: 100vh;
+          width: 100%;
+          overflow-x: hidden;
         }
 
         .stats-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          grid-template-columns: repeat(4, 1fr);
           gap: 20px;
           margin-bottom: 24px;
         }
@@ -382,18 +329,9 @@ const AdminApplications = () => {
           align-items: center;
           margin-bottom: 20px;
         }
+        .toolbar-left { flex: 1; display: flex; gap: 12px; }
 
-        .toolbar-left {
-          flex: 1;
-          display: flex;
-          gap: 12px;
-        }
-
-        .search-container {
-          position: relative;
-          flex: 1;
-          max-width: 500px;
-        }
+        .search-container { position: relative; flex: 1; max-width: 500px; }
 
         .search-input {
           width: 100%;
@@ -405,165 +343,80 @@ const AdminApplications = () => {
           font-size: 14px;
           font-weight: 500;
           outline: none;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
         }
-
         .search-input::placeholder { color: var(--text-tertiary); }
-
         .search-input:focus {
           border-color: var(--orange-primary);
           background: var(--card-bg);
           box-shadow: 0 0 0 4px var(--orange-shadow);
           transform: translateY(-1px);
         }
-
         .search-icon {
-          position: absolute;
-          left: 16px;
-          top: 50%;
+          position: absolute; left: 16px; top: 50%;
           transform: translateY(-50%);
           color: var(--text-tertiary);
           pointer-events: none;
           transition: all 0.3s ease;
         }
-
-        .search-input:focus ~ .search-icon {
-          color: var(--orange-primary);
-          transform: translateY(-50%) scale(1.1);
-        }
-
         .clear-search {
-          position: absolute;
-          right: 12px;
-          top: 50%;
+          position: absolute; right: 12px; top: 50%;
           transform: translateY(-50%);
-          background: none;
-          border: none;
-          cursor: pointer;
-          color: var(--text-secondary);
-          padding: 6px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 6px;
-          transition: all 0.2s ease;
+          background: none; border: none; cursor: pointer;
+          color: var(--text-secondary); padding: 6px;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 6px; transition: all 0.2s ease;
         }
-
-        .clear-search:hover {
-          background: var(--hover-bg);
-          color: var(--text-primary);
-          transform: translateY(-50%) scale(1.1);
-        }
+        .clear-search:hover { background: var(--hover-bg); color: var(--text-primary); }
 
         .filter-wrapper { position: relative; }
-
         .filter-btn {
-          padding: 13px 20px;
-          border-radius: 12px;
+          padding: 13px 20px; border-radius: 12px;
           border: 1.5px solid var(--border-color);
-          background: var(--filter-btn-bg);
-          color: var(--text-primary);
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          white-space: nowrap;
+          background: var(--filter-btn-bg); color: var(--text-primary);
+          font-size: 14px; font-weight: 600; cursor: pointer;
+          display: flex; align-items: center; gap: 10px;
+          transition: all 0.3s cubic-bezier(0.4,0,0.2,1); white-space: nowrap;
         }
-
-        .filter-btn:hover {
-          background: var(--filter-btn-hover);
-          border-color: var(--border-hover);
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px var(--card-shadow);
-        }
-
-        .filter-btn.active {
-          background: var(--orange-light-bg);
-          border-color: var(--orange-primary);
-          color: var(--orange-primary);
-        }
+        .filter-btn:hover { background: var(--filter-btn-hover); border-color: var(--border-hover); transform: translateY(-2px); }
+        .filter-btn.active { background: var(--orange-light-bg); border-color: var(--orange-primary); color: var(--orange-primary); }
 
         .filter-dropdown {
-          position: absolute;
-          top: calc(100% + 8px);
-          right: 0;
-          background: var(--card-bg);
-          border: 1.5px solid var(--border-color);
-          border-radius: 12px;
-          box-shadow: 0 12px 48px var(--dropdown-shadow);
-          padding: 8px;
-          min-width: 180px;
-          z-index: 100;
-          animation: slideDown 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          position: absolute; top: calc(100% + 8px); right: 0;
+          background: var(--card-bg); border: 1.5px solid var(--border-color);
+          border-radius: 12px; box-shadow: 0 12px 48px var(--dropdown-shadow);
+          padding: 8px; min-width: 180px; z-index: 100;
+          animation: slideDown 0.2s cubic-bezier(0.4,0,0.2,1);
         }
-
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
+        @keyframes slideDown { from { opacity:0; transform: translateY(-8px); } to { opacity:1; transform: translateY(0); } }
         .filter-option {
-          padding: 12px 14px;
-          cursor: pointer;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 500;
-          color: var(--text-primary);
+          padding: 12px 14px; cursor: pointer; border-radius: 8px;
+          font-size: 14px; font-weight: 500; color: var(--text-primary);
           transition: all 0.15s ease;
         }
+        .filter-option:hover { background: var(--hover-bg); color: var(--orange-primary); transform: translateX(4px); }
+        .filter-option.active { background: var(--orange-light-bg); color: var(--orange-primary); font-weight: 600; }
 
-        .filter-option:hover {
-          background: var(--hover-bg);
-          color: var(--orange-primary);
-          transform: translateX(4px);
-        }
-
-        .filter-option.active {
-          background: var(--orange-light-bg);
-          color: var(--orange-primary);
-          font-weight: 600;
-        }
-
+        /* ── Desktop Table ── */
         .table-card {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
-          border-radius: 16px;
-          overflow: hidden;
+          border-radius: 16px; overflow: hidden;
           box-shadow: 0 4px 24px var(--card-shadow);
         }
-
         .table-container { overflow-x: auto; }
 
-        .applications-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-
-        .applications-table thead {
-          background: var(--hover-bg);
-          border-bottom: 1.5px solid var(--border-color);
-        }
-
+        .applications-table { width: 100%; border-collapse: collapse; min-width: 800px; }
+        .applications-table thead { background: var(--hover-bg); border-bottom: 1.5px solid var(--border-color); }
         .applications-table th {
-          padding: 16px 20px;
-          text-align: left;
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
+          padding: 16px 20px; text-align: left;
+          font-size: 13px; font-weight: 700; color: var(--text-secondary);
+          text-transform: uppercase; letter-spacing: 0.5px;
         }
-
         .applications-table td {
-          padding: 18px 20px;
-          border-bottom: 1px solid var(--border-color);
-          font-size: 14px;
-          color: var(--text-primary);
+          padding: 18px 20px; border-bottom: 1px solid var(--border-color);
+          font-size: 14px; color: var(--text-primary);
         }
-
         .applications-table tbody tr { transition: background 0.15s ease; }
         .applications-table tbody tr:hover { background: var(--hover-bg); }
         .applications-table tbody tr:last-child td { border-bottom: none; }
@@ -573,20 +426,13 @@ const AdminApplications = () => {
         .applicant-email { font-size: 13px; color: var(--text-secondary); }
 
         .status-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 12px;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: 600;
-          text-transform: capitalize;
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 6px 12px; border-radius: 20px;
+          font-size: 12px; font-weight: 600; text-transform: capitalize;
         }
-
         .status-badge.pending  { background: #fef3c7; color: #92400e; }
         .status-badge.approved { background: #d1fae5; color: #065f46; }
         .status-badge.rejected { background: #fee2e2; color: #991b1b; }
-
         .dark-mode .status-badge.pending  { background: rgba(251,191,36,0.2);  color: #fbbf24; }
         .dark-mode .status-badge.approved { background: rgba(16,185,129,0.2);  color: #10b981; }
         .dark-mode .status-badge.rejected { background: rgba(239,68,68,0.2);   color: #ef4444; }
@@ -594,176 +440,219 @@ const AdminApplications = () => {
         .actions-cell { display: flex; gap: 8px; }
 
         .action-btn {
-          padding: 8px 16px;
-          border: none;
-          border-radius: 8px;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
+          padding: 8px 16px; border: none; border-radius: 8px;
+          font-size: 13px; font-weight: 600; cursor: pointer;
+          display: flex; align-items: center; gap: 6px;
           transition: all 0.2s ease;
         }
-
-        .action-btn.view { background: var(--hover-bg); color: var(--text-primary); }
+        .action-btn.view { background: var(--hover-bg); color: var(--text-primary); border: 1.5px solid var(--border-color); }
         .action-btn.view:hover { background: var(--border-color); transform: translateY(-2px); }
-
         .action-btn.approve {
           background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          color: #fff;
-          box-shadow: 0 2px 8px rgba(16,185,129,0.3);
+          color: #fff; box-shadow: 0 2px 8px rgba(16,185,129,0.3);
         }
         .action-btn.approve:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,185,129,0.4); }
-
         .action-btn.reject {
           background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-          color: #fff;
-          box-shadow: 0 2px 8px rgba(239,68,68,0.3);
+          color: #fff; box-shadow: 0 2px 8px rgba(239,68,68,0.3);
         }
         .action-btn.reject:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
         .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
 
-        .empty-state { padding: 80px 40px; text-align: center; color: var(--text-secondary); }
+        /* ── Mobile Cards ── */
+        .mobile-cards {
+          display: none;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .app-card {
+          background: var(--card-bg);
+          border: 1.5px solid var(--border-color);
+          border-radius: 12px;
+          padding: 16px;
+          transition: all 0.15s ease;
+        }
+        .app-card:hover {
+          border-color: var(--border-hover);
+          box-shadow: 0 2px 12px var(--card-shadow);
+        }
+
+        .app-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .app-card-name {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text-primary);
+          margin: 0 0 3px 0;
+        }
+
+        .app-card-email {
+          font-size: 13px;
+          color: var(--text-secondary);
+          margin: 0 0 8px 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .app-card-meta {
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-bottom: 12px;
+        }
+
+        .app-card-meta-item {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 13px;
+          color: var(--text-secondary);
+          font-weight: 500;
+        }
+
+        .app-card-stats {
+          display: flex;
+          justify-content: space-between;
+          padding: 12px 0;
+          border-top: 1px solid var(--border-color);
+          border-bottom: 1px solid var(--border-color);
+          margin-bottom: 12px;
+          gap: 8px;
+        }
+
+        .app-card-stat {
+          flex: 1;
+          text-align: center;
+        }
+
+        .app-card-stat-label {
+          font-size: 11px;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 4px;
+        }
+
+        .app-card-stat-value {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+
+        .app-card-actions {
+          display: flex;
+          gap: 8px;
+        }
+
+        .app-card-actions .action-btn {
+          flex: 1;
+          justify-content: center;
+          padding: 10px 8px;
+          font-size: 13px;
+        }
+
+        /* ── Empty State ── */
+        .empty-state { padding: 60px 40px; text-align: center; color: var(--text-secondary); }
         .empty-icon  { margin-bottom: 16px; opacity: 0.5; }
         .empty-text  { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
         .empty-subtext { font-size: 14px; opacity: 0.7; }
 
-        /* Modal */
+        /* ── Modal ── */
         .modal-overlay {
-          position: fixed;
-          inset: 0;
+          position: fixed; inset: 0;
           background: var(--modal-overlay);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          backdrop-filter: blur(8px);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 1000; backdrop-filter: blur(8px);
           animation: fadeIn 0.2s ease;
         }
-
         @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
 
         .modal-content {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
-          border-radius: 16px;
-          padding: 28px;
-          max-width: 460px;
-          width: 90%;
+          border-radius: 16px; padding: 28px;
+          max-width: 460px; width: 90%;
           box-shadow: 0 24px 80px var(--modal-shadow);
-          animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1);
         }
-
-        @keyframes slideUp {
-          from { opacity:0; transform: translateY(20px) scale(0.95); }
-          to   { opacity:1; transform: translateY(0) scale(1); }
-        }
+        @keyframes slideUp { from { opacity:0; transform: translateY(20px) scale(0.95); } to { opacity:1; transform: translateY(0) scale(1); } }
 
         .modal-title {
-          font-size: 20px;
-          font-weight: 700;
-          color: var(--text-primary);
-          margin-bottom: 16px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
+          font-size: 20px; font-weight: 700;
+          color: var(--text-primary); margin-bottom: 16px;
+          display: flex; align-items: center; gap: 12px;
         }
-
-        .modal-text {
-          color: var(--text-secondary);
-          line-height: 1.6;
-          margin-bottom: 28px;
-          font-size: 15px;
-        }
-
+        .modal-text { color: var(--text-secondary); line-height: 1.6; margin-bottom: 28px; font-size: 15px; }
         .modal-text strong { color: var(--text-primary); font-weight: 600; }
         .modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
 
-        .btn-modal {
-          padding: 12px 24px;
-          border: none;
-          border-radius: 10px;
-          font-weight: 600;
-          font-size: 14px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
+        .btn-modal { padding: 12px 24px; border: none; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
         .btn-cancel { background: var(--btn-cancel-bg); color: var(--text-primary); }
         .btn-cancel:hover { background: var(--btn-cancel-hover); }
         .btn-confirm { color: #fff; }
-
-        .btn-confirm.approve {
-          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          box-shadow: 0 4px 16px rgba(16,185,129,0.3);
-        }
+        .btn-confirm.approve { background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 16px rgba(16,185,129,0.3); }
         .btn-confirm.approve:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.4); }
-
-        .btn-confirm.reject {
-          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-          box-shadow: 0 4px 16px rgba(239,68,68,0.3);
-        }
+        .btn-confirm.reject { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 4px 16px rgba(239,68,68,0.3); }
         .btn-confirm.reject:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.4); }
         .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* CSS Variables */
+        /* ── CSS Variables ── */
         :root {
-          --bg-primary: #f8f9fa;
-          --text-primary: #111827;
-          --text-secondary: #6b7280;
-          --text-tertiary: #9ca3af;
-          --card-bg: #ffffff;
-          --border-color: #e5e7eb;
-          --border-hover: #d1d5db;
-          --hover-bg: #f3f4f6;
-          --search-bg: #f9fafb;
-          --filter-btn-bg: #ffffff;
-          --filter-btn-hover: #f9fafb;
-          --card-shadow: rgba(0, 0, 0, 0.1);
-          --dropdown-shadow: rgba(0, 0, 0, 0.15);
-          --orange-primary: #ff6b35;
-          --orange-light-bg: #fff4ed;
-          --orange-shadow: rgba(255, 107, 53, 0.1);
-          --modal-overlay: rgba(0, 0, 0, 0.5);
-          --modal-shadow: rgba(0, 0, 0, 0.3);
-          --btn-cancel-bg: #f3f4f6;
-          --btn-cancel-hover: #e5e7eb;
+          --bg-primary: #f8f9fa; --text-primary: #111827; --text-secondary: #6b7280;
+          --text-tertiary: #9ca3af; --card-bg: #ffffff; --border-color: #e5e7eb;
+          --border-hover: #d1d5db; --hover-bg: #f3f4f6; --search-bg: #f9fafb;
+          --filter-btn-bg: #ffffff; --filter-btn-hover: #f9fafb;
+          --card-shadow: rgba(0,0,0,0.08); --dropdown-shadow: rgba(0,0,0,0.15);
+          --orange-primary: #ff6b35; --orange-light-bg: #fff4ed;
+          --orange-shadow: rgba(255,107,53,0.1);
+          --modal-overlay: rgba(0,0,0,0.5); --modal-shadow: rgba(0,0,0,0.3);
+          --btn-cancel-bg: #f3f4f6; --btn-cancel-hover: #e5e7eb;
+        }
+        .dark-mode {
+          --bg-primary: #111827; --text-primary: #f9fafb; --text-secondary: #d1d5db;
+          --text-tertiary: #9ca3af; --card-bg: #1f2937; --border-color: #374151;
+          --border-hover: #4b5563; --hover-bg: #374151; --search-bg: #374151;
+          --filter-btn-bg: #1f2937; --filter-btn-hover: #374151;
+          --card-shadow: rgba(0,0,0,0.4); --dropdown-shadow: rgba(0,0,0,0.6);
+          --orange-primary: #ff8a5b; --orange-light-bg: rgba(255,107,53,0.15);
+          --orange-shadow: rgba(255,138,91,0.15);
+          --modal-overlay: rgba(0,0,0,0.7); --modal-shadow: rgba(0,0,0,0.6);
+          --btn-cancel-bg: #374151; --btn-cancel-hover: #4b5563;
         }
 
-        .dark-mode {
-          --bg-primary: #111827;
-          --text-primary: #f9fafb;
-          --text-secondary: #d1d5db;
-          --text-tertiary: #9ca3af;
-          --card-bg: #1f2937;
-          --border-color: #374151;
-          --border-hover: #4b5563;
-          --hover-bg: #374151;
-          --search-bg: #374151;
-          --filter-btn-bg: #1f2937;
-          --filter-btn-hover: #374151;
-          --card-shadow: rgba(0, 0, 0, 0.4);
-          --dropdown-shadow: rgba(0, 0, 0, 0.6);
-          --orange-primary: #ff8a5b;
-          --orange-light-bg: rgba(255, 107, 53, 0.15);
-          --orange-shadow: rgba(255, 138, 91, 0.15);
-          --modal-overlay: rgba(0, 0, 0, 0.7);
-          --modal-shadow: rgba(0, 0, 0, 0.6);
-          --btn-cancel-bg: #374151;
-          --btn-cancel-hover: #4b5563;
+        /* ── Responsive ── */
+        @media (max-width: 1024px) {
+          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; }
         }
 
         @media (max-width: 768px) {
           .admin-applications { padding: 20px 16px; }
-          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
           .toolbar { flex-direction: column; align-items: stretch; }
           .toolbar-left { flex-direction: column; }
           .search-container { max-width: 100%; }
           .filter-btn { width: 100%; justify-content: center; }
-          .table-container { overflow-x: scroll; }
+
+          /* Hide table, show cards */
+          .table-card { display: none; }
+          .mobile-cards { display: flex; }
+
           .modal-actions { flex-direction: column-reverse; }
           .btn-modal { width: 100%; }
+        }
+
+        @media (max-width: 480px) {
+          .admin-applications { padding: 12px 10px; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+          .app-card-actions { flex-wrap: wrap; }
         }
       `}</style>
 
@@ -774,7 +663,7 @@ const AdminApplications = () => {
           icon={FileText}
         />
 
-        {/* Stats — skeleton while loading */}
+        {/* Stats */}
         <div className="stats-grid">
           {loading ? (
             <>
@@ -813,6 +702,7 @@ const AdminApplications = () => {
           )}
         </div>
 
+        {/* Toolbar */}
         <div className="toolbar">
           <div className="toolbar-left">
             <div className="search-container">
@@ -828,7 +718,6 @@ const AdminApplications = () => {
                 <button
                   onClick={() => setSearchQuery("")}
                   className="clear-search"
-                  title="Clear search"
                 >
                   <X size={16} strokeWidth={2.5} />
                 </button>
@@ -843,7 +732,6 @@ const AdminApplications = () => {
                 <Filter size={18} strokeWidth={2.5} />
                 {filterStatus === "All" ? "Filter" : filterStatus}
               </button>
-
               {showFilter && (
                 <div className="filter-dropdown">
                   {(["All", "pending", "approved", "rejected"] as const).map(
@@ -868,10 +756,10 @@ const AdminApplications = () => {
           </div>
         </div>
 
+        {/* ── Desktop Table ── */}
         <div className="table-card">
           <div className="table-container">
             {loading ? (
-              /* ── Skeleton Table ── */
               <table className="applications-table">
                 <thead>
                   <tr>
@@ -953,7 +841,6 @@ const AdminApplications = () => {
                           <button
                             className="action-btn view"
                             onClick={() => handleView(app)}
-                            title="View details"
                           >
                             <Eye size={14} strokeWidth={2.5} />
                             View
@@ -986,6 +873,114 @@ const AdminApplications = () => {
           </div>
         </div>
 
+        {/* ── Mobile Cards ── */}
+        <div className="mobile-cards">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+          ) : filteredApplications.length === 0 ? (
+            <div className="empty-state">
+              <FileText size={48} className="empty-icon" />
+              <div className="empty-text">No applications found</div>
+              <div className="empty-subtext">
+                {searchQuery || filterStatus !== "All"
+                  ? "Try adjusting your filters"
+                  : "New applications will appear here"}
+              </div>
+            </div>
+          ) : (
+            filteredApplications.map((app) => (
+              <div key={app.id} className="app-card">
+                {/* Name + email + status */}
+                <div className="app-card-header">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 className="app-card-name">{app.full_name}</h3>
+                    <p className="app-card-email">{app.email}</p>
+                    <span className={`status-badge ${app.status}`}>
+                      {app.status === "pending" && (
+                        <Clock size={12} strokeWidth={2.5} />
+                      )}
+                      {app.status === "approved" && (
+                        <CheckCircle size={12} strokeWidth={2.5} />
+                      )}
+                      {app.status === "rejected" && (
+                        <XCircle size={12} strokeWidth={2.5} />
+                      )}
+                      {app.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Category + city */}
+                <div className="app-card-meta">
+                  <div className="app-card-meta-item">
+                    <Briefcase size={13} strokeWidth={2} />
+                    {app.categories?.name ?? "—"}
+                  </div>
+                  <div className="app-card-meta-item">
+                    <MapPin size={13} strokeWidth={2} />
+                    {app.city}
+                  </div>
+                </div>
+
+                {/* Stats row */}
+                <div className="app-card-stats">
+                  <div className="app-card-stat">
+                    <div className="app-card-stat-label">Experience</div>
+                    <div className="app-card-stat-value">
+                      {app.years_experience}
+                    </div>
+                  </div>
+                  <div className="app-card-stat">
+                    <div className="app-card-stat-label">Applied</div>
+                    <div className="app-card-stat-value">
+                      {new Date(app.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </div>
+                  </div>
+                  <div className="app-card-stat">
+                    <div className="app-card-stat-label">Work Type</div>
+                    <div className="app-card-stat-value">
+                      {app.work_type || "—"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="app-card-actions">
+                  <button
+                    className="action-btn view"
+                    onClick={() => handleView(app)}
+                  >
+                    <Eye size={14} strokeWidth={2.5} />
+                    View
+                  </button>
+                  {app.status === "pending" && (
+                    <>
+                      <button
+                        className="action-btn approve"
+                        onClick={() => handleApprove(app)}
+                      >
+                        <CheckCircle size={14} strokeWidth={2.5} />
+                        Approve
+                      </button>
+                      <button
+                        className="action-btn reject"
+                        onClick={() => handleReject(app)}
+                      >
+                        <XCircle size={14} strokeWidth={2.5} />
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Modal */}
         {showStatusModal && selectedApplication && (
           <div
             className="modal-overlay"

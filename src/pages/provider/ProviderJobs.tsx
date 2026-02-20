@@ -14,9 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import PageHeader from "../../components/Admin/PageHeader";
-import StatCard from "../../components/Admin/StatCard";
 import SearchBar from "../../components/Admin/SearchBar";
-import FilterDropdown from "../../components/Admin/FilterDropdown";
 import AddJobModal from "../../components/ProviderPanel/AddJobModal";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -33,12 +31,19 @@ interface Job {
   budget?: string;
 }
 
+type FilterStatus =
+  | "All"
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "cancelled";
+
 const ProviderJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>("All");
   const [showAddModal, setShowAddModal] = useState(false);
   const [providerId, setProviderId] = useState<string | null>(null);
 
@@ -142,13 +147,10 @@ const ProviderJobs = () => {
     pending: jobs.filter((j) => j.status === "pending").length,
   };
 
-  const filterOptions = [
-    { label: "All Jobs", value: "All" },
-    { label: "Pending", value: "pending" },
-    { label: "In Progress", value: "in_progress" },
-    { label: "Completed", value: "completed" },
-    { label: "Cancelled", value: "cancelled" },
-  ];
+  // Stat card click — toggle filter, click same card again to reset to All
+  const handleStatClick = (status: FilterStatus) => {
+    setFilterStatus((prev) => (prev === status ? "All" : status));
+  };
 
   const getStatusConfig = (status: string) => {
     switch (status) {
@@ -225,6 +227,44 @@ const ProviderJobs = () => {
     });
   };
 
+  // Stat card configs — each knows its filter value
+  const statCards: {
+    label: string;
+    value: number;
+    icon: any;
+    filterValue: FilterStatus;
+    activeColor: string;
+  }[] = [
+    {
+      label: "Total Jobs",
+      value: jobStats.total,
+      icon: Briefcase,
+      filterValue: "All",
+      activeColor: "#FF6B35",
+    },
+    {
+      label: "Pending",
+      value: jobStats.pending,
+      icon: Clock,
+      filterValue: "pending",
+      activeColor: "#d97706",
+    },
+    {
+      label: "In Progress",
+      value: jobStats.inProgress,
+      icon: Briefcase,
+      filterValue: "in_progress",
+      activeColor: "#2563eb",
+    },
+    {
+      label: "Completed",
+      value: jobStats.completed,
+      icon: CheckCircle,
+      filterValue: "completed",
+      activeColor: "#15803d",
+    },
+  ];
+
   return (
     <>
       <style>{`
@@ -236,6 +276,7 @@ const ProviderJobs = () => {
           box-sizing: border-box;
         }
 
+        /* ── Stat Cards ── */
         .stats-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -243,6 +284,79 @@ const ProviderJobs = () => {
           margin-bottom: 20px;
         }
 
+        .stat-filter-card {
+          background: var(--card-bg);
+          border: 1.5px solid var(--border-color);
+          border-radius: 14px;
+          padding: 18px 20px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          user-select: none;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .stat-filter-card:hover {
+          border-color: var(--border-hover);
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+        }
+
+        .stat-filter-card.active {
+          border-color: var(--stat-active-color);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--stat-active-color) 15%, transparent);
+        }
+
+        .stat-filter-card.active::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: color-mix(in srgb, var(--stat-active-color) 6%, transparent);
+          pointer-events: none;
+        }
+
+        .stat-icon-wrap {
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          transition: background 0.2s;
+        }
+
+        .stat-text { flex: 1; min-width: 0; }
+
+        .stat-value {
+          font-size: 24px;
+          font-weight: 800;
+          color: var(--text-primary);
+          letter-spacing: -0.5px;
+          line-height: 1;
+          margin-bottom: 4px;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: var(--text-secondary);
+          font-weight: 500;
+        }
+
+        .stat-active-dot {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--stat-active-color);
+        }
+
+        /* ── Actions Bar ── */
         .actions-bar {
           display: flex;
           align-items: center;
@@ -257,7 +371,24 @@ const ProviderJobs = () => {
           margin-top: 20px;
         }
 
-        .filter-wrapper { flex-shrink: 0; }
+        /* Active filter pill */
+        .active-filter-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          background: rgba(255,107,53,0.1);
+          color: var(--orange-primary);
+          border: 1.5px solid rgba(255,107,53,0.25);
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .active-filter-pill:hover { background: rgba(255,107,53,0.18); }
+        .active-filter-pill svg { opacity: 0.7; }
 
         .add-job-btn {
           display: inline-flex;
@@ -284,6 +415,7 @@ const ProviderJobs = () => {
           box-shadow: 0 6px 16px rgba(255, 107, 53, 0.35);
         }
 
+        /* ── Jobs Grid ── */
         .jobs-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -305,194 +437,89 @@ const ProviderJobs = () => {
         .job-card::before {
           content: '';
           position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
+          top: 0; left: 0; right: 0;
           height: 3px;
           background: linear-gradient(90deg, #FF6B35 0%, #E85A28 100%);
           transform: scaleX(0);
           transition: transform 0.3s ease;
         }
 
-        .job-card:hover {
-          border-color: var(--border-hover);
-          box-shadow: 0 8px 24px var(--card-shadow);
-          transform: translateY(-2px);
-        }
-
+        .job-card:hover { border-color: var(--border-hover); box-shadow: 0 8px 24px var(--card-shadow); transform: translateY(-2px); }
         .job-card:hover::before { transform: scaleX(1); }
 
-        .job-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-          margin-bottom: 16px;
-        }
-
-        .job-title {
-          font-size: 15px;
-          font-weight: 700;
-          color: var(--text-primary);
-          letter-spacing: -0.2px;
-          flex: 1;
-          line-height: 1.3;
-        }
+        .job-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+        .job-title  { font-size: 15px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.2px; flex: 1; line-height: 1.3; }
 
         .status-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-          padding: 4px 10px;
-          border-radius: 8px;
-          font-size: 12px;
-          font-weight: 600;
-          border: 1px solid;
-          white-space: nowrap;
-          flex-shrink: 0;
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 4px 10px; border-radius: 8px;
+          font-size: 12px; font-weight: 600; border: 1px solid;
+          white-space: nowrap; flex-shrink: 0;
         }
 
-        .job-info {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          margin-bottom: 16px;
-          flex: 1;
-        }
-
-        .info-row {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 13px;
-          color: var(--text-secondary);
-        }
-
+        .job-info { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; flex: 1; }
+        .info-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
         .info-row svg { color: var(--text-tertiary); flex-shrink: 0; }
         .info-row strong { color: var(--text-primary); font-weight: 600; }
 
         .budget-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 3px 10px;
-          background: rgba(255, 107, 53, 0.08);
-          color: var(--orange-primary);
-          border-radius: 6px;
-          font-size: 12px;
-          font-weight: 600;
-          border: 1px solid rgba(255, 107, 53, 0.2);
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 3px 10px; background: rgba(255,107,53,0.08);
+          color: var(--orange-primary); border-radius: 6px;
+          font-size: 12px; font-weight: 600;
+          border: 1px solid rgba(255,107,53,0.2);
         }
 
-        .job-actions-section {
-          border-top: 1.5px solid var(--border-color);
-          padding-top: 14px;
-          margin-top: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
+        .job-actions-section { border-top: 1.5px solid var(--border-color); padding-top: 14px; margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
         .job-date { font-size: 11px; color: var(--text-tertiary); }
-
         .job-action-buttons { display: flex; gap: 8px; }
 
         .action-btn {
-          flex: 1;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          padding: 8px 12px;
-          border-radius: 8px;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          border: 1.5px solid;
+          flex: 1; display: inline-flex; align-items: center; justify-content: center;
+          gap: 6px; padding: 8px 12px; border-radius: 8px;
+          font-size: 12px; font-weight: 600; cursor: pointer;
+          transition: all 0.2s ease; border: 1.5px solid;
         }
-
         .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .action-btn.complete { background: #dcfce7; color: #15803d; border-color: #86efac; }
+        .action-btn.complete:hover:not(:disabled) { background: #15803d; color: #fff; border-color: #15803d; }
+        .action-btn.cancel { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+        .action-btn.cancel:hover:not(:disabled) { background: #dc2626; color: #fff; border-color: #dc2626; }
+        .dark-mode .action-btn.complete { background: rgba(21,128,61,0.15); color: #4ade80; border-color: rgba(21,128,61,0.3); }
+        .dark-mode .action-btn.cancel   { background: rgba(220,38,38,0.15); color: #f87171; border-color: rgba(220,38,38,0.3); }
+        .dark-mode .status-badge { background: rgba(var(--badge-rgb), 0.15) !important; border-color: transparent !important; }
 
-        .action-btn.complete {
-          background: #dcfce7;
-          color: #15803d;
-          border-color: #86efac;
-        }
-
-        .action-btn.complete:hover:not(:disabled) {
-          background: #15803d;
-          color: #fff;
-          border-color: #15803d;
-        }
-
-        .action-btn.cancel {
-          background: #fee2e2;
-          color: #dc2626;
-          border-color: #fca5a5;
-        }
-
-        .action-btn.cancel:hover:not(:disabled) {
-          background: #dc2626;
-          color: #fff;
-          border-color: #dc2626;
-        }
-
-        .dark-mode .action-btn.complete {
-          background: rgba(21,128,61,0.15);
-          color: #4ade80;
-          border-color: rgba(21,128,61,0.3);
-        }
-
-        .dark-mode .action-btn.cancel {
-          background: rgba(220,38,38,0.15);
-          color: #f87171;
-          border-color: rgba(220,38,38,0.3);
-        }
-
-        /* Dark mode status badges */
-        .dark-mode .status-badge {
-          background: rgba(var(--badge-rgb), 0.15) !important;
-          border-color: transparent !important;
-        }
-
-        .empty-state {
-          grid-column: 1 / -1;
-          padding: 80px 20px;
-          text-align: center;
-          border: 1.5px dashed var(--border-color);
-          border-radius: 14px;
-          background: var(--card-bg);
-        }
-
-        .empty-icon { font-size: 48px; margin-bottom: 16px; }
+        .empty-state { grid-column: 1 / -1; padding: 80px 20px; text-align: center; border: 1.5px dashed var(--border-color); border-radius: 14px; background: var(--card-bg); }
+        .empty-icon  { font-size: 48px; margin-bottom: 16px; }
         .empty-title { font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
-        .empty-text { font-size: 14px; color: var(--text-secondary); }
+        .empty-text  { font-size: 14px; color: var(--text-secondary); }
 
-        /* ===== RESPONSIVE ===== */
-        @media (max-width: 1400px) { .jobs-grid { grid-template-columns: repeat(3, 1fr); } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
+
+        /* ── Responsive ── */
         @media (max-width: 1100px) {
-          .jobs-grid { grid-template-columns: repeat(2, 1fr); }
+          .jobs-grid  { grid-template-columns: repeat(2, 1fr); }
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 768px) {
-          .provider-jobs { padding: 16px; }
-          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
-          .actions-bar { flex-direction: column; align-items: stretch; gap: 10px; }
-          .search-wrapper { max-width: none; }
-          .add-job-btn { margin-left: 0; width: 100%; justify-content: center; }
-          .jobs-grid { grid-template-columns: 1fr; gap: 12px; }
-          .job-card { padding: 16px; }
-          .job-title { font-size: 14px; }
-          .info-row { font-size: 12px; }
+          .provider-jobs  { padding: 16px; }
+          .stats-grid     { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+          .actions-bar    { flex-wrap: wrap; gap: 10px; }
+          .search-wrapper { max-width: none; flex: 1 1 200px; }
+          .add-job-btn    { margin-left: 0; }
+          .jobs-grid      { grid-template-columns: 1fr; gap: 12px; }
+          .job-card       { padding: 16px; }
+          .job-title      { font-size: 14px; }
+          .info-row       { font-size: 12px; }
         }
 
         @media (max-width: 480px) {
-          .provider-jobs { padding: 12px; }
-          .stats-grid { gap: 8px; }
-          .job-action-buttons { flex-direction: column; }
-          .action-btn { width: 100%; }
+          .provider-jobs       { padding: 12px; }
+          .stats-grid          { gap: 8px; }
+          .job-action-buttons  { flex-direction: column; }
+          .action-btn          { width: 100%; }
         }
       `}</style>
 
@@ -503,33 +530,48 @@ const ProviderJobs = () => {
           icon={Briefcase}
         />
 
+        {/* ── Stat Cards (clickable filters) ── */}
         <div className="stats-grid">
-          <StatCard
-            label="Total Jobs"
-            value={jobStats.total}
-            icon={Briefcase}
-            iconColor="orange"
-          />
-          <StatCard
-            label="Pending"
-            value={jobStats.pending}
-            icon={Clock}
-            iconColor="yellow"
-          />
-          <StatCard
-            label="In Progress"
-            value={jobStats.inProgress}
-            icon={Briefcase}
-            iconColor="blue"
-          />
-          <StatCard
-            label="Completed"
-            value={jobStats.completed}
-            icon={CheckCircle}
-            iconColor="green"
-          />
+          {statCards.map(
+            ({ label, value, icon: Icon, filterValue, activeColor }) => {
+              const isActive = filterStatus === filterValue;
+              return (
+                <div
+                  key={filterValue}
+                  className={`stat-filter-card ${isActive ? "active" : ""}`}
+                  style={
+                    {
+                      "--stat-active-color": activeColor,
+                    } as React.CSSProperties
+                  }
+                  onClick={() => handleStatClick(filterValue)}
+                  title={
+                    isActive ? `Remove "${label}" filter` : `Filter by ${label}`
+                  }
+                >
+                  <div
+                    className="stat-icon-wrap"
+                    style={{
+                      background: isActive
+                        ? `color-mix(in srgb, ${activeColor} 15%, transparent)`
+                        : "var(--hover-bg)",
+                      color: isActive ? activeColor : "var(--text-secondary)",
+                    }}
+                  >
+                    <Icon size={20} strokeWidth={2} />
+                  </div>
+                  <div className="stat-text">
+                    <div className="stat-value">{value}</div>
+                    <div className="stat-label">{label}</div>
+                  </div>
+                  {isActive && <div className="stat-active-dot" />}
+                </div>
+              );
+            },
+          )}
         </div>
 
+        {/* ── Actions Bar ── */}
         <div className="actions-bar">
           <div className="search-wrapper">
             <SearchBar
@@ -538,19 +580,26 @@ const ProviderJobs = () => {
               placeholder="Search by job title, customer, or location..."
             />
           </div>
-          <div className="filter-wrapper">
-            <FilterDropdown
-              options={filterOptions}
-              value={filterStatus}
-              onChange={setFilterStatus}
-            />
-          </div>
+
+          {/* Active filter pill — shows which stat is selected, click to clear */}
+          {filterStatus !== "All" && (
+            <button
+              className="active-filter-pill"
+              onClick={() => setFilterStatus("All")}
+              title="Clear filter"
+            >
+              {getStatusLabel(filterStatus)}
+              <XCircle size={13} strokeWidth={2.5} />
+            </button>
+          )}
+
           <button className="add-job-btn" onClick={() => setShowAddModal(true)}>
             <Plus size={18} strokeWidth={2.5} />
             Add New Job
           </button>
         </div>
 
+        {/* ── Jobs Grid ── */}
         <div className="jobs-grid">
           {loading ? (
             [...Array(6)].map((_, i) => (

@@ -5,13 +5,14 @@ import { supabase } from "../lib/supabaseClient";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: "admin" | "super_admin";
+  requiredRole?: "admin" | "super_admin" | "provider";
 }
 
 const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [hasAccess, setHasAccess] = useState(false);
+  const [isSuspended, setIsSuspended] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
@@ -33,7 +34,30 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
 
       setIsAuthenticated(true);
 
-      // Check role if required
+      // ── Provider routes ──────────────────────────────────────────────────
+      if (requiredRole === "provider") {
+        const { data: providerRow, error } = await supabase
+          .from("providers")
+          .select("id, status")
+          .eq("email", user.email)
+          .maybeSingle();
+
+        if (error || !providerRow) {
+          setHasAccess(false);
+        } else if (
+          ["suspended", "banned", "rejected"].includes(providerRow.status)
+        ) {
+          setHasAccess(false);
+          setIsSuspended(true);
+        } else {
+          setHasAccess(true);
+        }
+
+        setLoading(false);
+        return;
+      }
+
+      // ── Admin routes ─────────────────────────────────────────────────────
       if (requiredRole) {
         const userRole = user.app_metadata?.role;
 
@@ -95,12 +119,96 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   }
 
   if (!isAuthenticated) {
-    // Redirect to login, save the attempted location
-    return <Navigate to="/admin/login" state={{ from: location }} replace />;
+    // Redirect to the correct login page based on route type
+    const loginPath =
+      requiredRole === "provider" ? "/provider/login" : "/admin/login";
+    return <Navigate to={loginPath} state={{ from: location }} replace />;
   }
 
   if (!hasAccess) {
-    // Authenticated but doesn't have required role
+    // Suspended / banned provider
+    if (isSuspended) {
+      return (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "100vh",
+            background: "var(--bg-primary, #f8f9fa)",
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              textAlign: "center",
+              maxWidth: "400px",
+              background: "white",
+              padding: "40px",
+              borderRadius: "16px",
+              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+            }}
+          >
+            <div
+              style={{
+                width: "64px",
+                height: "64px",
+                background: "#FEF2F2",
+                borderRadius: "16px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 20px",
+                fontSize: "30px",
+              }}
+            >
+              🚫
+            </div>
+            <h2
+              style={{
+                fontSize: "20px",
+                fontWeight: 700,
+                color: "#111827",
+                margin: "0 0 12px 0",
+              }}
+            >
+              Account Suspended
+            </h2>
+            <p
+              style={{
+                fontSize: "14px",
+                color: "#6b7280",
+                margin: "0 0 24px 0",
+                lineHeight: 1.6,
+              }}
+            >
+              Your provider account has been suspended or is no longer active.
+              Please contact our support team if you believe this is a mistake.
+            </p>
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                window.location.href = "/provider/login";
+              }}
+              style={{
+                padding: "10px 24px",
+                background: "#FF6B35",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Authenticated but doesn't have required admin role
     return (
       <div
         style={{

@@ -13,6 +13,7 @@ interface OnboardingStepsProps {
   nextStep: () => void;
   prevStep: () => void;
   onAccountSubmit?: (email: string, password: string) => Promise<boolean>;
+  onSubmitProfile?: (profileData: OnboardingData) => Promise<void>;
   loadError?: string | null;
 }
 
@@ -23,6 +24,7 @@ const OnboardingSteps = ({
   nextStep,
   prevStep,
   onAccountSubmit,
+  onSubmitProfile,
   loadError,
 }: OnboardingStepsProps) => {
   // STEP 1: ACCOUNT (new – not in application)
@@ -237,12 +239,13 @@ const OnboardingSteps = ({
     if (e.target.files) setLicenseFiles(Array.from(e.target.files));
   };
 
-  const submitProfile = () => {
+  const submitProfile = async () => {
     if (portfolioFiles.length < 1) {
       alert("Please upload at least 1 portfolio image");
       return;
     }
-    const profileData = {
+
+    const profileData: OnboardingData = {
       ...formData,
       email,
       password,
@@ -257,7 +260,16 @@ const OnboardingSteps = ({
       portfolioFiles,
       licenseFiles,
     };
-    console.log("Profile Data:", profileData);
+
+    // Keep parent state in sync
+    updateFormData(profileData);
+
+    if (onSubmitProfile) {
+      await onSubmitProfile(profileData);
+      return;
+    }
+
+    // Fallback if no handler provided
     alert(
       "Profile submitted successfully! Your account is now ready to receive customers.",
     );

@@ -336,7 +336,7 @@ const ProviderLayout = () => {
         .sidebar.collapsed { width: 80px; }
 
         .sidebar-header {
-          padding: 20px;
+          padding: 18px;
           border-bottom: 1px solid var(--border-color);
           position: relative;
         }
@@ -1053,6 +1053,8 @@ const ProviderLayout = () => {
         }
 
         @media (max-width: 768px) {
+          
+          .logo-icon  { display: none; }
           .sidebar { transform: translateX(-100%); box-shadow: none; }
           .sidebar.mobile-open { transform: translateX(0); box-shadow: 20px 0 60px rgba(0,0,0,0.3); }
           .sidebar.collapsed { width: 280px; }
@@ -1110,12 +1112,22 @@ const ProviderLayout = () => {
         >
           <div className="sidebar-header">
             <div className="sidebar-logo">
-              <div className="logo-icon">Z</div>
+              <img
+                src="/assets/log.png"
+                alt="ZimServ"
+                style={{
+                  width: 36,
+                  height: 36,
+                  objectFit: "contain",
+                  borderRadius: 8,
+                }}
+              />
               <div className="logo-text">
                 <div className="logo-title">ZimServ</div>
                 <div className="logo-subtitle">Provider Portal</div>
               </div>
             </div>
+
             <button
               className="collapse-btn"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -1326,12 +1338,18 @@ const ProviderLayout = () => {
               >
                 <Menu size={24} strokeWidth={2.5} />
               </button>
-              <div className="sidebar-logo">
-                <div className="logo-icon">Z</div>
-                <div className="logo-text">
-                  <div className="logo-title">ZimServ</div>
-                </div>
-              </div>
+              <span
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: "var(--text-primary)",
+                  letterSpacing: "-0.3px",
+                  marginTop: -2,
+                  marginLeft: -10,
+                }}
+              >
+                Menu
+              </span>
             </div>
             <div className="mobile-header-right">
               <button

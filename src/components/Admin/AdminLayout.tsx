@@ -59,6 +59,44 @@ const AdminLayout = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    // Single channel for admin dashboard changes
+    const channel = supabase
+      .channel("admin-dashboard-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "provider_applications",
+        },
+        () => {
+          // A new application / status change happened → refresh counts + notifications
+          fetchCounts();
+          fetchNotifications();
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "providers",
+          filter: "has_pending_edits=eq.true",
+        },
+        () => {
+          // Some provider's pending edits flag changed
+          fetchCounts();
+          fetchNotifications();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const fetchCurrentUser = async () => {
     try {
       const {
@@ -381,7 +419,7 @@ const AdminLayout = () => {
 
         /* Sidebar Header */
         .sidebar-header {
-          padding: 20px;
+          padding: 18px;
           border-bottom: 1px solid var(--border-color);
           position: relative;
         }
@@ -816,13 +854,14 @@ const AdminLayout = () => {
           color: #DC2626;
         }
 
-        /* ===== MAIN CONTENT ===== */
-        .main-content {
+       .main-content {
           flex: 1;
           margin-left: 280px;
           min-height: 100vh;
           background: var(--bg-primary);
           transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          min-width: 0;           /* ← ADD THIS */
+          overflow-x: hidden;     /* ← ADD THIS */
         }
 
         .main-content.expanded {
@@ -1343,10 +1382,19 @@ const AdminLayout = () => {
         >
           <div className="sidebar-header">
             <div className="sidebar-logo">
-              <div className="logo-icon">Z</div>
+              <img
+                src="/assets/log.png"
+                alt="ZimServ"
+                style={{
+                  width: 36,
+                  height: 36,
+                  objectFit: "contain",
+                  borderRadius: 8,
+                }}
+              />
               <div className="logo-text">
                 <div className="logo-title">ZimServ</div>
-                <div className="logo-subtitle">Admin Panel</div>
+                <div className="logo-subtitle">Provider Portal</div>
               </div>
             </div>
             <button
@@ -1557,12 +1605,18 @@ const AdminLayout = () => {
               >
                 <Menu size={24} strokeWidth={2.5} />
               </button>
-              <div className="sidebar-logo">
-                <div className="logo-icon">Z</div>
-                <div className="logo-text">
-                  <div className="logo-title">ZimServ</div>
-                </div>
-              </div>
+              <span
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: "var(--text-primary)",
+                  letterSpacing: "-0.3px",
+                  marginTop: -2,
+                  marginLeft: -10,
+                }}
+              >
+                Menu
+              </span>
             </div>
 
             <div className="mobile-header-right">

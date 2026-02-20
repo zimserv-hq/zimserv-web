@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Header from "./components/Header/Header";
 import Footer from "./components/Footer/Footer";
 import ScrollToTop from "./components/ScrollToTop";
-import ProtectedRoute from "./components/ProtectedRoute"; // ✅ NEW
+import ProtectedRoute from "./components/ProtectedRoute";
 
 // Public Pages
 import HomePage from "./pages/HomePage";
@@ -12,6 +12,8 @@ import CategoriesPage from "./pages/CategoriesPage";
 import ProviderProfilePage from "./pages/ProviderProfilePage";
 import BecomeProviderPage from "./pages/BecomeProviderPage";
 import ProviderOnboarding from "./pages/ProviderOnboarding";
+
+import HostRedirector from "./components/HostRedirector";
 
 // Admin Pages
 import AdminLayout from "./components/Admin/AdminLayout";
@@ -28,6 +30,7 @@ import AdminManagement from "./pages/admin/AdminManagement";
 
 // Provider Panel Pages
 import ProviderLayout from "./components/ProviderPanel/ProviderLayout";
+import ProviderLogin from "./pages/provider/ProviderLogin";
 import ProviderDashboard from "./pages/provider/ProviderDashboard";
 import ProviderJobs from "./pages/provider/ProviderJobs";
 import ProviderReviews from "./pages/provider/ProviderReviews";
@@ -37,6 +40,7 @@ function App() {
   return (
     <>
       <ScrollToTop />
+      <HostRedirector />
 
       <Routes>
         {/* Admin Login - Public */}
@@ -64,7 +68,7 @@ function App() {
           <Route path="categories" element={<AdminCategories />} />
           <Route path="users" element={<AdminUsers />} />
 
-          {/* Super Admin Only - Extra Protection */}
+          {/* Super Admin Only */}
           <Route
             path="management"
             element={
@@ -75,19 +79,22 @@ function App() {
           />
         </Route>
 
+        {/* Provider Login - Public */}
+        <Route
+          path="/provider"
+          element={<Navigate to="/provider/login" replace />}
+        />
+        <Route path="/provider/login" element={<ProviderLogin />} />
+
         {/* Provider Panel Routes - Protected */}
         <Route
           path="/provider"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRole="provider">
               <ProviderLayout />
             </ProtectedRoute>
           }
         >
-          <Route
-            index
-            element={<Navigate to="/provider/dashboard" replace />}
-          />
           <Route path="dashboard" element={<ProviderDashboard />} />
           <Route path="jobs" element={<ProviderJobs />} />
           <Route path="reviews" element={<ProviderReviews />} />

@@ -1,5 +1,5 @@
 // src/pages/ProvidersPage.tsx
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Star,
@@ -8,164 +8,62 @@ import {
   Phone,
   MessageCircle,
   ArrowRight,
-  Search,
+  Search as SearchIcon,
   SlidersHorizontal,
   X,
-  Grid3x3,
-  List,
 } from "lucide-react";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
+import { supabase } from "../lib/supabaseClient";
 
-// Mock data
-const ALL_PROVIDERS = [
-  {
-    id: "abc-plumbing",
-    slug: "abc-plumbing-harare",
-    name: "ABC Plumbing Services",
-    category: "Plumbing",
-    tagline: "24/7 Emergency Plumbing Experts",
-    description:
-      "Professional plumbing services with over 8 years of experience. Specializing in emergency repairs, installations, and maintenance for residential and commercial properties.",
-    city: "Harare",
-    areas: ["Borrowdale", "Mount Pleasant", "Avondale"],
-    rating: 4.9,
-    reviewCount: 127,
-    verified: true,
-    image:
-      "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=600&h=400&fit=crop&q=80",
-    yearsExperience: 8,
-    pricing: "$25",
-    priceValue: 25,
-    featured: true,
-  },
-  {
-    id: "elite-electrical",
-    slug: "elite-electrical-bulawayo",
-    name: "Elite Electrical Solutions",
-    category: "Electrical",
-    tagline: "Certified & Insured Electricians",
-    description:
-      "Licensed electricians providing safe and reliable electrical services. From wiring to complete electrical installations, we ensure quality workmanship.",
-    city: "Bulawayo",
-    areas: ["Suburbs", "Hillside", "North End"],
-    rating: 5.0,
-    reviewCount: 94,
-    verified: true,
-    image:
-      "https://images.unsplash.com/photo-1621905251918-48416bd8575a?w=600&h=400&fit=crop&q=80",
-    yearsExperience: 12,
-    pricing: "$30",
-    priceValue: 30,
-    featured: true,
-  },
-  {
-    id: "sparkle-cleaning",
-    slug: "sparkle-cleaning-harare",
-    name: "Sparkle Cleaning Co.",
-    category: "Cleaning",
-    tagline: "Professional Home & Office Cleaning",
-    description:
-      "Eco-friendly cleaning services for homes and offices. We use safe, effective products to deliver sparkling results every time.",
-    city: "Harare",
-    areas: ["CBD", "Eastlea", "Glen Lorne"],
-    rating: 4.8,
-    reviewCount: 203,
-    verified: true,
-    image:
-      "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&h=400&fit=crop&q=80",
-    yearsExperience: 5,
-    pricing: "$20",
-    priceValue: 20,
-    featured: false,
-  },
-  {
-    id: "techfix-it",
-    slug: "techfix-it-solutions-harare",
-    name: "TechFix IT Solutions",
-    category: "IT & Tech",
-    tagline: "Expert Computer Repair & Networking",
-    description:
-      "Complete IT support for businesses and individuals. From hardware repairs to network setup, we keep your technology running smoothly.",
-    city: "Harare",
-    areas: ["Newlands", "Highlands", "Greendale"],
-    rating: 4.9,
-    reviewCount: 156,
-    verified: true,
-    image:
-      "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=600&h=400&fit=crop&q=80",
-    yearsExperience: 10,
-    pricing: "$35",
-    priceValue: 35,
-    featured: false,
-  },
-  {
-    id: "premier-painting",
-    slug: "premier-painting-services",
-    name: "Premier Painting Services",
-    category: "Painting",
-    tagline: "Quality Interior & Exterior Painting",
-    description:
-      "Transform your space with professional painting services. We deliver flawless finishes for both residential and commercial projects.",
-    city: "Harare",
-    areas: ["Borrowdale", "Westgate", "Marlborough"],
-    rating: 4.7,
-    reviewCount: 89,
-    verified: true,
-    image:
-      "https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=600&h=400&fit=crop&q=80",
-    yearsExperience: 6,
-    pricing: "$150",
-    priceValue: 150,
-    featured: false,
-  },
-  {
-    id: "royal-carpentry",
-    slug: "royal-carpentry-works",
-    name: "Royal Carpentry Works",
-    category: "Carpentry",
-    tagline: "Custom Furniture & Woodwork",
-    description:
-      "Skilled craftsmen creating beautiful custom furniture and woodwork. Quality materials and attention to detail in every project.",
-    city: "Bulawayo",
-    areas: ["Suburbs", "Burnside", "Hillside"],
-    rating: 4.9,
-    reviewCount: 76,
-    verified: true,
-    image:
-      "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=600&h=400&fit=crop&q=80",
-    yearsExperience: 15,
-    pricing: "$50",
-    priceValue: 50,
-    featured: false,
-  },
-];
+type DbProvider = {
+  id: string;
+  full_name: string;
+  primary_category: string;
+  city: string;
+  status: string;
+  years_experience: number | null;
+  avg_rating: number | null;
+  total_reviews: number | null;
+  profile_image_url: string | null;
+  pricing_model: string | null;
+};
 
-const QUICK_CATEGORIES = [
-  "Plumbing",
-  "Electrical",
-  "Cleaning",
-  "Painting",
-  "Carpentry",
-  "IT & Tech",
-  "Automotive",
-  "Moving",
-];
+type DbService = {
+  id: string;
+  provider_id: string;
+  service_name: string;
+  price: number | null;
+};
 
-const ALL_CATEGORIES = [
-  "All Categories",
-  "Plumbing",
-  "Electrical",
-  "Cleaning",
-  "Automotive",
-  "Painting",
-  "Carpentry",
-  "HVAC",
-  "IT & Tech",
-  "Moving",
-  "Gardening",
-  "Renovation",
-  "Laundry",
-];
+type ProviderService = {
+  name: string;
+  price: number | null;
+};
+
+type UiProvider = {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+  tagline: string;
+  description: string;
+  city: string;
+  rating: number;
+  reviewCount: number;
+  verified: boolean;
+  image: string;
+  yearsExperience: number;
+  pricingLabel: string;
+  priceValue: number;
+  services: ProviderService[];
+  matchedService?: ProviderService | null;
+};
+
+type DbCategory = {
+  id: string;
+  name: string;
+  status: string;
+};
 
 const CITIES = [
   "All Cities",
@@ -183,10 +81,11 @@ const SORT_OPTIONS = [
   { value: "featured", label: "Featured First" },
   { value: "rating", label: "Highest Rated" },
   { value: "reviews", label: "Most Reviews" },
-  { value: "price-low", label: "Price: Low to High" },
-  { value: "price-high", label: "Price: High to Low" },
-  { value: "newest", label: "Newest First" },
+  { value: "experience", label: "Most Experienced" },
 ];
+
+const DEFAULT_PROVIDER_IMAGE =
+  "https://via.placeholder.com/800x600?text=Service+Provider";
 
 const ProvidersPage = () => {
   const navigate = useNavigate();
@@ -201,92 +100,183 @@ const ProvidersPage = () => {
   );
   const [sortBy, setSortBy] = useState(searchParams.get("sort") || "featured");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [filteredProviders, setFilteredProviders] = useState(ALL_PROVIDERS);
 
-  // Build breadcrumb items dynamically
-  const breadcrumbItems = [];
+  const [providers, setProviders] = useState<UiProvider[]>([]);
+  const [filteredProviders, setFilteredProviders] = useState<UiProvider[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<string[]>(["All Categories"]);
 
-  if (searchQuery.trim()) {
-    breadcrumbItems.push({
-      label: `Search: "${searchQuery}"`,
-    });
-  }
-
-  if (selectedCity !== "All Cities") {
-    const path =
-      searchQuery && !breadcrumbItems.length
-        ? `/providers?q=${searchQuery}&city=${selectedCity}`
-        : `/providers?city=${selectedCity}`;
-
-    breadcrumbItems.push({
-      label: selectedCity,
-      path,
-    });
-  }
-
-  if (selectedCategory !== "All Categories") {
-    let path = `/providers?category=${selectedCategory}`;
-
-    if (searchQuery && selectedCity === "All Cities") {
-      path = `/providers?q=${searchQuery}&category=${selectedCategory}`;
-    } else if (selectedCity !== "All Cities") {
-      path = `/providers?city=${selectedCity}&category=${selectedCategory}`;
-      if (searchQuery) {
-        path = `/providers?q=${searchQuery}&city=${selectedCity}&category=${selectedCategory}`;
-      }
-    }
-
-    breadcrumbItems.push({
-      label: selectedCategory,
-      path,
-    });
-  }
-
-  if (breadcrumbItems.length === 0) {
-    breadcrumbItems.push({ label: "All Providers" });
-  }
-
-  // Apply filters and sorting
+  // Load providers + services + categories from Supabase
   useEffect(() => {
-    let results = [...ALL_PROVIDERS];
+    const fetchData = async () => {
+      try {
+        setLoading(true);
 
-    // Search filter
-    if (searchQuery.trim()) {
-      results = results.filter(
-        (p) =>
-          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.tagline.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.description.toLowerCase().includes(searchQuery.toLowerCase()),
-      );
+        // 1) Providers
+        const { data: providersData, error: providersError } = await supabase
+          .from("providers")
+          .select(
+            "id, full_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model",
+          )
+          .eq("status", "active");
+
+        if (providersError) {
+          console.error("Error loading providers:", providersError);
+          setProviders([]);
+        } else {
+          const dbProviders: DbProvider[] = providersData || [];
+
+          // 2) All provider services
+          const { data: servicesData, error: servicesError } = await supabase
+            .from("provider_services")
+            .select("id, provider_id, service_name, price");
+
+          if (servicesError) {
+            console.error("Error loading provider services:", servicesError);
+          }
+
+          const dbServices: DbService[] = servicesData || [];
+
+          const ui: UiProvider[] = dbProviders.map((p) => {
+            const slug = `${p.full_name}-${p.city}`
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-|-$/g, "");
+
+            const providerServices: ProviderService[] = dbServices
+              .filter((s) => s.provider_id === p.id)
+              .map((s) => ({
+                name: s.service_name,
+                price: s.price,
+              }));
+
+            return {
+              id: p.id,
+              slug,
+              name: p.full_name,
+              category: p.primary_category,
+              tagline: `${p.primary_category} specialist`,
+              description: `Experienced ${p.primary_category.toLowerCase()} professional in ${p.city}.`,
+              city: p.city,
+              rating: p.avg_rating ?? 0,
+              reviewCount: p.total_reviews ?? 0,
+              verified: true,
+              image: p.profile_image_url || DEFAULT_PROVIDER_IMAGE,
+              yearsExperience: p.years_experience ?? 0,
+              pricingLabel: p.pricing_model || "Quote-based",
+              priceValue: p.years_experience ?? 0,
+              services: providerServices,
+              matchedService: null,
+            };
+          });
+
+          setProviders(ui);
+        }
+
+        // 3) Categories
+        const { data: categoriesData, error: categoriesError } = await supabase
+          .from("categories")
+          .select("id,name,status")
+          .eq("status", "Active")
+          .order("display_order", { ascending: true });
+
+        if (categoriesError) {
+          console.error("Error loading categories:", categoriesError);
+        } else {
+          const dbCategories: DbCategory[] = categoriesData || [];
+          const catNames = dbCategories.map((c) => c.name);
+          setCategories(["All Categories", ...catNames]);
+        }
+      } catch (err) {
+        console.error("Unexpected error loading providers/categories:", err);
+        setProviders([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Apply filters & sorting + sync URL
+  useEffect(() => {
+    // clone and reset dynamic fields
+    let results: UiProvider[] = providers.map((p) => ({
+      ...p,
+      matchedService: undefined,
+      tagline: `${p.category} specialist`,
+    }));
+
+    const qRaw = searchQuery.trim();
+    const hasSearch = qRaw.length > 0;
+    const q = qRaw.toLowerCase();
+
+    if (hasSearch) {
+      results = results
+        .map((p) => {
+          let best: ProviderService | null = null;
+
+          if (p.services && p.services.length > 0) {
+            for (const s of p.services) {
+              const name = s.name.toLowerCase();
+              if (name === q) {
+                best = s;
+                break;
+              } else if (!best && name.includes(q)) {
+                best = s;
+              }
+            }
+          }
+
+          const providerMatchesText =
+            p.name.toLowerCase().includes(q) ||
+            p.category.toLowerCase().includes(q) ||
+            p.description.toLowerCase().includes(q) ||
+            p.city.toLowerCase().includes(q);
+
+          const matchesByService = !!best;
+
+          if (!matchesByService && !providerMatchesText) {
+            return { ...p, _exclude: true as const };
+          }
+
+          if (best) {
+            return {
+              ...p,
+              matchedService: best,
+              tagline:
+                best.price != null
+                  ? `${best.name} • $${best.price.toFixed(2)}`
+                  : best.name,
+            };
+          }
+
+          return {
+            ...p,
+            matchedService: null,
+            tagline: `${p.category} specialist`,
+          };
+        })
+        .filter((p: any) => !p._exclude);
     }
 
-    // Category filter
     if (selectedCategory !== "All Categories") {
       results = results.filter((p) => p.category === selectedCategory);
     }
 
-    // City filter
     if (selectedCity !== "All Cities") {
       results = results.filter((p) => p.city === selectedCity);
     }
 
-    // Sorting
     results.sort((a, b) => {
       switch (sortBy) {
-        case "featured":
-          return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
         case "rating":
           return b.rating - a.rating;
         case "reviews":
           return b.reviewCount - a.reviewCount;
-        case "price-low":
-          return a.priceValue - b.priceValue;
-        case "price-high":
-          return b.priceValue - a.priceValue;
-        case "newest":
+        case "experience":
           return b.yearsExperience - a.yearsExperience;
+        case "featured":
         default:
           return 0;
       }
@@ -294,7 +284,6 @@ const ProvidersPage = () => {
 
     setFilteredProviders(results);
 
-    // Update URL
     const params = new URLSearchParams();
     if (searchQuery) params.set("q", searchQuery);
     if (selectedCategory !== "All Categories")
@@ -302,7 +291,14 @@ const ProvidersPage = () => {
     if (selectedCity !== "All Cities") params.set("city", selectedCity);
     if (sortBy !== "featured") params.set("sort", sortBy);
     setSearchParams(params);
-  }, [searchQuery, selectedCategory, selectedCity, sortBy, setSearchParams]);
+  }, [
+    providers,
+    searchQuery,
+    selectedCategory,
+    selectedCity,
+    sortBy,
+    setSearchParams,
+  ]);
 
   const clearFilters = () => {
     setSearchQuery("");
@@ -316,6 +312,25 @@ const ProvidersPage = () => {
     (selectedCategory !== "All Categories" ? 1 : 0) +
     (selectedCity !== "All Cities" ? 1 : 0);
 
+  // Breadcrumb
+  const breadcrumbItems: { label: string; path?: string }[] = [];
+  if (searchQuery.trim()) {
+    breadcrumbItems.push({ label: `Search: "${searchQuery}"` });
+  }
+  if (selectedCity !== "All Cities") {
+    breadcrumbItems.push({ label: selectedCity });
+  }
+  if (selectedCategory !== "All Categories") {
+    breadcrumbItems.push({ label: selectedCategory });
+  }
+  if (breadcrumbItems.length === 0) {
+    breadcrumbItems.push({ label: "All Providers" });
+  }
+
+  const handleViewProfile = (slug: string) => {
+    navigate(`/providers/${slug}`);
+  };
+
   return (
     <>
       <style>{`
@@ -326,35 +341,29 @@ const ProvidersPage = () => {
           padding: 40px 0 80px;
           font-family: var(--font-primary);
         }
-
         .providers-container {
           max-width: var(--container-max-width);
           margin: 0 auto;
           padding: 0 var(--container-padding);
         }
-
-        /* ── HEADER ───────────────────────────────────────── */
         .providers-header {
-          margin-bottom: 32px;
+          margin-bottom: 20px;
         }
-
         .providers-title {
           font-family: var(--font-primary);
-          font-size: 35px;
+          font-size: 25px;
           font-weight: 800;
           color: var(--color-primary);
           margin-bottom: 10px;
           line-height: 1.15;
           letter-spacing: -1.2px;
         }
-
         .providers-subtitle {
-          font-size: 18px;
+          font-size: 16px;
           font-weight: 500;
           color: var(--color-text-secondary);
         }
 
-        /* ── SEARCH BAR ───────────────────────────────────── */
         .search-section {
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
@@ -363,18 +372,15 @@ const ProvidersPage = () => {
           margin-bottom: 24px;
           box-shadow: var(--shadow-sm);
         }
-
         .search-main-row {
           display: grid;
           grid-template-columns: 1fr auto auto auto;
           gap: 12px;
           margin-bottom: 16px;
         }
-
         .search-input-wrapper {
           position: relative;
         }
-
         .search-icon {
           position: absolute;
           left: 18px;
@@ -383,7 +389,6 @@ const ProvidersPage = () => {
           color: var(--color-text-secondary);
           pointer-events: none;
         }
-
         .search-input {
           width: 100%;
           padding: 14px 18px 14px 50px;
@@ -396,13 +401,11 @@ const ProvidersPage = () => {
           background: var(--color-bg);
           transition: all var(--transition-fast);
         }
-
         .search-input:focus {
           outline: none;
           border-color: var(--color-accent);
           box-shadow: 0 0 0 3px var(--color-accent-soft);
         }
-
         .search-input::placeholder {
           color: var(--color-text-secondary);
         }
@@ -424,7 +427,6 @@ const ProvidersPage = () => {
           background-position: right 12px center;
           min-width: 140px;
         }
-
         .inline-select:focus {
           outline: none;
           border-color: var(--color-accent);
@@ -448,7 +450,6 @@ const ProvidersPage = () => {
           white-space: nowrap;
           position: relative;
         }
-
         .filter-badge {
           position: absolute;
           top: -6px;
@@ -465,26 +466,23 @@ const ProvidersPage = () => {
           justify-content: center;
           border: 2px solid var(--color-bg);
         }
-
         .filter-toggle-btn:hover {
           border-color: var(--color-accent);
           color: var(--color-accent);
           background: var(--color-accent-soft);
         }
-
         .filter-toggle-btn.active {
           background: var(--color-accent);
           color: #fff;
           border-color: var(--color-accent);
         }
 
-        /* Quick category pills */
         .quick-categories {
           display: flex;
           gap: 8px;
           flex-wrap: wrap;
+          margin-bottom: 8px;
         }
-
         .quick-cat-pill {
           padding: 8px 16px;
           background: var(--color-bg-section);
@@ -496,20 +494,17 @@ const ProvidersPage = () => {
           cursor: pointer;
           transition: all var(--transition-fast);
         }
-
         .quick-cat-pill:hover {
           border-color: var(--color-accent);
           color: var(--color-accent);
           background: var(--color-accent-soft);
         }
-
         .quick-cat-pill.active {
           background: var(--color-accent);
           color: #fff;
           border-color: var(--color-accent);
         }
 
-        /* Advanced filters */
         .advanced-filters {
           max-height: 0;
           overflow: hidden;
@@ -517,13 +512,11 @@ const ProvidersPage = () => {
           transition: all 0.3s ease;
           margin-top: 0;
         }
-
         .advanced-filters.visible {
           max-height: 200px;
           opacity: 1;
           margin-top: 16px;
         }
-
         .advanced-filters-content {
           display: flex;
           gap: 12px;
@@ -546,13 +539,11 @@ const ProvidersPage = () => {
           transition: all var(--transition-fast);
           white-space: nowrap;
         }
-
         .clear-filters-btn:hover {
           background: #EF4444;
           color: #fff;
         }
 
-        /* ── RESULTS BAR ──────────────────────────────────── */
         .results-bar {
           display: flex;
           justify-content: space-between;
@@ -560,36 +551,30 @@ const ProvidersPage = () => {
           margin-bottom: 24px;
           gap: 16px;
         }
-
         .results-left {
           display: flex;
           align-items: center;
           gap: 20px;
         }
-
         .results-count {
           font-size: 15px;
           color: var(--color-text-secondary);
           font-weight: 500;
         }
-
         .results-count strong {
           color: var(--color-accent);
           font-weight: 700;
         }
-
         .sort-dropdown {
           display: flex;
           align-items: center;
           gap: 8px;
         }
-
         .sort-label {
           font-size: 14px;
           color: var(--color-text-secondary);
           font-weight: 500;
         }
-
         .sort-select {
           padding: 8px 32px 8px 12px;
           border: 1.5px solid var(--color-border);
@@ -606,54 +591,18 @@ const ProvidersPage = () => {
           background-repeat: no-repeat;
           background-position: right 8px center;
         }
-
         .sort-select:focus {
           outline: none;
           border-color: var(--color-accent);
         }
 
-        .view-toggle {
-          display: flex;
-          gap: 4px;
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-md);
-          padding: 4px;
-        }
+        /* GRID & CARD LAYOUT */
 
-        .view-btn {
-          padding: 8px 12px;
-          background: transparent;
-          border: none;
-          border-radius: var(--radius-sm);
-          cursor: pointer;
-          color: var(--color-text-secondary);
-          transition: all var(--transition-fast);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .view-btn.active {
-          background: var(--color-accent);
-          color: #fff;
-        }
-
-        .view-btn:hover:not(.active) {
-          background: var(--color-accent-soft);
-          color: var(--color-accent);
-        }
-
-        /* ── PROVIDER GRID ────────────────────────────────── */
         .providers-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 24px;
+          grid-template-columns: repeat(3, 1fr); /* 3 per row on desktop */
+          gap: 16px;
           margin-bottom: 48px;
-        }
-
-        .providers-grid.list-view {
-          grid-template-columns: repeat(2, 1fr);
         }
 
         .provider-card {
@@ -661,16 +610,11 @@ const ProvidersPage = () => {
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-lg);
           overflow: hidden;
-          transition:
-            transform var(--transition-base),
-            border-color var(--transition-base),
-            box-shadow var(--transition-base);
+          transition: transform var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
           display: flex;
-          flex-direction: column;
+          flex-direction: column; /* mobile-style stacked layout */
           position: relative;
         }
-
-        /* Top colored accent bar (shows on hover) */
         .provider-card::before {
           content: '';
           position: absolute;
@@ -683,45 +627,34 @@ const ProvidersPage = () => {
           transform-origin: left;
           transition: transform 0.3s ease;
         }
-
         .provider-card:hover::before {
           transform: scaleX(1);
         }
-
         .provider-card:hover {
           transform: translateY(-6px);
-          border-color: var(--color-accent-light);
+          border-color: var(--color-accent);
           box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
         }
 
-        .list-view .provider-card {
-          flex-direction: row;
-        }
-
-        /* Image - CLICKABLE */
         .provider-img-wrap {
           width: 100%;
-          height: 180px;
+          height: 200px;
           position: relative;
           overflow: hidden;
           background: var(--color-bg-soft);
           flex-shrink: 0;
           cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
-
-        .list-view .provider-img-wrap {
-          width: 280px;
-          height: auto;
-          min-height: 200px;
-        }
-
         .provider-img {
           width: 100%;
           height: 100%;
           object-fit: cover;
+          display: block;
           transition: transform 0.4s ease;
         }
-
         .provider-card:hover .provider-img {
           transform: scale(1.06);
         }
@@ -743,25 +676,20 @@ const ProvidersPage = () => {
           pointer-events: none;
         }
 
-        /* Content - NOT CLICKABLE (except name and view profile) */
         .provider-content {
           padding: 20px;
           display: flex;
           flex-direction: column;
           flex: 1;
-          overflow: visible;
         }
-
-        /* Header Row: Name + Price */
-        .provider-header-row {
+       .provider-header-row {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
           gap: 12px;
           margin-bottom: 5px;
+          min-height: 40px; /* force same header height with or without price */
         }
-
-        /* Name - CLICKABLE */
         .provider-name {
           font-family: var(--font-primary);
           font-size: 18px;
@@ -773,34 +701,30 @@ const ProvidersPage = () => {
           transition: color var(--transition-fast);
           flex: 1;
         }
-
         .provider-name:hover {
           color: var(--color-accent);
         }
 
-        /* Price Display */
         .provider-price {
           display: flex;
           flex-direction: column;
           align-items: flex-end;
           flex-shrink: 0;
         }
-
-        .price-label {
-          font-size: 10px;
+        .provider-price-label {
+          font-size: 12px;
           font-weight: 600;
           color: var(--color-text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.5px;
           line-height: 1;
         }
-
-        .price-amount {
+       .provider-price-amount {
           font-size: 20px;
           font-weight: 800;
           color: var(--color-accent);
           letter-spacing: -0.5px;
-          line-height: 1.2;
+          line-height: 1.1;
           margin-top: 2px;
         }
 
@@ -810,7 +734,6 @@ const ProvidersPage = () => {
           margin-bottom: 12px;
           line-height: 1.4;
         }
-
         .provider-meta {
           display: flex;
           align-items: center;
@@ -818,7 +741,6 @@ const ProvidersPage = () => {
           flex-wrap: wrap;
           margin-bottom: 12px;
         }
-
         .provider-rating {
           display: flex;
           align-items: center;
@@ -827,13 +749,11 @@ const ProvidersPage = () => {
           font-weight: 600;
           color: var(--color-primary);
         }
-
         .provider-rating-count {
           font-size: 12px;
           font-weight: 400;
           color: var(--color-text-secondary);
         }
-
         .provider-location {
           display: flex;
           align-items: center;
@@ -841,7 +761,6 @@ const ProvidersPage = () => {
           font-size: 13px;
           color: var(--color-text-secondary);
         }
-
         .category-badge {
           padding: 4px 10px;
           background: var(--color-accent-soft);
@@ -851,81 +770,50 @@ const ProvidersPage = () => {
           font-weight: 700;
         }
 
-        .provider-areas {
-          font-size: 12px;
-          color: var(--color-text-secondary);
-          margin-bottom: 14px;
-          line-height: 1.5;
-        }
-
         .provider-actions {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
+          display: flex;
+          flex-direction: row;
+          flex-wrap: nowrap;
+          gap: 11px;
           margin-top: auto;
         }
-
-        .provider-actions > * {
-          display: flex;
-        }
-
         .provider-btn {
-          display: flex;
+          display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 6px;
-          padding: 10px 16px;
+          gap: 4px;
+          padding: 10px 14px;
           border: none;
           border-radius: var(--radius-md);
           font-family: var(--font-primary);
           font-size: 13px;
           font-weight: 700;
           cursor: pointer;
-          transition:
-            background var(--transition-fast),
-            transform var(--transition-fast),
-            box-shadow var(--transition-fast),
-            border-color var(--transition-fast);
+          transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
           white-space: nowrap;
+          flex: 1 1 0;
+          margin-left: -5px;
         }
-
         .provider-btn-primary {
           background: var(--color-accent);
           color: #fff;
           box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
         }
-
         .provider-btn-primary:hover {
-          background: var(--color-accent-hover);
           transform: translateY(-1px);
           box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
         }
-
         .provider-btn-secondary {
           background: var(--color-bg-section);
           color: var(--color-accent);
           border: 1.5px solid var(--color-accent-light);
         }
-
-        .provider-btn-secondary:hover {
-          background: var(--color-accent-soft);
-          border-color: var(--color-accent);
-        }
-
         .provider-btn-profile {
-          grid-column: 1 / -1;
           background: transparent;
           color: var(--color-text-secondary);
           border: 1.5px solid var(--color-border);
         }
 
-        .provider-btn-profile:hover {
-          background: var(--color-bg-section);
-          border-color: var(--color-accent);
-          color: var(--color-accent);
-        }
-
-        /* ── EMPTY STATE ──────────────────────────────────── */
         .empty-state {
           text-align: center;
           padding: 80px 20px;
@@ -933,7 +821,6 @@ const ProvidersPage = () => {
           border-radius: var(--radius-lg);
           border: 1.5px dashed var(--color-border);
         }
-
         .empty-icon {
           width: 80px;
           height: 80px;
@@ -945,7 +832,6 @@ const ProvidersPage = () => {
           justify-content: center;
           color: var(--color-text-secondary);
         }
-
         .empty-title {
           font-family: var(--font-primary);
           font-size: 22px;
@@ -953,25 +839,34 @@ const ProvidersPage = () => {
           color: var(--color-primary);
           margin-bottom: 8px;
         }
-
         .empty-text {
           font-size: 15px;
           color: var(--color-text-secondary);
           margin-bottom: 20px;
         }
 
-        /* ── RESPONSIVE ───────────────────────────────────── */
         @media (max-width: 1200px) {
           .providers-container { padding: 0 32px; }
-          .providers-grid { gap: 20px; }
+          .providers-grid {
+            grid-template-columns: repeat(2, 1fr); /* 2 per row on medium */
+            gap: 20px;
+          }
         }
 
         @media (max-width: 1024px) {
-          .providers-grid {
-            grid-template-columns: repeat(2, 1fr);
+          .providers-grid { grid-template-columns: 1fr; }
+          .provider-card {
+            flex-direction: column;
           }
-          .providers-grid.list-view {
-            grid-template-columns: 1fr;
+          .provider-img-wrap {
+            width: 100%;
+            height: 220px;
+          }
+          .provider-actions {
+            flex-wrap: wrap;
+          }
+          .provider-btn {
+            flex: 1 1 auto;
           }
         }
 
@@ -979,88 +874,30 @@ const ProvidersPage = () => {
           .providers-page { padding: 32px 0 60px; }
           .providers-container { padding: 0 24px; }
           .providers-title { font-size: 36px; }
-          
-          .search-main-row {
-            grid-template-columns: 1fr;
-          }
-
-          .inline-select {
-            width: 100%;
-          }
-
+          .search-main-row { grid-template-columns: 1fr; }
+          .inline-select { width: 100%; }
           .results-bar {
             flex-direction: column;
             align-items: flex-start;
           }
-
           .results-left {
             width: 100%;
             flex-direction: column;
             align-items: flex-start;
             gap: 12px;
           }
-
-          .sort-dropdown {
-            width: 100%;
-          }
-
-          .sort-select {
-            flex: 1;
-          }
-
-          .view-toggle {
-            display: none;
-          }
+          .sort-dropdown { width: 100%; }
+          .sort-select { flex: 1; }
         }
 
         @media (max-width: 640px) {
           .providers-page { padding: 24px 0 48px; }
           .providers-container { padding: 0 16px; }
-          .providers-title { font-size: 30px; letter-spacing: -0.8px; }
-          .providers-subtitle { font-size: 16px; }
-          
-          .providers-grid,
-          .providers-grid.list-view {
+          .providers-title { font-size: 23px; letter-spacing: -0.8px; }
+          .providers-subtitle { font-size: 13px; }
+          .providers-grid {
             grid-template-columns: 1fr;
             gap: 16px;
-          }
-
-          .list-view .provider-card {
-            flex-direction: column;
-          }
-
-          .list-view .provider-img-wrap {
-            width: 100%;
-            height: 180px;
-          }
-
-          .search-section {
-            padding: 16px;
-          }
-
-          .quick-categories {
-            gap: 6px;
-          }
-
-          .quick-cat-pill {
-            padding: 7px 14px;
-            font-size: 12px;
-          }
-
-          .provider-actions {
-            grid-template-columns: 1fr;
-          }
-
-          .provider-btn-profile {
-            grid-column: 1;
-          }
-
-          .provider-header-row {
-            gap: 8px;
-          }
-
-          .price-amount {
-            font-size: 18px;
           }
         }
 
@@ -1072,12 +909,10 @@ const ProvidersPage = () => {
         }
       `}</style>
 
-      {/* Breadcrumb - OUTSIDE .providers-page */}
       <Breadcrumb items={breadcrumbItems} />
 
       <div className="providers-page">
         <div className="providers-container">
-          {/* Header */}
           <div className="providers-header">
             <h1 className="providers-title">Find Service Providers</h1>
             <p className="providers-subtitle">
@@ -1085,12 +920,10 @@ const ProvidersPage = () => {
             </p>
           </div>
 
-          {/* Search & Filters */}
           <div className="search-section">
-            {/* Main search row */}
             <div className="search-main-row">
               <div className="search-input-wrapper">
-                <Search size={20} className="search-icon" strokeWidth={2} />
+                <SearchIcon size={20} className="search-icon" strokeWidth={2} />
                 <input
                   type="text"
                   placeholder="Search by name, service, or category..."
@@ -1105,7 +938,7 @@ const ProvidersPage = () => {
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
               >
-                {ALL_CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
                   </option>
@@ -1128,41 +961,51 @@ const ProvidersPage = () => {
                 className={`filter-toggle-btn ${showAdvancedFilters ? "active" : ""}`}
                 onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
               >
+                <SlidersHorizontal size={18} strokeWidth={2} />
+                Filters
                 {activeFilterCount > 0 && (
                   <span className="filter-badge">{activeFilterCount}</span>
                 )}
-                <SlidersHorizontal size={18} strokeWidth={2} />
-                Filters
               </button>
             </div>
 
-            {/* Quick category pills */}
+            {/* Quick category pills under search bar */}
             <div className="quick-categories">
-              {QUICK_CATEGORIES.map((cat) => (
-                <button
-                  key={cat}
-                  className={`quick-cat-pill ${selectedCategory === cat ? "active" : ""}`}
-                  onClick={() => setSelectedCategory(cat)}
-                >
-                  {cat}
-                </button>
-              ))}
+              {categories
+                .filter((cat) => cat !== "All Categories")
+                .map((cat) => (
+                  <button
+                    key={cat}
+                    className={`quick-cat-pill ${
+                      selectedCategory === cat ? "active" : ""
+                    }`}
+                    onClick={() =>
+                      setSelectedCategory(
+                        selectedCategory === cat ? "All Categories" : cat,
+                      )
+                    }
+                  >
+                    {cat}
+                  </button>
+                ))}
             </div>
 
-            {/* Advanced filters */}
             <div
-              className={`advanced-filters ${showAdvancedFilters ? "visible" : ""}`}
+              className={`advanced-filters ${
+                showAdvancedFilters ? "visible" : ""
+              }`}
             >
               <div className="advanced-filters-content">
                 <span
                   style={{
-                    fontSize: "14px",
+                    fontSize: 14,
                     color: "var(--color-text-secondary)",
                     fontWeight: 500,
                   }}
                 >
                   More filters coming soon...
                 </span>
+
                 {activeFilterCount > 0 && (
                   <button className="clear-filters-btn" onClick={clearFilters}>
                     <X size={16} strokeWidth={2.5} />
@@ -1173,17 +1016,16 @@ const ProvidersPage = () => {
             </div>
           </div>
 
-          {/* Results Bar */}
           <div className="results-bar">
             <div className="results-left">
               <p className="results-count">
                 Found <strong>{filteredProviders.length}</strong> provider
                 {filteredProviders.length !== 1 ? "s" : ""}
-                {selectedCity !== "All Cities" && ` in ${selectedCity}`}
+                {selectedCity !== "All Cities" ? ` in ${selectedCity}` : ""}
               </p>
 
               <div className="sort-dropdown">
-                <span className="sort-label">Sort by:</span>
+                <span className="sort-label">Sort by</span>
                 <select
                   className="sort-select"
                   value={sortBy}
@@ -1197,36 +1039,45 @@ const ProvidersPage = () => {
                 </select>
               </div>
             </div>
-
-            <div className="view-toggle">
-              <button
-                className={`view-btn ${viewMode === "grid" ? "active" : ""}`}
-                onClick={() => setViewMode("grid")}
-                aria-label="Grid view"
-              >
-                <Grid3x3 size={18} strokeWidth={2} />
-              </button>
-              <button
-                className={`view-btn ${viewMode === "list" ? "active" : ""}`}
-                onClick={() => setViewMode("list")}
-                aria-label="List view"
-              >
-                <List size={18} strokeWidth={2} />
-              </button>
-            </div>
           </div>
 
-          {/* Providers Grid */}
-          {filteredProviders.length > 0 ? (
-            <div
-              className={`providers-grid ${viewMode === "list" ? "list-view" : ""}`}
+          {loading ? (
+            <p
+              style={{
+                color: "var(--color-text-secondary)",
+                fontSize: 14,
+              }}
             >
+              Loading providers...
+            </p>
+          ) : filteredProviders.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">
+                <SearchIcon size={40} strokeWidth={2} />
+              </div>
+              <h3 className="empty-title">No providers found</h3>
+              <p className="empty-text">
+                Try adjusting your search or filters to find what you’re looking
+                for.
+              </p>
+              {activeFilterCount > 0 && (
+                <button
+                  className="clear-filters-btn"
+                  onClick={clearFilters}
+                  style={{ margin: "0 auto" }}
+                >
+                  <X size={16} strokeWidth={2.5} />
+                  Clear All Filters
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="providers-grid">
               {filteredProviders.map((provider) => (
                 <div key={provider.id} className="provider-card">
-                  {/* Image - CLICKABLE */}
                   <div
                     className="provider-img-wrap"
-                    onClick={() => navigate(`/providers/${provider.slug}`)}
+                    onClick={() => handleViewProfile(provider.slug)}
                   >
                     <img
                       src={provider.image}
@@ -1241,75 +1092,95 @@ const ProvidersPage = () => {
                     )}
                   </div>
 
-                  {/* Content - NOT CLICKABLE (except specific elements) */}
                   <div className="provider-content">
-                    {/* Header Row: Name + Price */}
+                    {/* Header row: name on left, price on right */}
                     <div className="provider-header-row">
-                      {/* Name - CLICKABLE */}
                       <h3
                         className="provider-name"
-                        onClick={() => navigate(`/providers/${provider.slug}`)}
+                        onClick={() => handleViewProfile(provider.slug)}
                       >
                         {provider.name}
                       </h3>
 
-                      {/* Price - NOT CLICKABLE */}
-                      <div className="provider-price">
-                        <span className="price-label">From</span>
-                        <span className="price-amount">{provider.pricing}</span>
-                      </div>
+                      {provider.matchedService &&
+                        provider.matchedService.price != null && (
+                          <div className="provider-price">
+                            <span className="provider-price-label">From</span>
+                            <span className="provider-price-amount">
+                              $
+                              {Number.isInteger(provider.matchedService.price)
+                                ? provider.matchedService.price
+                                : provider.matchedService.price.toFixed(2)}
+                            </span>
+                          </div>
+                        )}
                     </div>
 
-                    <p className="provider-tagline">{provider.tagline}</p>
+                    {/* Single service line directly below the name */}
+                    <p className="provider-tagline">
+                      {provider.matchedService
+                        ? provider.matchedService.name
+                        : `${provider.category} specialist`}
+                    </p>
 
                     <div className="provider-meta">
                       <div className="provider-rating">
                         <Star size={16} fill="#F59E0B" strokeWidth={0} />
-                        <span>{provider.rating}</span>
+                        <span>{provider.rating.toFixed(1)}</span>
                         <span className="provider-rating-count">
                           ({provider.reviewCount})
                         </span>
                       </div>
+
                       <div className="provider-location">
                         <MapPin size={14} strokeWidth={2} />
                         <span>{provider.city}</span>
                       </div>
+
                       <span className="category-badge">
                         {provider.category}
                       </span>
                     </div>
 
-                    <p className="provider-areas">
-                      Serves: {provider.areas.join(", ")}
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "var(--color-text-secondary)",
+                        marginBottom: 14,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {provider.description}
                     </p>
 
-                    {/* Action Buttons - CLICKABLE */}
                     <div className="provider-actions">
                       <button
                         className="provider-btn provider-btn-primary"
                         onClick={(e) => {
                           e.stopPropagation();
-                          window.location.href = `tel:+263`;
+                          window.open("https://wa.me/263000000000", "_blank");
+                        }}
+                      >
+                        <MessageCircle size={14} strokeWidth={2.5} />
+                        Whatsapp
+                      </button>
+
+                      <button
+                        className="provider-btn provider-btn-secondary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.location.href = "tel:+263000000000";
                         }}
                       >
                         <Phone size={14} strokeWidth={2.5} />
                         Call
                       </button>
-                      <button
-                        className="provider-btn provider-btn-secondary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.open(`https://wa.me/263`, "_blank");
-                        }}
-                      >
-                        <MessageCircle size={14} strokeWidth={2.5} />
-                        WhatsApp
-                      </button>
+
                       <button
                         className="provider-btn provider-btn-profile"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/providers/${provider.slug}`);
+                          handleViewProfile(provider.slug);
                         }}
                       >
                         View Profile
@@ -1319,27 +1190,6 @@ const ProvidersPage = () => {
                   </div>
                 </div>
               ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <div className="empty-icon">
-                <Search size={40} strokeWidth={2} />
-              </div>
-              <h3 className="empty-title">No providers found</h3>
-              <p className="empty-text">
-                Try adjusting your search or filters to find what you're looking
-                for
-              </p>
-              {activeFilterCount > 0 && (
-                <button
-                  className="clear-filters-btn"
-                  onClick={clearFilters}
-                  style={{ margin: "0 auto" }}
-                >
-                  <X size={16} strokeWidth={2.5} />
-                  Clear All Filters
-                </button>
-              )}
             </div>
           )}
         </div>

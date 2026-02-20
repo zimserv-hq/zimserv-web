@@ -10,7 +10,6 @@ import {
   ArrowUpRight,
   Plus,
   Briefcase,
-  TrendingUp,
 } from "lucide-react";
 import StatCard from "../../components/Admin/StatCard";
 import { useNavigate } from "react-router-dom";
@@ -558,28 +557,24 @@ const ProviderDashboard = () => {
             value={stats.totalViews.toLocaleString()}
             icon={Eye}
             iconColor="blue"
-            trend={{ value: 18, isPositive: true }}
           />
           <StatCard
             label="Total Leads"
             value={stats.totalLeads.toLocaleString()}
             icon={MousePointerClick}
             iconColor="orange"
-            trend={{ value: 12, isPositive: true }}
           />
           <StatCard
             label="Calls Received"
             value={stats.clickToCall}
             icon={Phone}
             iconColor="green"
-            trend={{ value: 15, isPositive: true }}
           />
           <StatCard
             label="WhatsApp Clicks"
             value={stats.clickToWhatsApp}
             icon={MessageCircle}
             iconColor="purple"
-            trend={{ value: 22, isPositive: true }}
           />
         </div>
 
@@ -774,9 +769,7 @@ const ProviderDashboard = () => {
                     background: "rgba(139, 92, 246, 0.1)",
                     color: "#7C3AED",
                   }}
-                >
-                  <TrendingUp size={20} strokeWidth={2.5} />
-                </div>
+                ></div>
                 <div className="action-content">
                   <div className="action-title">Profile Views</div>
                   <div className="action-count">

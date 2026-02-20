@@ -88,7 +88,7 @@ const Breadcrumb = ({ items }: BreadcrumbProps) => {
         /* Responsive */
         @media (max-width: 920px) {
           .breadcrumb-wrapper {
-            margin-top: 94px;
+            margin-top: 93px;
             margin-bottom: -10px
           }
 
@@ -105,7 +105,7 @@ const Breadcrumb = ({ items }: BreadcrumbProps) => {
 
         @media (max-width: 640px) {
           .breadcrumb-wrapper {
-            margin-top: 94px;
+            margin-top: 80px;
           }
 
           .breadcrumb-container {
