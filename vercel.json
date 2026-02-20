@@ -1,64 +1,29 @@
 {
   "redirects": [
     {
-      "source": "/admin/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "www.zimserv.co.zw"
-        }
-      ],
-      "destination": "https://admin.zimserv.co.zw/:path*",
-      "permanent": true
-    },
-    {
-      "source": "/admin/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "zimserv.co.zw"
-        }
-      ],
-      "destination": "https://admin.zimserv.co.zw/:path*",
-      "permanent": true
-    },
-
-    {
-      "source": "/provider/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "www.zimserv.co.zw"
-        }
-      ],
-      "destination": "https://provider.zimserv.co.zw/:path*",
-      "permanent": true
-    },
-    {
-      "source": "/provider/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "zimserv.co.zw"
-        }
-      ],
-      "destination": "https://provider.zimserv.co.zw/:path*",
-      "permanent": true
-    },
-
-    {
       "source": "/:path*",
       "has": [
-        {
-          "type": "host",
-          "value": "zimserv.co.zw"
-        }
+        { "type": "host", "value": "zimserv.co.zw" }
       ],
       "destination": "https://www.zimserv.co.zw/:path*",
       "permanent": true
     }
   ],
   "rewrites": [
+    {
+      "source": "/admin/:path*",
+      "has": [
+        { "type": "host", "value": "www.zimserv.co.zw" }
+      ],
+      "destination": "/404.html"
+    },
+    {
+      "source": "/provider/:path*",
+      "has": [
+        { "type": "host", "value": "www.zimserv.co.zw" }
+      ],
+      "destination": "/404.html"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
