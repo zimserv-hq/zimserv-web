@@ -23,8 +23,8 @@
 
   /* BACKGROUNDS */
   --color-bg: #FFFFFF;
-  --color-bg-section: #FFFBEB;     /* Amber 50 */
-  --color-bg-soft: #FEF3C7;        /* Amber 100 */
+  --color-bg-section: #FFFFFF;;     /* Amber 50 */
+  --color-bg-soft: #fcf8fa;        /* Amber 100 */
 
   /* NEUTRALS */
   --color-text-primary: #44403C;   /* Stone 700 */

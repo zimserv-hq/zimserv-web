@@ -236,7 +236,7 @@ const AdminLogin = () => {
           display: flex;
           flex-direction: column;
           gap: 18px;
-          margin-top: 56px;
+          margin-top: 20px;
         }
 
         .feature-card {

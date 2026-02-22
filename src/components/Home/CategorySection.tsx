@@ -1,66 +1,28 @@
 // src/components/Home/CategorySection.tsx
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { useScrollReveal } from "../../hooks/useScrollReveal";
+import { supabase } from "../../lib/supabaseClient";
 
-const CATEGORIES = [
-  {
-    id: "automotive",
-    name: "Automotive",
-    description: "Repairs & maintenance",
-    image:
-      "https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-  {
-    id: "painting",
-    name: "Painting",
-    description: "Interior & exterior",
-    image:
-      "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-  {
-    id: "carpentry",
-    name: "Carpentry",
-    description: "Furniture & woodwork",
-    image:
-      "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-  {
-    id: "it-tech",
-    name: "IT & Tech",
-    description: "Computer & tech support",
-    image:
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-  {
-    id: "gardening",
-    name: "Gardening",
-    description: "Lawn care & landscaping",
-    image:
-      "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-  {
-    id: "laundry",
-    name: "Laundry",
-    description: "Washing & dry cleaning",
-    image:
-      "https://images.unsplash.com/photo-1545173168-9f1947eebb7f?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-  {
-    id: "renovation",
-    name: "Renovation",
-    description: "Home improvement",
-    image:
-      "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-  {
-    id: "moving",
-    name: "Moving",
-    description: "Relocation & packing",
-    image:
-      "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=400&fit=crop&crop=center&q=80",
-  },
-];
+type DbCategory = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  icon_url: string | null;
+  display_order: number | null;
+};
+
+type UiCategory = {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
+};
+
+const DEFAULT_IMAGE =
+  "https://via.placeholder.com/800x600?text=Service+Category";
 
 const CategorySection = () => {
   const navigate = useNavigate();
@@ -68,6 +30,53 @@ const CategorySection = () => {
   const { elementRef: gridRef, isVisible: gridVisible } = useScrollReveal({
     threshold: 0.05,
   });
+
+  const [categories, setCategories] = useState<UiCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setLoading(true);
+
+        const { data, error } = await supabase
+          .from("categories")
+          .select("id,name,description,status,icon_url,display_order")
+          .eq("status", "Active")
+          .order("display_order", { ascending: true });
+
+        if (error) {
+          console.error("Error loading home categories:", error);
+          setCategories([]);
+          return;
+        }
+
+        const dbCategories: DbCategory[] = data || [];
+
+        const uiCats: UiCategory[] = dbCategories.map((cat) => ({
+          id: cat.id,
+          name: cat.name,
+          description: cat.description || "Browse services in this category",
+          image: cat.icon_url || DEFAULT_IMAGE,
+        }));
+
+        // only first 8
+        setCategories(uiCats.slice(0, 8));
+      } catch (err) {
+        console.error("Unexpected error loading home categories:", err);
+        setCategories([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCategories();
+  }, []);
+
+  // click should behave like CategoriesPage (filter ProvidersPage by category name)
+  const handleCategoryClick = (categoryName: string) => {
+    navigate(`/providers?category=${encodeURIComponent(categoryName)}`);
+  };
 
   return (
     <>
@@ -393,7 +402,9 @@ const CategorySection = () => {
           {/* Header */}
           <div
             ref={headerRef as any}
-            className={`cat-header scroll-reveal ${headerVisible ? "visible" : ""}`}
+            className={`cat-header scroll-reveal ${
+              headerVisible ? "visible" : ""
+            }`}
           >
             <div className="cat-eyebrow">
               <svg
@@ -421,34 +432,36 @@ const CategorySection = () => {
 
           {/* Grid */}
           <div ref={gridRef as any} className="cat-grid">
-            {CATEGORIES.map((cat) => (
-              <div
-                key={cat.id}
-                className={`cat-card scroll-reveal-stagger ${gridVisible ? "visible" : ""}`}
-                onClick={() => navigate(`/category/${cat.id}`)}
-                role="button"
-                aria-label={`Browse ${cat.name} services`}
-              >
-                {/* Image */}
-                <div className="cat-img-wrap">
-                  <img
-                    src={cat.image}
-                    alt={cat.name}
-                    className="cat-img"
-                    loading="lazy"
-                  />
-                </div>
+            {loading
+              ? null
+              : categories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className={`cat-card scroll-reveal-stagger ${
+                      gridVisible ? "visible" : ""
+                    }`}
+                    onClick={() => handleCategoryClick(cat.name)}
+                    role="button"
+                    aria-label={`Browse ${cat.name} services`}
+                  >
+                    <div className="cat-img-wrap">
+                      <img
+                        src={cat.image}
+                        alt={cat.name}
+                        className="cat-img"
+                        loading="lazy"
+                      />
+                    </div>
 
-                {/* Text */}
-                <div className="cat-text">
-                  <h3 className="cat-name">{cat.name}</h3>
-                  <p className="cat-desc">{cat.description}</p>
-                  <span className="cat-explore">
-                    Explore <ArrowRight size={11} strokeWidth={2.5} />
-                  </span>
-                </div>
-              </div>
-            ))}
+                    <div className="cat-text">
+                      <h3 className="cat-name">{cat.name}</h3>
+                      <p className="cat-desc">{cat.description}</p>
+                      <span className="cat-explore">
+                        Explore <ArrowRight size={11} strokeWidth={2.5} />
+                      </span>
+                    </div>
+                  </div>
+                ))}
           </div>
 
           {/* Footer */}

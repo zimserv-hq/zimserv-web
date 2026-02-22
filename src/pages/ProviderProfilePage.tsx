@@ -6,71 +6,44 @@ import ProviderContent from "../components/Provider/ProviderContent";
 import ProviderInfoCard from "../components/Provider/ProviderInfoCard";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
-
-interface Provider {
-  id: string;
-  slug: string;
-  name: string;
-  category: string;
-  tagline?: string;
-  description: string;
-  city: string;
-  areas: string[];
-  rating: number;
-  reviewCount: number;
-  verified: boolean;
-  verificationLevel: string;
-  yearsExperience: number;
-  pricing?: string;
-  priceLabel?: string;
-  priceDetails?: string;
-  contact: {
-    phone: string;
-    whatsapp?: string;
-    email?: string;
-    website?: string;
-  };
-  services: string[];
-  languages: string[];
-  workingHours?: {
-    weekdays?: string;
-    weekends?: string;
-    emergency?: string;
-  };
-  gallery: string[];
-  reviews: any[];
-  stats: {
-    jobsCompleted: number;
-    responseTime?: string;
-    repeatCustomers?: number;
-  };
-}
+import type {
+  ProviderPublic,
+  ProviderService,
+  ProviderGalleryImage,
+} from "../types/provider";
 
 const ProviderProfilePage = () => {
-  const { providerId } = useParams<{ providerId: string }>();
+  // route is /providers/:slug
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
 
-  const [provider, setProvider] = useState<Provider | null>(null);
+  const [provider, setProvider] = useState<ProviderPublic | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (providerId) {
-      fetchProviderData(providerId);
+    console.log("[ProviderProfilePage] route param slug =", slug);
+    if (slug) {
+      fetchProviderData(slug);
+    } else {
+      console.warn("[ProviderProfilePage] slug is undefined, not fetching");
+      setLoading(false);
     }
-  }, [providerId]);
+  }, [slug]);
 
-  const fetchProviderData = async (id: string) => {
+  const fetchProviderData = async (slugValue: string) => {
     try {
+      console.log("[fetchProviderData] start, slug =", slugValue);
       setLoading(true);
       setError(null);
 
-      // 1) Provider core data
+      // 1) Provider core data (look up by slug)
       const { data: providerData, error: providerError } = await supabase
         .from("providers")
         .select(
           `
           id,
+          slug,
           full_name,
           business_name,
           email,
@@ -94,69 +67,93 @@ const ProviderProfilePage = () => {
           created_at
         `,
         )
-        .eq("id", id)
+        .eq("slug", slugValue)
         .single();
 
-      if (providerError) throw providerError;
-      if (!providerData) throw new Error("Provider not found");
+      console.log("[fetchProviderData] providerData =", providerData);
+      if (providerError) {
+        console.error("[fetchProviderData] providerError =", providerError);
+        throw providerError;
+      }
+      if (!providerData) {
+        console.error("[fetchProviderData] providerData is null");
+        throw new Error("Provider not found");
+      }
+
+      const providerId = providerData.id as string;
+      console.log("[fetchProviderData] providerId from DB =", providerId);
 
       // 2) Service areas
       const { data: serviceAreas, error: areasError } = await supabase
         .from("provider_service_areas")
         .select("city, suburb")
-        .eq("provider_id", id);
+        .eq("provider_id", providerId);
 
-      if (areasError) throw areasError;
+      if (areasError) {
+        console.error("[fetchProviderData] areasError =", areasError);
+        throw areasError;
+      }
+      console.log("[fetchProviderData] serviceAreas =", serviceAreas);
 
       // 3) Services
       const { data: services, error: servicesError } = await supabase
         .from("provider_services")
-        .select("service_name")
-        .eq("provider_id", id);
+        .select("service_name, price")
+        .eq("provider_id", providerId);
 
-      if (servicesError) throw servicesError;
+      if (servicesError) {
+        console.error("[fetchProviderData] servicesError =", servicesError);
+        throw servicesError;
+      }
+      console.log("[fetchProviderData] services =", services);
 
       // 4) Media / gallery
       const { data: media, error: mediaError } = await supabase
         .from("provider_media")
-        .select("file_path, media_type")
-        .eq("provider_id", id)
-        .eq("media_type", "portfolio")
-        .eq("is_verified", true);
+        .select("id, file_path, media_type, is_verified")
+        .eq("provider_id", providerId);
 
-      if (mediaError) throw mediaError;
+      if (mediaError) {
+        console.error("[fetchProviderData] mediaError =", mediaError);
+        throw mediaError;
+      }
+      console.log("[fetchProviderData] media =", media);
 
-      // 5) Reviews + replies
-      const { data: reviews, error: reviewsError } = await supabase
-        .from("reviews")
-        .select(
-          `
-          id,
-          customer_nickname,
-          rating,
-          comment,
-          created_at,
-          is_verified,
-          review_replies (
-            id,
-            reply_text,
-            created_at
-          )
-        `,
-        )
-        .eq("provider_id", id)
-        .order("created_at", { ascending: false });
+      const transformedServices: ProviderService[] =
+        services?.map((s: any) => ({
+          name: s.service_name,
+          price: s.price ?? null,
+        })) ?? [];
 
-      if (reviewsError) throw reviewsError;
+      const portfolioMedia =
+        media?.filter(
+          (m: any) => m.media_type === "portfolio" && m.is_verified,
+        ) ?? [];
 
-      // Transform to UI shape
-      const transformedProvider: Provider = {
+      const gallery: ProviderGalleryImage[] =
+        portfolioMedia.length > 0
+          ? portfolioMedia.map((m: any) => ({
+              id: m.id,
+              url: getMediaUrl(m.file_path),
+            }))
+          : [
+              {
+                id: "primary",
+                url:
+                  providerData.profile_image_url ||
+                  getDefaultImage(providerData.primary_category),
+              },
+            ];
+
+      const transformedProvider: ProviderPublic = {
         id: providerData.id,
         slug:
+          providerData.slug ||
           providerData.business_name
             ?.toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "") || providerData.id,
+            .replace(/^-|-$/g, "") ||
+          providerData.id,
         name: providerData.business_name || providerData.full_name,
         category: providerData.primary_category,
         tagline: providerData.years_experience
@@ -166,7 +163,7 @@ const ProviderProfilePage = () => {
         city: providerData.city,
         areas:
           serviceAreas
-            ?.map((area) => area.suburb || area.city)
+            ?.map((area: any) => area.suburb || area.city)
             .filter(Boolean) || [],
         rating: Number(providerData.avg_rating) || 0,
         reviewCount: providerData.total_reviews || 0,
@@ -175,42 +172,22 @@ const ProviderProfilePage = () => {
         yearsExperience: providerData.years_experience || 0,
         pricing: getPricingDisplay(providerData.pricing_model),
         priceLabel: getPricingLabel(providerData.pricing_model),
-        priceDetails: providerData.pricing_model,
+        pricingSummary: providerData.pricing_model || undefined,
         contact: {
           phone: providerData.phone_number,
-          whatsapp: providerData.whatsapp_number || providerData.phone_number,
+          whatsapp:
+            providerData.whatsapp_number || providerData.phone_number || "",
           email: providerData.email || undefined,
           website: providerData.website || undefined,
         },
-        services: services?.map((s) => s.service_name) || [],
+        services: transformedServices,
         languages: providerData.languages || ["English"],
         workingHours: {
           weekdays: "8:00 AM - 6:00 PM",
           weekends: "9:00 AM - 4:00 PM",
           emergency: providerData.call_available ? "Available 24/7" : undefined,
         },
-        gallery:
-          media && media.length > 0
-            ? media.map((m) => getMediaUrl(m.file_path))
-            : [
-                providerData.profile_image_url ||
-                  getDefaultImage(providerData.primary_category),
-              ],
-        reviews:
-          reviews?.map((review) => ({
-            id: review.id,
-            author: review.customer_nickname,
-            rating: review.rating,
-            date: getTimeAgo(review.created_at),
-            comment: review.comment,
-            verified: review.is_verified,
-            reply: review.review_replies?.[0]
-              ? {
-                  text: review.review_replies[0].reply_text,
-                  date: getTimeAgo(review.review_replies[0].created_at),
-                }
-              : undefined,
-          })) || [],
+        gallery,
         stats: {
           jobsCompleted: providerData.total_jobs_completed || 0,
           responseTime: providerData.response_time_minutes
@@ -220,20 +197,24 @@ const ProviderProfilePage = () => {
         },
       };
 
+      console.log(
+        "[fetchProviderData] transformedProvider =",
+        transformedProvider,
+      );
       setProvider(transformedProvider);
     } catch (err: any) {
       console.error("Error fetching provider:", err);
       setError(err.message || "Failed to load provider data");
     } finally {
+      console.log("[fetchProviderData] done, setting loading=false");
       setLoading(false);
     }
   };
 
-  // Helpers
   const getPricingDisplay = (pricingModel: string | null): string => {
     if (!pricingModel) return "Contact for quote";
-    if (pricingModel === "Hourly Rate") return "$25";
-    if (pricingModel === "Fixed Price") return "$50";
+    if (pricingModel === "Hourly Rate") return "USD 25";
+    if (pricingModel === "Fixed Price") return "USD 50";
     return "Quote";
   };
 
@@ -245,10 +226,15 @@ const ProviderProfilePage = () => {
   };
 
   const getMediaUrl = (filePath: string): string => {
-    // Supabase v2 getPublicUrl response shape
     const { data } = supabase.storage
       .from("provider-media")
-      .getPublicUrl(filePath); // returns { data: { publicUrl } } [web:64][web:67]
+      .getPublicUrl(filePath);
+    console.log(
+      "[getMediaUrl] filePath =",
+      filePath,
+      "publicUrl =",
+      data.publicUrl,
+    );
     return data.publicUrl;
   };
 
@@ -261,27 +247,15 @@ const ProviderProfilePage = () => {
       Carpentry:
         "https://images.unsplash.com/photo-1581858726788-75bc0f6a952d?w=800&h=600&fit=crop&q=80",
     };
-    return (
+    const url =
       placeholders[category] ||
-      "https://via.placeholder.com/800x600?text=No+Image"
-    );
+      "https://placehold.co/800x600?text=Service+Provider";
+    console.log("[getDefaultImage] category =", category, "url =", url);
+    return url;
   };
 
-  const getTimeAgo = (dateString: string): string => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (seconds < 60) return "just now";
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
-    if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
-    if (seconds < 2592000) return `${Math.floor(seconds / 604800)} weeks ago`;
-    return `${Math.floor(seconds / 2592000)} months ago`;
-  };
-
-  // Loading state
   if (loading) {
+    console.log("[ProviderProfilePage] loading=true, showing loader UI");
     return (
       <div
         style={{
@@ -312,8 +286,11 @@ const ProviderProfilePage = () => {
     );
   }
 
-  // Error / not found
   if (error || !provider) {
+    console.log("[ProviderProfilePage] error or no provider", {
+      error,
+      provider,
+    });
     return (
       <div
         style={{
@@ -356,6 +333,11 @@ const ProviderProfilePage = () => {
       </div>
     );
   }
+
+  console.log(
+    "[ProviderProfilePage] rendering page with provider id =",
+    provider.id,
+  );
 
   return (
     <>

@@ -7,17 +7,19 @@ import {
   CheckCircle,
   Phone,
   MessageCircle,
-  ArrowRight,
   Search as SearchIcon,
   SlidersHorizontal,
   X,
+  ChevronRight,
+  Briefcase,
 } from "lucide-react";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
 
+// ✅ CHANGED: removed full_name — no longer needed
 type DbProvider = {
   id: string;
-  full_name: string;
+  business_name: string | null;
   primary_category: string;
   city: string;
   status: string;
@@ -35,6 +37,12 @@ type DbService = {
   price: number | null;
 };
 
+type DbServiceArea = {
+  provider_id: string;
+  city: string;
+  suburb: string | null;
+};
+
 type ProviderService = {
   name: string;
   price: number | null;
@@ -48,6 +56,7 @@ type UiProvider = {
   tagline: string;
   description: string;
   city: string;
+  areas: string[];
   rating: number;
   reviewCount: number;
   verified: boolean;
@@ -106,7 +115,6 @@ const ProvidersPage = () => {
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>(["All Categories"]);
 
-  // Load providers + services + categories from Supabase
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -115,8 +123,9 @@ const ProvidersPage = () => {
         // 1) Providers
         const { data: providersData, error: providersError } = await supabase
           .from("providers")
+          // ✅ CHANGED: removed full_name from select
           .select(
-            "id, full_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model",
+            "id, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model",
           )
           .eq("status", "active");
 
@@ -135,29 +144,49 @@ const ProvidersPage = () => {
             console.error("Error loading provider services:", servicesError);
           }
 
+          // 3) All service areas
+          const { data: areasData, error: areasError } = await supabase
+            .from("provider_service_areas")
+            .select("provider_id, city, suburb");
+
+          if (areasError) {
+            console.error("Error loading service areas:", areasError);
+          }
+
           const dbServices: DbService[] = servicesData || [];
+          const dbAreas: DbServiceArea[] = areasData || [];
 
           const ui: UiProvider[] = dbProviders.map((p) => {
-            const slug = `${p.full_name}-${p.city}`
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/^-|-$/g, "");
+            // ✅ CHANGED: strictly use business_name only
+            const displayName = p.business_name ?? "";
+
+            // ✅ CHANGED: slug from business_name only; falls back to id if empty
+            const slug = displayName
+              ? `${displayName}-${p.city}`
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-")
+                  .replace(/^-|-$/g, "")
+              : p.id;
 
             const providerServices: ProviderService[] = dbServices
               .filter((s) => s.provider_id === p.id)
-              .map((s) => ({
-                name: s.service_name,
-                price: s.price,
-              }));
+              .map((s) => ({ name: s.service_name, price: s.price }));
+
+            const providerAreas: string[] = dbAreas
+              .filter((a) => a.provider_id === p.id)
+              .map((a) => a.suburb || a.city)
+              .filter(Boolean)
+              .filter((v, i, arr) => arr.indexOf(v) === i);
 
             return {
               id: p.id,
               slug,
-              name: p.full_name,
+              name: displayName,
               category: p.primary_category,
               tagline: `${p.primary_category} specialist`,
               description: `Experienced ${p.primary_category.toLowerCase()} professional in ${p.city}.`,
               city: p.city,
+              areas: providerAreas,
               rating: p.avg_rating ?? 0,
               reviewCount: p.total_reviews ?? 0,
               verified: true,
@@ -173,7 +202,7 @@ const ProvidersPage = () => {
           setProviders(ui);
         }
 
-        // 3) Categories
+        // 4) Categories
         const { data: categoriesData, error: categoriesError } = await supabase
           .from("categories")
           .select("id,name,status")
@@ -188,7 +217,7 @@ const ProvidersPage = () => {
           setCategories(["All Categories", ...catNames]);
         }
       } catch (err) {
-        console.error("Unexpected error loading providers/categories:", err);
+        console.error("Unexpected error:", err);
         setProviders([]);
       } finally {
         setLoading(false);
@@ -198,9 +227,7 @@ const ProvidersPage = () => {
     fetchData();
   }, []);
 
-  // Apply filters & sorting + sync URL
   useEffect(() => {
-    // clone and reset dynamic fields
     let results: UiProvider[] = providers.map((p) => ({
       ...p,
       matchedService: undefined,
@@ -215,7 +242,6 @@ const ProvidersPage = () => {
       results = results
         .map((p) => {
           let best: ProviderService | null = null;
-
           if (p.services && p.services.length > 0) {
             for (const s of p.services) {
               const name = s.name.toLowerCase();
@@ -227,19 +253,14 @@ const ProvidersPage = () => {
               }
             }
           }
-
           const providerMatchesText =
             p.name.toLowerCase().includes(q) ||
             p.category.toLowerCase().includes(q) ||
             p.description.toLowerCase().includes(q) ||
             p.city.toLowerCase().includes(q);
 
-          const matchesByService = !!best;
-
-          if (!matchesByService && !providerMatchesText) {
+          if (!best && !providerMatchesText)
             return { ...p, _exclude: true as const };
-          }
-
           if (best) {
             return {
               ...p,
@@ -250,7 +271,6 @@ const ProvidersPage = () => {
                   : best.name,
             };
           }
-
           return {
             ...p,
             matchedService: null,
@@ -263,7 +283,6 @@ const ProvidersPage = () => {
     if (selectedCategory !== "All Categories") {
       results = results.filter((p) => p.category === selectedCategory);
     }
-
     if (selectedCity !== "All Cities") {
       results = results.filter((p) => p.city === selectedCity);
     }
@@ -276,7 +295,6 @@ const ProvidersPage = () => {
           return b.reviewCount - a.reviewCount;
         case "experience":
           return b.yearsExperience - a.yearsExperience;
-        case "featured":
         default:
           return 0;
       }
@@ -312,59 +330,57 @@ const ProvidersPage = () => {
     (selectedCategory !== "All Categories" ? 1 : 0) +
     (selectedCity !== "All Cities" ? 1 : 0);
 
-  // Breadcrumb
   const breadcrumbItems: { label: string; path?: string }[] = [];
-  if (searchQuery.trim()) {
+  if (searchQuery.trim())
     breadcrumbItems.push({ label: `Search: "${searchQuery}"` });
-  }
-  if (selectedCity !== "All Cities") {
+  if (selectedCity !== "All Cities")
     breadcrumbItems.push({ label: selectedCity });
-  }
-  if (selectedCategory !== "All Categories") {
+  if (selectedCategory !== "All Categories")
     breadcrumbItems.push({ label: selectedCategory });
-  }
-  if (breadcrumbItems.length === 0) {
+  if (breadcrumbItems.length === 0)
     breadcrumbItems.push({ label: "All Providers" });
-  }
 
-  const handleViewProfile = (slug: string) => {
-    navigate(`/providers/${slug}`);
-  };
+  const handleViewProfile = (slug: string) => navigate(`/providers/${slug}`);
 
   return (
     <>
       <style>{`
-        .providers-page {
+        /* ── PAGE ─────────────────────────────────────────── */
+        .pp-page {
           width: 100%;
           min-height: 100vh;
           background: var(--color-bg-section);
           padding: 40px 0 80px;
           font-family: var(--font-primary);
         }
-        .providers-container {
+
+        .pp-container {
           max-width: var(--container-max-width);
           margin: 0 auto;
           padding: 0 var(--container-padding);
         }
-        .providers-header {
-          margin-bottom: 20px;
-        }
-        .providers-title {
+
+        /* ── PAGE HEADER ──────────────────────────────────── */
+        .pp-header { margin-bottom: 20px; }
+
+        .pp-title {
           font-family: var(--font-primary);
-          font-size: 25px;
+          font-size: 32px;
           font-weight: 800;
           color: var(--color-primary);
-          margin-bottom: 10px;
+          margin-bottom: 6px;
           line-height: 1.15;
           letter-spacing: -1.2px;
         }
-        .providers-subtitle {
-          font-size: 16px;
+
+        .pp-subtitle {
+          font-size: 15px;
           font-weight: 500;
           color: var(--color-text-secondary);
         }
 
-        .search-section {
+        /* ── SEARCH SECTION ───────────────────────────────── */
+        .pp-search-section {
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-lg);
@@ -372,46 +388,48 @@ const ProvidersPage = () => {
           margin-bottom: 24px;
           box-shadow: var(--shadow-sm);
         }
-        .search-main-row {
+
+        .pp-search-row {
           display: grid;
           grid-template-columns: 1fr auto auto auto;
           gap: 12px;
           margin-bottom: 16px;
         }
-        .search-input-wrapper {
-          position: relative;
-        }
-        .search-icon {
+
+        .pp-search-wrap { position: relative; }
+
+        .pp-search-icon {
           position: absolute;
-          left: 18px;
+          left: 16px;
           top: 50%;
           transform: translateY(-50%);
           color: var(--color-text-secondary);
           pointer-events: none;
         }
-        .search-input {
+
+        .pp-search-input {
           width: 100%;
-          padding: 14px 18px 14px 50px;
+          padding: 13px 16px 13px 46px;
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-md);
           font-family: var(--font-primary);
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 500;
           color: var(--color-primary);
           background: var(--color-bg);
           transition: all var(--transition-fast);
         }
-        .search-input:focus {
+
+        .pp-search-input:focus {
           outline: none;
           border-color: var(--color-accent);
           box-shadow: 0 0 0 3px var(--color-accent-soft);
         }
-        .search-input::placeholder {
-          color: var(--color-text-secondary);
-        }
 
-        .inline-select {
-          padding: 14px 38px 14px 16px;
+        .pp-search-input::placeholder { color: var(--color-text-secondary); }
+
+        .pp-select {
+          padding: 13px 36px 13px 14px;
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-md);
           font-family: var(--font-primary);
@@ -420,21 +438,22 @@ const ProvidersPage = () => {
           color: var(--color-primary);
           background: var(--color-bg);
           cursor: pointer;
-          transition: all var(--transition-fast);
           appearance: none;
           background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
           background-repeat: no-repeat;
-          background-position: right 12px center;
+          background-position: right 10px center;
           min-width: 140px;
+          transition: all var(--transition-fast);
         }
-        .inline-select:focus {
+
+        .pp-select:focus {
           outline: none;
           border-color: var(--color-accent);
           box-shadow: 0 0 0 3px var(--color-accent-soft);
         }
 
-        .filter-toggle-btn {
-          padding: 14px 20px;
+        .pp-filter-btn {
+          padding: 13px 18px;
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-md);
@@ -450,12 +469,11 @@ const ProvidersPage = () => {
           white-space: nowrap;
           position: relative;
         }
-        .filter-badge {
+
+        .pp-filter-badge {
           position: absolute;
-          top: -6px;
-          right: -6px;
-          width: 20px;
-          height: 20px;
+          top: -6px; right: -6px;
+          width: 20px; height: 20px;
           background: var(--color-accent);
           color: #fff;
           border-radius: 50%;
@@ -466,25 +484,27 @@ const ProvidersPage = () => {
           justify-content: center;
           border: 2px solid var(--color-bg);
         }
-        .filter-toggle-btn:hover {
+
+        .pp-filter-btn:hover,
+        .pp-filter-btn.active {
           border-color: var(--color-accent);
           color: var(--color-accent);
           background: var(--color-accent-soft);
         }
-        .filter-toggle-btn.active {
+
+        .pp-filter-btn.active {
           background: var(--color-accent);
           color: #fff;
-          border-color: var(--color-accent);
         }
 
-        .quick-categories {
+        .pp-quick-cats {
           display: flex;
           gap: 8px;
           flex-wrap: wrap;
-          margin-bottom: 8px;
         }
-        .quick-cat-pill {
-          padding: 8px 16px;
+
+        .pp-cat-pill {
+          padding: 7px 15px;
           background: var(--color-bg-section);
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-full);
@@ -494,37 +514,40 @@ const ProvidersPage = () => {
           cursor: pointer;
           transition: all var(--transition-fast);
         }
-        .quick-cat-pill:hover {
+
+        .pp-cat-pill:hover {
           border-color: var(--color-accent);
           color: var(--color-accent);
           background: var(--color-accent-soft);
         }
-        .quick-cat-pill.active {
+
+        .pp-cat-pill.active {
           background: var(--color-accent);
           color: #fff;
           border-color: var(--color-accent);
         }
 
-        .advanced-filters {
+        .pp-advanced {
           max-height: 0;
           overflow: hidden;
           opacity: 0;
           transition: all 0.3s ease;
-          margin-top: 0;
         }
-        .advanced-filters.visible {
+
+        .pp-advanced.visible {
           max-height: 200px;
           opacity: 1;
           margin-top: 16px;
         }
-        .advanced-filters-content {
+
+        .pp-advanced-inner {
           display: flex;
           gap: 12px;
           align-items: center;
         }
 
-        .clear-filters-btn {
-          padding: 10px 20px;
+        .pp-clear-btn {
+          padding: 9px 18px;
           background: transparent;
           border: 1.5px solid #EF4444;
           border-radius: var(--radius-md);
@@ -539,44 +562,47 @@ const ProvidersPage = () => {
           transition: all var(--transition-fast);
           white-space: nowrap;
         }
-        .clear-filters-btn:hover {
+
+        .pp-clear-btn:hover {
           background: #EF4444;
           color: #fff;
         }
 
-        .results-bar {
+        /* ── RESULTS BAR ──────────────────────────────────── */
+        .pp-results-bar {
           display: flex;
           justify-content: space-between;
           align-items: center;
           margin-bottom: 24px;
           gap: 16px;
         }
-        .results-left {
-          display: flex;
-          align-items: center;
-          gap: 20px;
-        }
-        .results-count {
+
+        .pp-results-count {
           font-size: 15px;
           color: var(--color-text-secondary);
           font-weight: 500;
         }
-        .results-count strong {
+
+        .pp-results-count strong {
           color: var(--color-accent);
           font-weight: 700;
         }
-        .sort-dropdown {
+
+        .pp-sort-wrap {
           display: flex;
           align-items: center;
           gap: 8px;
         }
-        .sort-label {
+
+        .pp-sort-label {
           font-size: 14px;
           color: var(--color-text-secondary);
           font-weight: 500;
+          white-space: nowrap;
         }
-        .sort-select {
-          padding: 8px 32px 8px 12px;
+
+        .pp-sort-select {
+          padding: 8px 30px 8px 12px;
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-md);
           font-family: var(--font-primary);
@@ -585,245 +611,378 @@ const ProvidersPage = () => {
           color: var(--color-primary);
           background: var(--color-bg);
           cursor: pointer;
-          transition: all var(--transition-fast);
           appearance: none;
           background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
           background-repeat: no-repeat;
           background-position: right 8px center;
+          transition: all var(--transition-fast);
         }
-        .sort-select:focus {
+
+        .pp-sort-select:focus {
           outline: none;
           border-color: var(--color-accent);
         }
 
-        /* GRID & CARD LAYOUT */
-
-        .providers-grid {
+        /* ── GRID ─────────────────────────────────────────── */
+        .pp-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr); /* 3 per row on desktop */
-          gap: 16px;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 20px;
           margin-bottom: 48px;
         }
 
-        .provider-card {
+        /* ── CARD ─────────────────────────────────────────── */
+        .pp-card {
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-lg);
+          border-radius: var(--radius-xl);
           overflow: hidden;
-          transition: transform var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
-          display: flex;
-          flex-direction: column; /* mobile-style stacked layout */
+          cursor: pointer;
           position: relative;
-        }
-        .provider-card::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 3px;
-          background: var(--color-accent);
-          transform: scaleX(0);
-          transform-origin: left;
-          transition: transform 0.3s ease;
-        }
-        .provider-card:hover::before {
-          transform: scaleX(1);
-        }
-        .provider-card:hover {
-          transform: translateY(-6px);
-          border-color: var(--color-accent);
-          box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+          display: flex;
+          flex-direction: column;
+          transition:
+            transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+            box-shadow 0.3s ease,
+            border-color 0.25s ease;
         }
 
-        .provider-img-wrap {
-          width: 100%;
-          height: 200px;
-          position: relative;
-          overflow: hidden;
-          background: var(--color-bg-soft);
-          flex-shrink: 0;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        .pp-card:hover {
+          transform: translateY(-5px);
+          box-shadow: var(--shadow-lg), 0 0 0 1px rgba(236,111,22,0.1);
+          border-color: var(--color-accent-light);
         }
-        .provider-img {
+
+        .pp-card::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 3px;
+          background: linear-gradient(90deg, var(--color-accent), var(--color-accent-light));
+          transform: scaleX(0);
+          transform-origin: left;
+          transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+          z-index: 2;
+        }
+
+        .pp-card:hover::before { transform: scaleX(1); }
+
+        /* ── IMAGE STRIP ──────────────────────────────────── */
+        .pp-img-wrap {
+          position: relative;
+          height: 240px;
+          overflow: hidden;
+          flex-shrink: 0;
+        }
+
+        .pp-img {
           width: 100%;
           height: 100%;
           object-fit: cover;
+          object-position: center;
           display: block;
-          transition: transform 0.4s ease;
-        }
-        .provider-card:hover .provider-img {
-          transform: scale(1.06);
+          transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
-        .verified-badge {
+        .pp-card:hover .pp-img { transform: scale(1.06); }
+
+        .pp-img-scrim {
           position: absolute;
-          top: 12px;
-          right: 12px;
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
+          inset: 0;
+          background: linear-gradient(
+            to bottom,
+            rgba(28,25,23,0.08) 0%,
+            transparent 40%,
+            rgba(28,25,23,0.52) 100%
+          );
+        }
+
+        .pp-img-top {
+          position: absolute;
+          top: 12px; left: 12px; right: 12px;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+        }
+
+        .pp-cat-badge {
+          padding: 5px 12px;
           background: var(--color-accent);
+          color: #fff;
+          border-radius: var(--radius-full);
+          font-size: 10.5px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+        }
+
+        .pp-verified-pill {
           display: flex;
           align-items: center;
-          justify-content: center;
-          border: 2px solid #fff;
-          box-shadow: 0 2px 12px rgba(37, 99, 235, 0.4);
-          z-index: 2;
-          pointer-events: none;
+          gap: 5px;
+          padding: 5px 10px;
+          background: rgba(28,25,23,0.55);
+          backdrop-filter: blur(8px);
+          color: #fff;
+          border-radius: var(--radius-full);
+          font-size: 10.5px;
+          font-weight: 600;
+          border: 1px solid rgba(255,255,255,0.12);
         }
 
-        .provider-content {
-          padding: 20px;
+        .pp-verified-pill svg { color: #4ade80; }
+
+        /* ── CARD BODY ────────────────────────────────────── */
+        .pp-body {
+          padding: 18px 20px 20px;
           display: flex;
           flex-direction: column;
           flex: 1;
         }
-       .provider-header-row {
+
+        .pp-name-row {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
           gap: 12px;
-          margin-bottom: 5px;
-          min-height: 40px; /* force same header height with or without price */
-        }
-        .provider-name {
-          font-family: var(--font-primary);
-          font-size: 18px;
-          font-weight: 700;
-          color: var(--color-primary);
-          line-height: 1.3;
-          letter-spacing: -0.3px;
-          cursor: pointer;
-          transition: color var(--transition-fast);
-          flex: 1;
-        }
-        .provider-name:hover {
-          color: var(--color-accent);
+          margin-bottom: 3px;
         }
 
-        .provider-price {
+        .pp-name {
+          font-size: 18px;
+          font-weight: 800;
+          color: var(--color-primary);
+          letter-spacing: -0.4px;
+          line-height: 1.2;
+          flex: 1;
+          transition: color var(--transition-fast);
+        }
+
+        .pp-card:hover .pp-name { color: var(--color-accent); }
+
+        .pp-price {
           display: flex;
           flex-direction: column;
           align-items: flex-end;
           flex-shrink: 0;
         }
-        .provider-price-label {
-          font-size: 12px;
+
+        .pp-price-label {
+          font-size: 10px;
           font-weight: 600;
           color: var(--color-text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.5px;
           line-height: 1;
         }
-       .provider-price-amount {
+
+        .pp-price-amount {
           font-size: 20px;
           font-weight: 800;
           color: var(--color-accent);
           letter-spacing: -0.5px;
-          line-height: 1.1;
+          line-height: 1.2;
           margin-top: 2px;
         }
 
-        .provider-tagline {
+        .pp-price-quote {
           font-size: 13px;
-          color: var(--color-text-secondary);
-          margin-bottom: 12px;
-          line-height: 1.4;
-        }
-        .provider-meta {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-          margin-bottom: 12px;
-        }
-        .provider-rating {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--color-primary);
-        }
-        .provider-rating-count {
-          font-size: 12px;
-          font-weight: 400;
-          color: var(--color-text-secondary);
-        }
-        .provider-location {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 13px;
-          color: var(--color-text-secondary);
-        }
-        .category-badge {
-          padding: 4px 10px;
-          background: var(--color-accent-soft);
-          color: var(--color-accent);
-          border-radius: var(--radius-full);
-          font-size: 11px;
           font-weight: 700;
+          color: var(--color-text-secondary);
+          margin-top: 4px;
         }
 
-        .provider-actions {
+        .pp-tagline {
+          font-size: 13px;
+          color: var(--color-text-secondary);
+          line-height: 1.45;
+          margin-bottom: 14px;
+        }
+
+        .pp-chips {
           display: flex;
-          flex-direction: row;
-          flex-wrap: nowrap;
-          gap: 11px;
+          gap: 7px;
+          flex-wrap: wrap;
+          margin-bottom: 10px;
+        }
+
+        .pp-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 5px 10px;
+          background: var(--color-bg-section);
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-sm);
+          font-size: 12px;
+          color: var(--color-text-secondary);
+          font-weight: 500;
+          transition: border-color 0.2s, background 0.2s;
+        }
+
+        .pp-card:hover .pp-chip {
+          border-color: rgba(236,111,22,0.25);
+          background: var(--color-accent-soft);
+        }
+
+        .pp-chip svg { color: var(--color-accent); flex-shrink: 0; }
+
+        .pp-areas {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-bottom: 14px;
+          min-height: 24px;
+        }
+
+        .pp-areas-label {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--color-text-secondary);
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+
+        .pp-area-tag {
+          display: inline-flex;
+          padding: 3px 9px;
+          background: var(--color-accent-soft);
+          color: var(--color-text-secondary);
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+
+        .pp-area-more {
+          font-size: 11px;
+          color: var(--color-text-secondary);
+          white-space: nowrap;
+        }
+
+        .pp-rating-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+
+        .pp-stars { display: flex; gap: 2px; }
+
+        .pp-rating-num {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--color-primary);
+          letter-spacing: -0.2px;
+        }
+
+        .pp-rating-ct {
+          font-size: 12.5px;
+          color: var(--color-text-secondary);
+        }
+
+        .pp-desc {
+          font-size: 12px;
+          color: var(--color-text-secondary);
+          line-height: 1.55;
+          margin-bottom: 16px;
+        }
+
+        .pp-divider {
+          height: 1px;
+          background: var(--color-border);
+          margin-bottom: 14px;
+        }
+
+        /* ── ACTIONS ──────────────────────────────────────── */
+        .pp-actions {
+          display: grid;
+          grid-template-columns: 1fr 1fr auto;
+          gap: 8px;
           margin-top: auto;
         }
-        .provider-btn {
+
+        .pp-btn {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 4px;
-          padding: 10px 14px;
-          border: none;
+          gap: 6px;
+          padding: 11px 14px;
           border-radius: var(--radius-md);
           font-family: var(--font-primary);
           font-size: 13px;
           font-weight: 700;
           cursor: pointer;
-          transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+          border: none;
+          transition:
+            background 0.2s ease,
+            transform 0.15s ease,
+            box-shadow 0.2s ease,
+            border-color 0.2s ease,
+            color 0.2s ease;
           white-space: nowrap;
-          flex: 1 1 0;
-          margin-left: -5px;
         }
-        .provider-btn-primary {
+
+        .pp-btn-whatsapp {
           background: var(--color-accent);
           color: #fff;
-          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+          box-shadow: 0 3px 14px rgba(236,111,22,0.32);
         }
-        .provider-btn-primary:hover {
+
+        .pp-btn-whatsapp:hover {
+          background: var(--color-accent-hover);
           transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+          box-shadow: 0 6px 20px rgba(236,111,22,0.44);
         }
-        .provider-btn-secondary {
-          background: var(--color-bg-section);
-          color: var(--color-accent);
-          border: 1.5px solid var(--color-accent-light);
-        }
-        .provider-btn-profile {
-          background: transparent;
+
+        .pp-btn-whatsapp:active { transform: scale(0.97); }
+
+        .pp-btn-call {
+          background: var(--color-bg);
           color: var(--color-text-secondary);
           border: 1.5px solid var(--color-border);
         }
 
-        .empty-state {
+        .pp-btn-call:hover {
+          background: #f0fdf4;
+          border-color: #16a34a;
+          color: #16a34a;
+          transform: translateY(-1px);
+        }
+
+        .pp-btn-profile {
+          width: 42px;
+          height: 42px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--color-bg);
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-md);
+          color: var(--color-accent);
+          cursor: pointer;
+          flex-shrink: 0;
+          transition: background 0.2s, border-color 0.2s, transform 0.2s;
+        }
+
+        .pp-btn-profile:hover {
+          background: var(--color-accent-soft);
+          border-color: var(--color-accent);
+          transform: translateY(-1px);
+        }
+
+        /* ── EMPTY STATE ──────────────────────────────────── */
+        .pp-empty {
           text-align: center;
           padding: 80px 20px;
           background: var(--color-bg);
           border-radius: var(--radius-lg);
           border: 1.5px dashed var(--color-border);
         }
-        .empty-icon {
-          width: 80px;
-          height: 80px;
+
+        .pp-empty-icon {
+          width: 80px; height: 80px;
           margin: 0 auto 20px;
           background: var(--color-bg-section);
           border-radius: 50%;
@@ -832,77 +991,70 @@ const ProvidersPage = () => {
           justify-content: center;
           color: var(--color-text-secondary);
         }
-        .empty-title {
-          font-family: var(--font-primary);
+
+        .pp-empty-title {
           font-size: 22px;
           font-weight: 700;
           color: var(--color-primary);
           margin-bottom: 8px;
         }
-        .empty-text {
+
+        .pp-empty-text {
           font-size: 15px;
           color: var(--color-text-secondary);
           margin-bottom: 20px;
         }
 
-        @media (max-width: 1200px) {
-          .providers-container { padding: 0 32px; }
-          .providers-grid {
-            grid-template-columns: repeat(2, 1fr); /* 2 per row on medium */
-            gap: 20px;
-          }
+        .pp-loading {
+          font-size: 14px;
+          color: var(--color-text-secondary);
+          padding: 40px 0;
+          text-align: center;
         }
 
-        @media (max-width: 1024px) {
-          .providers-grid { grid-template-columns: 1fr; }
-          .provider-card {
-            flex-direction: column;
-          }
-          .provider-img-wrap {
-            width: 100%;
-            height: 220px;
-          }
-          .provider-actions {
-            flex-wrap: wrap;
-          }
-          .provider-btn {
-            flex: 1 1 auto;
-          }
+        /* ── RESPONSIVE ───────────────────────────────────── */
+        @media (max-width: 1200px) {
+          .pp-container { padding: 0 32px; }
+          .pp-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
         }
 
         @media (max-width: 900px) {
-          .providers-page { padding: 32px 0 60px; }
-          .providers-container { padding: 0 24px; }
-          .providers-title { font-size: 36px; }
-          .search-main-row { grid-template-columns: 1fr; }
-          .inline-select { width: 100%; }
-          .results-bar {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-          .results-left {
-            width: 100%;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
-          }
-          .sort-dropdown { width: 100%; }
-          .sort-select { flex: 1; }
+          .pp-page { padding: 32px 0 60px; }
+          .pp-container { padding: 0 24px; }
+          .pp-title { font-size: 28px; }
+          .pp-search-row { grid-template-columns: 1fr; }
+          .pp-select { width: 100%; }
+          .pp-results-bar { flex-direction: column; align-items: flex-start; }
+          .pp-sort-wrap { width: 100%; }
+          .pp-sort-select { flex: 1; }
+        }
+
+        @media (max-width: 768px) {
+          .pp-grid { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 640px) {
-          .providers-page { padding: 24px 0 48px; }
-          .providers-container { padding: 0 16px; }
-          .providers-title { font-size: 23px; letter-spacing: -0.8px; }
-          .providers-subtitle { font-size: 13px; }
-          .providers-grid {
-            grid-template-columns: 1fr;
-            gap: 16px;
+          .pp-page { padding: 24px 0 48px; }
+          .pp-container { padding: 0 16px; }
+          .pp-title { font-size: 24px; letter-spacing: -0.8px; }
+          .pp-img-wrap { height: 200px; }
+          .pp-price-amount { font-size: 18px; }
+          .pp-actions { grid-template-columns: 1fr 1fr; }
+          .pp-btn-profile {
+            grid-column: 1 / -1;
+            width: 100%;
+            border-radius: var(--radius-md);
+            gap: 6px;
+          }
+          .pp-btn-profile::after {
+            content: 'View Profile';
+            font-size: 13px;
+            font-weight: 700;
           }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          * {
+          *, *::before, *::after {
             animation: none !important;
             transition: none !important;
           }
@@ -911,30 +1063,33 @@ const ProvidersPage = () => {
 
       <Breadcrumb items={breadcrumbItems} />
 
-      <div className="providers-page">
-        <div className="providers-container">
-          <div className="providers-header">
-            <h1 className="providers-title">Find Service Providers</h1>
-            <p className="providers-subtitle">
+      <div className="pp-page">
+        <div className="pp-container">
+          <div className="pp-header">
+            <h1 className="pp-title">Find Service Providers</h1>
+            <p className="pp-subtitle">
               Browse verified professionals across Zimbabwe
             </p>
           </div>
 
-          <div className="search-section">
-            <div className="search-main-row">
-              <div className="search-input-wrapper">
-                <SearchIcon size={20} className="search-icon" strokeWidth={2} />
+          <div className="pp-search-section">
+            <div className="pp-search-row">
+              <div className="pp-search-wrap">
+                <SearchIcon
+                  size={18}
+                  className="pp-search-icon"
+                  strokeWidth={2}
+                />
                 <input
                   type="text"
                   placeholder="Search by name, service, or category..."
-                  className="search-input"
+                  className="pp-search-input"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-
               <select
-                className="inline-select"
+                className="pp-select"
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
               >
@@ -944,9 +1099,8 @@ const ProvidersPage = () => {
                   </option>
                 ))}
               </select>
-
               <select
-                className="inline-select"
+                className="pp-select"
                 value={selectedCity}
                 onChange={(e) => setSelectedCity(e.target.value)}
               >
@@ -956,29 +1110,25 @@ const ProvidersPage = () => {
                   </option>
                 ))}
               </select>
-
               <button
-                className={`filter-toggle-btn ${showAdvancedFilters ? "active" : ""}`}
+                className={`pp-filter-btn ${showAdvancedFilters ? "active" : ""}`}
                 onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
               >
-                <SlidersHorizontal size={18} strokeWidth={2} />
+                <SlidersHorizontal size={17} strokeWidth={2} />
                 Filters
                 {activeFilterCount > 0 && (
-                  <span className="filter-badge">{activeFilterCount}</span>
+                  <span className="pp-filter-badge">{activeFilterCount}</span>
                 )}
               </button>
             </div>
 
-            {/* Quick category pills under search bar */}
-            <div className="quick-categories">
+            <div className="pp-quick-cats">
               {categories
                 .filter((cat) => cat !== "All Categories")
                 .map((cat) => (
                   <button
                     key={cat}
-                    className={`quick-cat-pill ${
-                      selectedCategory === cat ? "active" : ""
-                    }`}
+                    className={`pp-cat-pill ${selectedCategory === cat ? "active" : ""}`}
                     onClick={() =>
                       setSelectedCategory(
                         selectedCategory === cat ? "All Categories" : cat,
@@ -991,11 +1141,9 @@ const ProvidersPage = () => {
             </div>
 
             <div
-              className={`advanced-filters ${
-                showAdvancedFilters ? "visible" : ""
-              }`}
+              className={`pp-advanced ${showAdvancedFilters ? "visible" : ""}`}
             >
-              <div className="advanced-filters-content">
+              <div className="pp-advanced-inner">
                 <span
                   style={{
                     fontSize: 14,
@@ -1005,10 +1153,9 @@ const ProvidersPage = () => {
                 >
                   More filters coming soon...
                 </span>
-
                 {activeFilterCount > 0 && (
-                  <button className="clear-filters-btn" onClick={clearFilters}>
-                    <X size={16} strokeWidth={2.5} />
+                  <button className="pp-clear-btn" onClick={clearFilters}>
+                    <X size={15} strokeWidth={2.5} />
                     Clear All
                   </button>
                 )}
@@ -1016,180 +1163,216 @@ const ProvidersPage = () => {
             </div>
           </div>
 
-          <div className="results-bar">
-            <div className="results-left">
-              <p className="results-count">
-                Found <strong>{filteredProviders.length}</strong> provider
-                {filteredProviders.length !== 1 ? "s" : ""}
-                {selectedCity !== "All Cities" ? ` in ${selectedCity}` : ""}
-              </p>
-
-              <div className="sort-dropdown">
-                <span className="sort-label">Sort by</span>
-                <select
-                  className="sort-select"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                >
-                  {SORT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="pp-results-bar">
+            <p className="pp-results-count">
+              Found <strong>{filteredProviders.length}</strong> provider
+              {filteredProviders.length !== 1 ? "s" : ""}
+              {selectedCity !== "All Cities" ? ` in ${selectedCity}` : ""}
+            </p>
+            <div className="pp-sort-wrap">
+              <span className="pp-sort-label">Sort by</span>
+              <select
+                className="pp-sort-select"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
           {loading ? (
-            <p
-              style={{
-                color: "var(--color-text-secondary)",
-                fontSize: 14,
-              }}
-            >
-              Loading providers...
-            </p>
+            <p className="pp-loading">Loading providers...</p>
           ) : filteredProviders.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon">
-                <SearchIcon size={40} strokeWidth={2} />
+            <div className="pp-empty">
+              <div className="pp-empty-icon">
+                <SearchIcon size={36} strokeWidth={2} />
               </div>
-              <h3 className="empty-title">No providers found</h3>
-              <p className="empty-text">
-                Try adjusting your search or filters to find what you’re looking
+              <h3 className="pp-empty-title">No providers found</h3>
+              <p className="pp-empty-text">
+                Try adjusting your search or filters to find what you're looking
                 for.
               </p>
               {activeFilterCount > 0 && (
                 <button
-                  className="clear-filters-btn"
+                  className="pp-clear-btn"
                   onClick={clearFilters}
                   style={{ margin: "0 auto" }}
                 >
-                  <X size={16} strokeWidth={2.5} />
+                  <X size={15} strokeWidth={2.5} />
                   Clear All Filters
                 </button>
               )}
             </div>
           ) : (
-            <div className="providers-grid">
-              {filteredProviders.map((provider) => (
-                <div key={provider.id} className="provider-card">
+            <div className="pp-grid">
+              {filteredProviders.map((provider) => {
+                const hasPrice =
+                  provider.matchedService &&
+                  provider.matchedService.price != null;
+                const displayAreas = provider.areas.slice(0, 2);
+                const extraAreas = provider.areas.length - 2;
+
+                return (
                   <div
-                    className="provider-img-wrap"
+                    key={provider.id}
+                    className="pp-card"
                     onClick={() => handleViewProfile(provider.slug)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View ${provider.name} profile`}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && handleViewProfile(provider.slug)
+                    }
                   >
-                    <img
-                      src={provider.image}
-                      alt={provider.name}
-                      className="provider-img"
-                      loading="lazy"
-                    />
-                    {provider.verified && (
-                      <div className="verified-badge">
-                        <CheckCircle size={16} strokeWidth={2.5} color="#fff" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="provider-content">
-                    {/* Header row: name on left, price on right */}
-                    <div className="provider-header-row">
-                      <h3
-                        className="provider-name"
-                        onClick={() => handleViewProfile(provider.slug)}
-                      >
-                        {provider.name}
-                      </h3>
-
-                      {provider.matchedService &&
-                        provider.matchedService.price != null && (
-                          <div className="provider-price">
-                            <span className="provider-price-label">From</span>
-                            <span className="provider-price-amount">
-                              $
-                              {Number.isInteger(provider.matchedService.price)
-                                ? provider.matchedService.price
-                                : provider.matchedService.price.toFixed(2)}
-                            </span>
-                          </div>
+                    {/* Image Strip */}
+                    <div className="pp-img-wrap">
+                      <img
+                        src={provider.image}
+                        alt={provider.name}
+                        className="pp-img"
+                        loading="lazy"
+                      />
+                      <div className="pp-img-scrim" />
+                      <div className="pp-img-top">
+                        {provider.verified && (
+                          <span className="pp-verified-pill">
+                            <CheckCircle size={11} strokeWidth={2.5} />
+                            Verified
+                          </span>
                         )}
+                      </div>
                     </div>
 
-                    {/* Single service line directly below the name */}
-                    <p className="provider-tagline">
-                      {provider.matchedService
-                        ? provider.matchedService.name
-                        : `${provider.category} specialist`}
-                    </p>
+                    {/* Card Body */}
+                    <div className="pp-body">
+                      {/* Name + price */}
+                      <div className="pp-name-row">
+                        <h3 className="pp-name">{provider.name}</h3>
+                        {hasPrice ? (
+                          <div className="pp-price">
+                            <span className="pp-price-label">From</span>
+                            <span className="pp-price-amount">
+                              $
+                              {Number.isInteger(provider.matchedService!.price)
+                                ? provider.matchedService!.price
+                                : provider.matchedService!.price!.toFixed(2)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="pp-price-quote">
+                            {provider.pricingLabel}
+                          </span>
+                        )}
+                      </div>
 
-                    <div className="provider-meta">
-                      <div className="provider-rating">
-                        <Star size={16} fill="#F59E0B" strokeWidth={0} />
-                        <span>{provider.rating.toFixed(1)}</span>
-                        <span className="provider-rating-count">
+                      <p className="pp-tagline">
+                        {provider.matchedService
+                          ? provider.matchedService.name
+                          : `${provider.category} specialist`}
+                      </p>
+
+                      {/* City + experience chips */}
+                      <div className="pp-chips">
+                        <span className="pp-chip">
+                          <MapPin size={12} strokeWidth={2} />
+                          {provider.city}
+                        </span>
+                        {provider.yearsExperience > 0 && (
+                          <span className="pp-chip">
+                            <Briefcase size={12} strokeWidth={2} />
+                            {provider.yearsExperience}yr exp
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Service areas */}
+                      {provider.areas.length > 0 && (
+                        <div className="pp-areas">
+                          <span className="pp-areas-label">Serves:</span>
+                          {displayAreas.map((area) => (
+                            <span key={area} className="pp-area-tag">
+                              {area}
+                            </span>
+                          ))}
+                          {extraAreas > 0 && (
+                            <span className="pp-area-more">
+                              +{extraAreas} more
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Rating */}
+                      <div className="pp-rating-row">
+                        <div className="pp-stars">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star
+                              key={s}
+                              size={13}
+                              fill={
+                                s <= Math.floor(provider.rating)
+                                  ? "#F59E0B"
+                                  : "none"
+                              }
+                              stroke="#F59E0B"
+                              strokeWidth={1.5}
+                            />
+                          ))}
+                        </div>
+                        <span className="pp-rating-num">
+                          {provider.rating.toFixed(1)}
+                        </span>
+                        <span className="pp-rating-ct">
                           ({provider.reviewCount})
                         </span>
                       </div>
 
-                      <div className="provider-location">
-                        <MapPin size={14} strokeWidth={2} />
-                        <span>{provider.city}</span>
+                      <p className="pp-desc">{provider.description}</p>
+
+                      <div className="pp-divider" />
+
+                      {/* Actions */}
+                      <div className="pp-actions">
+                        <button
+                          className="pp-btn pp-btn-whatsapp"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.open("https://wa.me/263000000000", "_blank");
+                          }}
+                        >
+                          <MessageCircle size={14} strokeWidth={2.5} />
+                          WhatsApp
+                        </button>
+                        <button
+                          className="pp-btn pp-btn-call"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.location.href = "tel:+263000000000";
+                          }}
+                        >
+                          <Phone size={14} strokeWidth={2.5} />
+                          Call
+                        </button>
+                        <button
+                          className="pp-btn-profile"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewProfile(provider.slug);
+                          }}
+                          aria-label="View full profile"
+                        >
+                          <ChevronRight size={16} strokeWidth={2.5} />
+                        </button>
                       </div>
-
-                      <span className="category-badge">
-                        {provider.category}
-                      </span>
-                    </div>
-
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "var(--color-text-secondary)",
-                        marginBottom: 14,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {provider.description}
-                    </p>
-
-                    <div className="provider-actions">
-                      <button
-                        className="provider-btn provider-btn-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.open("https://wa.me/263000000000", "_blank");
-                        }}
-                      >
-                        <MessageCircle size={14} strokeWidth={2.5} />
-                        Whatsapp
-                      </button>
-
-                      <button
-                        className="provider-btn provider-btn-secondary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.location.href = "tel:+263000000000";
-                        }}
-                      >
-                        <Phone size={14} strokeWidth={2.5} />
-                        Call
-                      </button>
-
-                      <button
-                        className="provider-btn provider-btn-profile"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewProfile(provider.slug);
-                        }}
-                      >
-                        View Profile
-                        <ArrowRight size={14} strokeWidth={2.5} />
-                      </button>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

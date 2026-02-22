@@ -1,35 +1,10 @@
 // src/components/Header/Header.tsx
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Search,
-  MapPin,
-  Menu,
-  X,
-  Grid,
-  Briefcase,
-  ChevronDown,
-} from "lucide-react";
-
-const ZIMBABWE_CITIES = [
-  "All Cities",
-  "Harare",
-  "Bulawayo",
-  "Chitungwiza",
-  "Mutare",
-  "Gweru",
-  "Kwekwe",
-  "Kadoma",
-  "Masvingo",
-  "Chinhoyi",
-  "Norton",
-  "Marondera",
-  "Ruwa",
-];
+import { Search, Menu, X, Grid, Briefcase, LogIn } from "lucide-react";
 
 const Header = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCity, setSelectedCity] = useState("All Cities");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -40,7 +15,6 @@ const Header = () => {
     const handleScroll = () => {
       const scrollY = window.scrollY;
       setScrolled(scrollY > 10);
-      // Show search after scrolling 400px (past hero on most screens)
       setShowSearch(scrollY > 400);
     };
     window.addEventListener("scroll", handleScroll);
@@ -60,7 +34,6 @@ const Header = () => {
     if (q) {
       const params = new URLSearchParams();
       params.append("q", q);
-      if (selectedCity !== "All Cities") params.append("city", selectedCity);
       navigate(`/providers?${params.toString()}`);
       setMobileMenuOpen(false);
     }
@@ -69,7 +42,6 @@ const Header = () => {
   const handleLogoClick = () => {
     navigate("/");
     setSearchQuery("");
-    setSelectedCity("All Cities");
   };
 
   return (
@@ -83,7 +55,6 @@ const Header = () => {
           font-family: var(--font-primary);
         }
 
-        /* top accent stripe */
         .hdr-root::before {
           content: '';
           position: absolute;
@@ -129,15 +100,13 @@ const Header = () => {
           max-width: var(--container-max-width);
           margin: 0 auto;
           padding: 0 var(--container-padding);
-          height: 90px;
+          height: 85px;
           display: grid;
           grid-template-columns: auto 1fr auto;
           align-items: center;
-          gap: 40px;
+          gap: 32px;
           transition: height var(--transition-base);
         }
-
-        
 
         /* ── LOGO ─────────────────────────────────────────── */
         .hdr-logo {
@@ -150,13 +119,11 @@ const Header = () => {
         }
 
         .hdr-logo img {
-          height: 50px;
+          height: 44px;
           width: auto;
           display: block;
           transition: height var(--transition-base);
         }
-
-        
 
         .hdr-logo:hover {
           transform: translateY(-1px);
@@ -169,7 +136,7 @@ const Header = () => {
           justify-content: center;
           min-width: 0;
           opacity: 0;
-          transform: translateY(-10px);
+          transform: translateY(-8px);
           pointer-events: none;
           transition:
             opacity 0.3s ease,
@@ -184,34 +151,34 @@ const Header = () => {
 
         .hdr-search-form {
           width: 100%;
-          max-width: 600px;
+          max-width: 380px;
+          margin-left: 150px;
         }
 
         .hdr-search {
           display: flex;
           align-items: center;
-          background: var(--color-bg);
+          background: var(--color-bg-section);
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-full);
-          padding: 6px 6px 6px 18px;
-          box-shadow: var(--shadow-sm);
+          padding: 5px 5px 5px 16px;
           transition:
             border-color var(--transition-base),
             box-shadow var(--transition-base),
-            transform var(--transition-base);
+            background var(--transition-base);
         }
 
         .hdr-search:hover {
           border-color: var(--color-accent-light);
-          box-shadow: var(--shadow-md);
+          background: var(--color-bg);
         }
 
         .hdr-search:focus-within {
           border-color: var(--color-accent);
           border-width: 2px;
-          padding: 5px 5px 5px 17px;
-          box-shadow: 0 0 0 4px var(--color-accent-soft), var(--shadow-md);
-          transform: translateY(-1px);
+          padding: 4px 4px 4px 15px;
+          box-shadow: 0 0 0 3px var(--color-accent-soft);
+          background: var(--color-bg);
         }
 
         .hdr-search-left {
@@ -225,12 +192,11 @@ const Header = () => {
         .hdr-search-icon {
           color: var(--color-text-secondary);
           flex-shrink: 0;
-          transition: color var(--transition-fast), transform var(--transition-fast);
+          transition: color var(--transition-fast);
         }
 
         .hdr-search:focus-within .hdr-search-icon {
           color: var(--color-accent);
-          transform: scale(1.1);
         }
 
         .hdr-search-input {
@@ -249,85 +215,34 @@ const Header = () => {
           color: var(--color-text-secondary);
         }
 
-        .hdr-sep {
-          width: 1px;
-          height: 26px;
-          background: var(--color-border);
-          flex-shrink: 0;
-          margin: 0 4px;
-        }
-
-        .hdr-city {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          padding: 5px 24px 5px 8px;
-          border-radius: var(--radius-full);
-          cursor: pointer;
-          flex-shrink: 0;
-          position: relative;
-          transition: background var(--transition-fast);
-        }
-
-        .hdr-city:hover { background: var(--color-accent-soft); }
-
-        .hdr-city-icon {
-          color: var(--color-accent);
-          flex-shrink: 0;
-        }
-
-        .hdr-city-select {
-          border: none;
-          outline: none;
-          background: transparent;
-          font-family: var(--font-primary);
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--color-primary);
-          cursor: pointer;
-          -webkit-appearance: none;
-          appearance: none;
-          min-width: 70px;
-        }
-
-        .hdr-city-chevron {
-          position: absolute;
-          right: 6px;
-          color: var(--color-text-secondary);
-          pointer-events: none;
-        }
-
         .hdr-search-btn {
           background: var(--color-accent);
           color: #fff;
           border: none;
           border-radius: var(--radius-full);
-          padding: 9px 20px;
+          padding: 8px 18px;
           font-family: var(--font-primary);
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 700;
           cursor: pointer;
           white-space: nowrap;
           flex-shrink: 0;
           letter-spacing: 0.2px;
-          box-shadow: var(--shadow-sm);
           transition:
             background var(--transition-fast),
             transform var(--transition-fast),
-            box-shadow var(--transition-fast),
             opacity var(--transition-fast);
         }
 
         .hdr-search-btn:hover:not(:disabled) {
           background: var(--color-accent-hover);
-          transform: translateY(-1px) scale(1.02);
-          box-shadow: var(--shadow-md);
+          transform: translateY(-1px);
         }
 
-        .hdr-search-btn:active:not(:disabled) { transform: scale(0.98); }
+        .hdr-search-btn:active:not(:disabled) { transform: scale(0.97); }
 
         .hdr-search-btn:disabled {
-          opacity: 0.45;
+          opacity: 0.4;
           cursor: not-allowed;
         }
 
@@ -335,21 +250,31 @@ const Header = () => {
         .hdr-nav {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 4px;
           flex-shrink: 0;
           justify-self: end;
         }
 
+        /* Thin vertical divider between nav groups */
+        .hdr-nav-divider {
+          width: 1px;
+          height: 20px;
+          background: var(--color-border);
+          margin: 0 8px;
+          flex-shrink: 0;
+        }
+
+        /* Ghost — Browse Categories */
         .hdr-nav-link {
           display: flex;
           align-items: center;
-          gap: 7px;
-          padding: 9px 16px;
+          gap: 6px;
+          padding: 8px 14px;
           border: none;
           border-radius: var(--radius-full);
           background: transparent;
           font-family: var(--font-primary);
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 600;
           color: var(--color-text-secondary);
           cursor: pointer;
@@ -372,22 +297,23 @@ const Header = () => {
           transform: scale(1.1);
         }
 
-        .hdr-cta {
+        /* Filled — Sign In */
+        .hdr-signin {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 10px 20px;
+          gap: 6px;
+          padding: 9px 18px;
           border: none;
           border-radius: var(--radius-full);
           background: var(--color-accent);
           font-family: var(--font-primary);
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 700;
           color: #fff;
           cursor: pointer;
           white-space: nowrap;
           letter-spacing: 0.2px;
-          box-shadow: var(--shadow-sm);
+          box-shadow: 0 2px 8px rgba(236,111,22,0.28);
           position: relative;
           overflow: hidden;
           transition:
@@ -396,7 +322,7 @@ const Header = () => {
             box-shadow var(--transition-fast);
         }
 
-        .hdr-cta::after {
+        .hdr-signin::after {
           content: '';
           position: absolute;
           top: 0; left: -100%;
@@ -405,21 +331,50 @@ const Header = () => {
           transition: left 0.5s ease;
         }
 
-        .hdr-cta:hover::after { left: 100%; }
+        .hdr-signin:hover::after { left: 100%; }
 
-        .hdr-cta:hover {
+        .hdr-signin:hover {
           background: var(--color-accent-hover);
-          transform: translateY(-2px);
-          box-shadow: var(--shadow-md);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 16px rgba(236,111,22,0.38);
         }
 
-        .hdr-cta:active { transform: scale(0.98); }
+        .hdr-signin:active { transform: scale(0.98); }
+
+        /* Outlined — Become a Provider */
+        .hdr-cta {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          padding: 8px 16px;
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-full);
+          background: transparent;
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--color-primary);
+          cursor: pointer;
+          white-space: nowrap;
+          transition:
+            border-color var(--transition-fast),
+            color var(--transition-fast),
+            background var(--transition-fast),
+            transform var(--transition-fast);
+        }
+
+        .hdr-cta:hover {
+          border-color: var(--color-accent);
+          color: var(--color-accent);
+          background: var(--color-accent-soft);
+          transform: translateY(-1px);
+        }
 
         /* ── MOBILE HAMBURGER ─────────────────────────────── */
         .hdr-hamburger {
           display: none;
-          width: 37px;
-          height: 37px;
+          width: 36px;
+          height: 36px;
           border: 1.5px solid var(--color-border);
           background: var(--color-bg);
           border-radius: var(--radius-md);
@@ -435,7 +390,6 @@ const Header = () => {
           background: var(--color-accent);
           border-color: var(--color-accent);
           color: #fff;
-          box-shadow: var(--shadow-sm);
         }
 
         /* ── MOBILE DRAWER ────────────────────────────────── */
@@ -475,18 +429,18 @@ const Header = () => {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 20px 24px;
+          padding: 18px 24px;
           border-bottom: 1px solid var(--color-border);
           background: var(--color-bg-section);
         }
 
         .mob-drawer-logo {
-          height: 36px;
+          height: 34px;
           width: auto;
         }
 
         .mob-close {
-          width: 40px; height: 40px;
+          width: 38px; height: 38px;
           border: 1.5px solid var(--color-border);
           background: var(--color-bg);
           border-radius: var(--radius-md);
@@ -513,20 +467,20 @@ const Header = () => {
           background: var(--color-bg-section);
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-lg);
-          padding: 16px;
-          margin-bottom: 28px;
+          padding: 14px;
+          margin-bottom: 24px;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 10px;
         }
 
         .mob-input {
           width: 100%;
-          padding: 13px 16px;
+          padding: 12px 16px;
           border: 1.5px solid var(--color-border);
           border-radius: var(--radius-md);
           font-family: var(--font-primary);
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 500;
           color: var(--color-primary);
           background: var(--color-bg);
@@ -544,35 +498,32 @@ const Header = () => {
 
         .mob-search-submit {
           width: 100%;
-          padding: 13px;
+          padding: 12px;
           background: var(--color-accent);
           color: #fff;
           border: none;
           border-radius: var(--radius-md);
           font-family: var(--font-primary);
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 700;
           cursor: pointer;
-          box-shadow: var(--shadow-sm);
           transition:
             background var(--transition-fast),
-            transform var(--transition-fast),
-            box-shadow var(--transition-fast);
+            transform var(--transition-fast);
         }
 
         .mob-search-submit:hover {
           background: var(--color-accent-hover);
           transform: translateY(-1px);
-          box-shadow: var(--shadow-md);
         }
 
         .mob-section-label {
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 700;
-          letter-spacing: 1.2px;
+          letter-spacing: 1.4px;
           text-transform: uppercase;
           color: var(--color-text-secondary);
-          margin-bottom: 10px;
+          margin-bottom: 8px;
           padding-left: 4px;
         }
 
@@ -581,7 +532,7 @@ const Header = () => {
           align-items: center;
           gap: 14px;
           width: 100%;
-          padding: 13px 16px;
+          padding: 12px 14px;
           border: none;
           border-radius: var(--radius-md);
           background: transparent;
@@ -591,14 +542,14 @@ const Header = () => {
           color: var(--color-primary);
           cursor: pointer;
           text-align: left;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
           transition: all var(--transition-fast);
         }
 
         .mob-nav-item:hover {
           background: var(--color-accent-soft);
           color: var(--color-accent);
-          padding-left: 22px;
+          padding-left: 20px;
         }
 
         .mob-nav-item svg {
@@ -609,45 +560,74 @@ const Header = () => {
 
         .mob-nav-item:hover svg { color: var(--color-accent); }
 
-        .mob-cta {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          width: 100%;
-          padding: 13px 16px;
-          border: none;
-          border-radius: var(--radius-md);
-          background: var(--color-accent);
-          font-family: var(--font-primary);
-          font-size: 15px;
-          font-weight: 700;
-          color: #fff;
-          cursor: pointer;
-          text-align: left;
-          box-shadow: var(--shadow-sm);
-          transition:
-            background var(--transition-fast),
-            transform var(--transition-fast),
-            box-shadow var(--transition-fast);
-        }
+       /* Filled — Sign In mobile */
+      .mob-signin-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        width: 100%;
+        padding: 13px 16px;
+        border: none;
+        border-radius: var(--radius-md);
+        background: var(--color-accent);
+        font-family: var(--font-primary);
+        font-size: 14px;
+        font-weight: 700;
+        color: #fff;
+        cursor: pointer;
+        margin-bottom: 2px;
+        box-shadow: var(--shadow-sm);
+        transition:
+          background var(--transition-fast),
+          transform var(--transition-fast),
+          box-shadow var(--transition-fast);
+      }
 
-        .mob-cta:hover {
-          background: var(--color-accent-hover);
-          transform: translateY(-1px);
-          box-shadow: var(--shadow-md);
-        }
+      .mob-signin-btn:hover {
+        background: var(--color-accent-hover);
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+      }
+
+      /* Outlined — Become a Provider mobile */
+      .mob-cta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 12px 16px;
+        border: 1.5px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: transparent;
+        font-family: var(--font-primary);
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--color-primary);
+        cursor: pointer;
+        text-align: left;
+        transition: all var(--transition-fast);
+      }
+
+      .mob-cta:hover {
+        border-color: var(--color-accent);
+        color: var(--color-accent);
+        background: var(--color-accent-soft);
+        transform: translateY(-1px);
+      }
+
 
         .mob-hr {
           height: 1px;
           background: var(--color-border);
-          margin: 20px 0;
+          margin: 18px 0;
           border: none;
         }
 
         /* ── RESPONSIVE ───────────────────────────────────── */
         @media (max-width: 1100px) {
-          .hdr-inner { gap: 28px; }
-          .hdr-search-form { max-width: 500px; }
+          .hdr-inner { gap: 24px; }
+          .hdr-search-form { max-width: 460px; }
         }
 
         @media (max-width: 920px) {
@@ -662,8 +642,8 @@ const Header = () => {
         }
 
         @media (max-width: 480px) {
-          .hdr-inner { padding: 0 16px; height: 80px; }
-          .hdr-logo img { height: 35px; }
+          .hdr-inner { padding: 0 16px; height: 64px; }
+          .hdr-logo img { height: 34px; }
           .mob-drawer { width: 100%; }
         }
 
@@ -688,48 +668,23 @@ const Header = () => {
               <img src="/assets/logo.png" alt="ZimServ" />
             </div>
 
-            {/* SEARCH (appears after scrolling past hero) */}
+            {/* SEARCH — appears after scrolling past hero */}
             <div className={`hdr-search-wrap ${showSearch ? "visible" : ""}`}>
               <form className="hdr-search-form" onSubmit={handleSearch}>
                 <div className="hdr-search">
                   <div className="hdr-search-left">
                     <Search
-                      size={17}
+                      size={16}
                       className="hdr-search-icon"
                       strokeWidth={2.2}
                     />
                     <input
                       type="text"
-                      placeholder="What service are you looking for?"
+                      placeholder="What are you looking for?"
                       className="hdr-search-input"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       aria-label="Search for services"
-                    />
-                  </div>
-                  <div className="hdr-sep" />
-                  <div className="hdr-city">
-                    <MapPin
-                      size={14}
-                      className="hdr-city-icon"
-                      strokeWidth={2.5}
-                    />
-                    <select
-                      className="hdr-city-select"
-                      value={selectedCity}
-                      onChange={(e) => setSelectedCity(e.target.value)}
-                      aria-label="Select city"
-                    >
-                      {ZIMBABWE_CITIES.map((city) => (
-                        <option key={city} value={city}>
-                          {city}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown
-                      size={11}
-                      className="hdr-city-chevron"
-                      strokeWidth={2.5}
                     />
                   </div>
                   <button
@@ -743,44 +698,56 @@ const Header = () => {
               </form>
             </div>
 
-            {/* RIGHT NAV */}
+            {/* RIGHT NAV — ghost → divider → outlined → filled */}
             <nav className="hdr-nav" aria-label="Main navigation">
               <button
                 className="hdr-nav-link"
                 onClick={() => navigate("/categories")}
               >
-                <Grid size={16} strokeWidth={2.2} />
+                <Grid size={15} strokeWidth={2.2} />
                 Browse Categories
               </button>
+
+              <div className="hdr-nav-divider" aria-hidden="true" />
+
+              <button
+                className="hdr-signin"
+                onClick={() => navigate("/signin")}
+              >
+                <LogIn size={15} strokeWidth={2.2} />
+                Sign In
+              </button>
+
               <button
                 className="hdr-cta"
                 onClick={() => navigate("/become-provider")}
               >
-                <Briefcase size={16} strokeWidth={2.2} />
+                <Briefcase size={15} strokeWidth={2.2} />
                 Become a Provider
               </button>
             </nav>
 
-            {/* HAMBURGER */}
+            {/* HAMBURGER — mobile only */}
             <button
               className="hdr-hamburger"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open navigation menu"
               aria-expanded={mobileMenuOpen}
             >
-              <Menu size={22} strokeWidth={2} />
+              <Menu size={20} strokeWidth={2} />
             </button>
           </div>
         </div>
       </header>
 
-      {/* MOBILE DRAWER */}
+      {/* MOBILE OVERLAY */}
       <div
         className={`mob-overlay ${mobileMenuOpen ? "open" : ""}`}
         onClick={() => setMobileMenuOpen(false)}
         aria-hidden="true"
       />
 
+      {/* MOBILE DRAWER */}
       <div
         className={`mob-drawer ${mobileMenuOpen ? "open" : ""}`}
         role="dialog"
@@ -798,32 +765,21 @@ const Header = () => {
             onClick={() => setMobileMenuOpen(false)}
             aria-label="Close menu"
           >
-            <X size={18} strokeWidth={2} />
+            <X size={17} strokeWidth={2} />
           </button>
         </div>
 
         <div className="mob-body">
+          {/* Search */}
           <div className="mob-search-box">
             <input
               type="text"
-              placeholder="What service are you looking for?"
+              placeholder="What are you looking for?"
               className="mob-input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyPress={(e) => e.key === "Enter" && handleSearch()}
             />
-            <select
-              className="mob-input"
-              value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
-              style={{ cursor: "pointer" }}
-            >
-              {ZIMBABWE_CITIES.map((city) => (
-                <option key={city} value={city}>
-                  {city}
-                </option>
-              ))}
-            </select>
             <button
               className="mob-search-submit"
               onClick={() => handleSearch()}
@@ -833,6 +789,7 @@ const Header = () => {
             </button>
           </div>
 
+          {/* Explore */}
           <div className="mob-section-label">Explore</div>
           <button
             className="mob-nav-item"
@@ -841,7 +798,7 @@ const Header = () => {
               setMobileMenuOpen(false);
             }}
           >
-            <Grid size={20} strokeWidth={2} />
+            <Grid size={19} strokeWidth={2} />
             Browse Categories
           </button>
           <button
@@ -852,8 +809,8 @@ const Header = () => {
             }}
           >
             <svg
-              width="20"
-              height="20"
+              width="19"
+              height="19"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -870,6 +827,22 @@ const Header = () => {
 
           <hr className="mob-hr" />
 
+          {/* Account */}
+          <div className="mob-section-label">Account</div>
+          <button
+            className="mob-signin-btn"
+            onClick={() => {
+              navigate("/signin");
+              setMobileMenuOpen(false);
+            }}
+          >
+            <LogIn size={18} strokeWidth={2} />
+            Sign In
+          </button>
+
+          <hr className="mob-hr" />
+
+          {/* For Providers */}
           <div className="mob-section-label">For Providers</div>
           <button
             className="mob-cta"
@@ -878,7 +851,7 @@ const Header = () => {
               setMobileMenuOpen(false);
             }}
           >
-            <Briefcase size={20} strokeWidth={2} />
+            <Briefcase size={19} strokeWidth={2} />
             Become a Provider
           </button>
         </div>
