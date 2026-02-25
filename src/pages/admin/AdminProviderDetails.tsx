@@ -47,6 +47,29 @@ interface PendingEdit {
   auto_applied_at?: string;
 }
 
+// ── File helpers (same idea as AdminApplicationDetails) ──────────────────────
+
+const PROVIDER_BUCKET = "provider-media";
+
+function getStoragePath(rawUrl: string): string {
+  const marker = `/${PROVIDER_BUCKET}/`;
+  const idx = rawUrl.indexOf(marker);
+  if (idx !== -1) return rawUrl.slice(idx + marker.length).split("?")[0];
+  return rawUrl.split("?")[0];
+}
+
+function getPublicUrl(rawUrl: string): string {
+  const path = getStoragePath(rawUrl);
+  const { data } = supabase.storage.from(PROVIDER_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function getFileName(rawUrl: string): string {
+  return getStoragePath(rawUrl).split("/").pop() || "document";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const AdminProviderDetails = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -101,7 +124,7 @@ const AdminProviderDetails = () => {
         .order("requested_at", { ascending: false });
       setPendingEdits(editsData || []);
 
-      // 4) Parallel fetch
+      // 4) Parallel fetch: services, areas, portfolio photos, verification docs in provider_media
       const [
         { data: servicesData },
         { data: areasData },
@@ -128,8 +151,53 @@ const AdminProviderDetails = () => {
           .in("media_type", ["certificate", "license", "id_document"]),
       ]);
 
+      // 4b) Application row to get verification_file_url
+      const { data: applicationData } = await supabase
+        .from("provider_applications")
+        .select("*")
+        .eq("email", providerData.email)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
       // 5) Build provider view-model
       const name = providerData.business_name || providerData.full_name;
+
+      // Provider media docs (normalize path→public URL)
+      const mediaDocuments =
+        documentsData?.map((d: any) => {
+          const url = getPublicUrl(d.file_path);
+
+          return {
+            source: "provider_media",
+            name: formatMediaType(d.media_type),
+            status: d.is_verified ? "Verified" : "Pending",
+            uploadedAt: d.uploaded_at ? new Date(d.uploaded_at) : new Date(),
+            url,
+            fileName: getFileName(d.file_path),
+          };
+        }) ?? [];
+
+      // Application verification document (normalize like AdminApplicationDetails)
+      const applicationDocuments = applicationData?.verification_file_url
+        ? [
+            {
+              source: "application",
+              name: "Application Verification Document",
+              status:
+                applicationData.status === "approved"
+                  ? "Verified"
+                  : applicationData.status === "rejected"
+                    ? "Rejected"
+                    : "Pending",
+              uploadedAt: applicationData.created_at
+                ? new Date(applicationData.created_at)
+                : new Date(),
+              url: getPublicUrl(applicationData.verification_file_url),
+              fileName: getFileName(applicationData.verification_file_url),
+            },
+          ]
+        : [];
 
       setProvider({
         id: providerData.id,
@@ -162,16 +230,11 @@ const AdminProviderDetails = () => {
           : new Date(providerData.created_at),
         profileImage: profileImageUrl || getDefaultAvatar(name),
         photos:
-          photosData?.map(
-            (p: any) =>
-              `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/provider-media/${p.file_path}`,
-          ) ?? [],
-        documents:
-          documentsData?.map((d: any) => ({
-            name: formatMediaType(d.media_type),
-            status: d.is_verified ? "Verified" : "Pending",
-            uploadedAt: new Date(d.uploaded_at),
-          })) ?? [],
+          photosData?.map((p: any) => {
+            const url = getPublicUrl(p.file_path);
+            return url;
+          }) ?? [],
+        documents: [...mediaDocuments, ...applicationDocuments],
         analytics: {
           profileViews: providerData.profile_views ?? 0,
           clickToCall: providerData.click_to_call_count ?? 0,
@@ -194,7 +257,6 @@ const AdminProviderDetails = () => {
       showError("Error", error.message || "Failed to load provider details");
     } finally {
       setLoading(false);
-      // ← function ends here, nothing after this brace
     }
   }
 
@@ -211,18 +273,16 @@ const AdminProviderDetails = () => {
         data: { user },
       } = await supabase.auth.getUser();
 
-      // Apply sensitive fields to provider
       const { error: updateError } = await supabase
         .from("providers")
         .update({
           ...editRequest.pending_review_fields,
           updated_at: new Date().toISOString(),
-          reviewed_by: user?.id, // ✅ added
+          reviewed_by: user?.id,
         })
         .eq("id", provider.id);
       if (updateError) throw updateError;
 
-      // Only mark approved after provider update succeeds
       const { error: approveError } = await supabase
         .from("provider_edit_requests")
         .update({
@@ -567,10 +627,24 @@ const AdminProviderDetails = () => {
                     <FileText size={18} strokeWidth={2.5} />
                   </div>
                   <div className="document-info">
-                    <h4>{doc.name}</h4>
+                    <h4>
+                      {doc.name}
+                      {doc.source === "application" && " (from application)"}
+                    </h4>
                     <div className="document-date">
                       Uploaded {doc.uploadedAt.toLocaleDateString()}
                     </div>
+                    {doc.url && (
+                      <button
+                        className="file-btn view-btn"
+                        onClick={() =>
+                          window.open(doc.url, "_blank", "noopener,noreferrer")
+                        }
+                      >
+                        <Eye size={15} strokeWidth={2.5} />
+                        View
+                      </button>
+                    )}
                   </div>
                 </div>
                 <span className="document-status">

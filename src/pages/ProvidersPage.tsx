@@ -1,6 +1,6 @@
 // src/pages/ProvidersPage.tsx
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import {
   Star,
   MapPin,
@@ -16,9 +16,9 @@ import {
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
 
-// ✅ CHANGED: removed full_name — no longer needed
 type DbProvider = {
   id: string;
+  slug: string | null;
   business_name: string | null;
   primary_category: string;
   city: string;
@@ -98,6 +98,7 @@ const DEFAULT_PROVIDER_IMAGE =
 
 const ProvidersPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
@@ -115,17 +116,57 @@ const ProvidersPage = () => {
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>(["All Categories"]);
 
+  // ── AUTH STATE ───────────────────────────────────────────────────────────────
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [signingIn, setSigningIn] = useState(false); // ✅ NEW
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── CONTACT HANDLER ──────────────────────────────────────────────────────────
+  const handleContactClick = (e: React.MouseEvent, action: () => void) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      setShowLoginPrompt(true);
+    } else {
+      action();
+    }
+  };
+
+  // ✅ UPDATED: triggers Google OAuth directly from modal — no redirect to /signin
+  const handleSignInRedirect = async () => {
+    setSigningIn(true);
+    sessionStorage.setItem("returnTo", location.pathname + location.search);
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: { access_type: "offline", prompt: "consent" },
+      },
+    });
+    setSigningIn(false); // only reached if OAuth fails to redirect
+  };
+
+  // ── DATA FETCHING ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
 
-        // 1) Providers
         const { data: providersData, error: providersError } = await supabase
           .from("providers")
-          // ✅ CHANGED: removed full_name from select
           .select(
-            "id, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model",
+            "id, slug, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model",
           )
           .eq("status", "active");
 
@@ -135,7 +176,6 @@ const ProvidersPage = () => {
         } else {
           const dbProviders: DbProvider[] = providersData || [];
 
-          // 2) All provider services
           const { data: servicesData, error: servicesError } = await supabase
             .from("provider_services")
             .select("id, provider_id, service_name, price");
@@ -144,7 +184,6 @@ const ProvidersPage = () => {
             console.error("Error loading provider services:", servicesError);
           }
 
-          // 3) All service areas
           const { data: areasData, error: areasError } = await supabase
             .from("provider_service_areas")
             .select("provider_id, city, suburb");
@@ -157,16 +196,15 @@ const ProvidersPage = () => {
           const dbAreas: DbServiceArea[] = areasData || [];
 
           const ui: UiProvider[] = dbProviders.map((p) => {
-            // ✅ CHANGED: strictly use business_name only
-            const displayName = p.business_name ?? "";
+            const displayName = p.business_name ?? "ZimServ Provider";
 
-            // ✅ CHANGED: slug from business_name only; falls back to id if empty
-            const slug = displayName
-              ? `${displayName}-${p.city}`
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "-")
-                  .replace(/^-|-$/g, "")
-              : p.id;
+            // Use stored slug; fall back to generated slug or id if null
+            const slug =
+              p.slug ??
+              displayName
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-|-$/g, "");
 
             const providerServices: ProviderService[] = dbServices
               .filter((s) => s.provider_id === p.id)
@@ -202,7 +240,6 @@ const ProvidersPage = () => {
           setProviders(ui);
         }
 
-        // 4) Categories
         const { data: categoriesData, error: categoriesError } = await supabase
           .from("categories")
           .select("id,name,status")
@@ -345,7 +382,6 @@ const ProvidersPage = () => {
   return (
     <>
       <style>{`
-        /* ── PAGE ─────────────────────────────────────────── */
         .pp-page {
           width: 100%;
           min-height: 100vh;
@@ -360,7 +396,6 @@ const ProvidersPage = () => {
           padding: 0 var(--container-padding);
         }
 
-        /* ── PAGE HEADER ──────────────────────────────────── */
         .pp-header { margin-bottom: 20px; }
 
         .pp-title {
@@ -379,7 +414,6 @@ const ProvidersPage = () => {
           color: var(--color-text-secondary);
         }
 
-        /* ── SEARCH SECTION ───────────────────────────────── */
         .pp-search-section {
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
@@ -568,7 +602,6 @@ const ProvidersPage = () => {
           color: #fff;
         }
 
-        /* ── RESULTS BAR ──────────────────────────────────── */
         .pp-results-bar {
           display: flex;
           justify-content: space-between;
@@ -623,7 +656,6 @@ const ProvidersPage = () => {
           border-color: var(--color-accent);
         }
 
-        /* ── GRID ─────────────────────────────────────────── */
         .pp-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -631,7 +663,6 @@ const ProvidersPage = () => {
           margin-bottom: 48px;
         }
 
-        /* ── CARD ─────────────────────────────────────────── */
         .pp-card {
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
@@ -667,7 +698,6 @@ const ProvidersPage = () => {
 
         .pp-card:hover::before { transform: scaleX(1); }
 
-        /* ── IMAGE STRIP ──────────────────────────────────── */
         .pp-img-wrap {
           position: relative;
           height: 240px;
@@ -732,7 +762,6 @@ const ProvidersPage = () => {
 
         .pp-verified-pill svg { color: #4ade80; }
 
-        /* ── CARD BODY ────────────────────────────────────── */
         .pp-body {
           padding: 18px 20px 20px;
           display: flex;
@@ -895,7 +924,6 @@ const ProvidersPage = () => {
           margin-bottom: 14px;
         }
 
-        /* ── ACTIONS ──────────────────────────────────────── */
         .pp-actions {
           display: grid;
           grid-template-columns: 1fr 1fr auto;
@@ -972,7 +1000,6 @@ const ProvidersPage = () => {
           transform: translateY(-1px);
         }
 
-        /* ── EMPTY STATE ──────────────────────────────────── */
         .pp-empty {
           text-align: center;
           padding: 80px 20px;
@@ -1011,6 +1038,154 @@ const ProvidersPage = () => {
           padding: 40px 0;
           text-align: center;
         }
+
+        /* ── LOGIN PROMPT MODAL ───────────────────────────── */
+        .pp-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          backdrop-filter: blur(4px);
+          animation: pp-fade-in 0.2s ease;
+        }
+
+        @keyframes pp-fade-in {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        .pp-modal {
+          background: var(--color-bg);
+          border-radius: var(--radius-xl);
+          padding: 40px 36px 36px;
+          max-width: 380px;
+          width: 90%;
+          text-align: center;
+          position: relative;
+          border: 1.5px solid var(--color-border);
+          box-shadow: var(--shadow-lg);
+          animation: pp-slide-up 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        @keyframes pp-slide-up {
+          from { opacity: 0; transform: translateY(20px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .pp-modal-close {
+          position: absolute;
+          top: 14px; right: 14px;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          color: var(--color-text-secondary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px;
+          border-radius: var(--radius-sm);
+          transition: color var(--transition-fast), background var(--transition-fast);
+        }
+
+        .pp-modal-close:hover {
+          color: var(--color-primary);
+          background: var(--color-bg-section);
+        }
+
+        .pp-modal-icon { font-size: 44px; margin-bottom: 14px; }
+
+        .pp-modal-title {
+          font-size: 20px;
+          font-weight: 800;
+          color: var(--color-primary);
+          letter-spacing: -0.4px;
+          margin-bottom: 8px;
+        }
+
+        .pp-modal-text {
+          font-size: 14px;
+          color: var(--color-text-secondary);
+          margin-bottom: 28px;
+          line-height: 1.6;
+        }
+
+       .pp-modal-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          width: 100%;
+        }
+
+
+
+        /* ── MODAL GOOGLE BUTTON ──────────────────────────────── */
+        .pp-modal-google-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          width: 100%;
+          padding: 13px 20px;
+          border-radius: var(--radius-md);
+          font-family: var(--font-primary);
+          font-size: 15px;
+          font-weight: 700;
+          cursor: pointer;
+          background: var(--color-bg);
+          border: 1.5px solid var(--color-border);
+          color: var(--color-primary);
+          box-shadow: var(--shadow-sm);
+          transition:
+            border-color var(--transition-fast),
+            box-shadow var(--transition-fast),
+            transform var(--transition-fast);
+          letter-spacing: 0.1px;
+        }
+
+        .pp-modal-google-btn:hover {
+          border-color: #4285F4;
+          box-shadow: 0 4px 16px rgba(66,133,244,0.15);
+          transform: translateY(-1px);
+        }
+
+        .pp-modal-google-btn:active { transform: scale(0.98); }
+
+        .pp-modal-google-btn:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .pp-modal-google-icon {
+          width: 20px;
+          height: 20px;
+          flex-shrink: 0;
+        }
+
+        .pp-modal-cancel-btn {
+          width: 100%;
+          padding: 13px 20px;
+          border-radius: var(--radius-md);
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          background: transparent;
+          border: 1.5px solid var(--color-border);
+          color: var(--color-text-secondary);
+          transition: all var(--transition-fast);
+          margin-top: 4px;
+        }
+
+        .pp-modal-cancel-btn:hover {
+          background: var(--color-bg-section);
+          border-color: var(--color-text-secondary);
+          color: var(--color-primary);
+        }
+
 
         /* ── RESPONSIVE ───────────────────────────────────── */
         @media (max-width: 1200px) {
@@ -1051,6 +1226,8 @@ const ProvidersPage = () => {
             font-size: 13px;
             font-weight: 700;
           }
+          .pp-modal { padding: 36px 20px 28px; }
+          .pp-modal-actions { grid-template-columns: 1fr; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -1229,7 +1406,6 @@ const ProvidersPage = () => {
                       e.key === "Enter" && handleViewProfile(provider.slug)
                     }
                   >
-                    {/* Image Strip */}
                     <div className="pp-img-wrap">
                       <img
                         src={provider.image}
@@ -1248,9 +1424,7 @@ const ProvidersPage = () => {
                       </div>
                     </div>
 
-                    {/* Card Body */}
                     <div className="pp-body">
-                      {/* Name + price */}
                       <div className="pp-name-row">
                         <h3 className="pp-name">{provider.name}</h3>
                         {hasPrice ? (
@@ -1276,7 +1450,6 @@ const ProvidersPage = () => {
                           : `${provider.category} specialist`}
                       </p>
 
-                      {/* City + experience chips */}
                       <div className="pp-chips">
                         <span className="pp-chip">
                           <MapPin size={12} strokeWidth={2} />
@@ -1290,7 +1463,6 @@ const ProvidersPage = () => {
                         )}
                       </div>
 
-                      {/* Service areas */}
                       {provider.areas.length > 0 && (
                         <div className="pp-areas">
                           <span className="pp-areas-label">Serves:</span>
@@ -1307,7 +1479,6 @@ const ProvidersPage = () => {
                         </div>
                       )}
 
-                      {/* Rating */}
                       <div className="pp-rating-row">
                         <div className="pp-stars">
                           {[1, 2, 3, 4, 5].map((s) => (
@@ -1336,24 +1507,29 @@ const ProvidersPage = () => {
 
                       <div className="pp-divider" />
 
-                      {/* Actions */}
+                      {/* ── Actions ── */}
                       <div className="pp-actions">
                         <button
                           className="pp-btn pp-btn-whatsapp"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open("https://wa.me/263000000000", "_blank");
-                          }}
+                          onClick={(e) =>
+                            handleContactClick(e, () =>
+                              window.open(
+                                `https://wa.me/${provider.id}`,
+                                "_blank",
+                              ),
+                            )
+                          }
                         >
                           <MessageCircle size={14} strokeWidth={2.5} />
                           WhatsApp
                         </button>
                         <button
                           className="pp-btn pp-btn-call"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.location.href = "tel:+263000000000";
-                          }}
+                          onClick={(e) =>
+                            handleContactClick(e, () => {
+                              window.location.href = `tel:${provider.id}`;
+                            })
+                          }
                         >
                           <Phone size={14} strokeWidth={2.5} />
                           Call
@@ -1377,6 +1553,97 @@ const ProvidersPage = () => {
           )}
         </div>
       </div>
+
+      {/* ── Login Prompt Modal ── */}
+      {showLoginPrompt && (
+        <div
+          className="pp-modal-overlay"
+          onClick={() => !signingIn && setShowLoginPrompt(false)}
+        >
+          <div className="pp-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="pp-modal-close"
+              onClick={() => setShowLoginPrompt(false)}
+              aria-label="Close"
+              disabled={signingIn}
+            >
+              <X size={18} strokeWidth={2.5} />
+            </button>
+
+            {signingIn ? (
+              <>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    border: "3px solid var(--color-border)",
+                    borderTopColor: "var(--color-accent)",
+                    borderRadius: "50%",
+                    animation: "spin 0.8s linear infinite",
+                    margin: "14px auto 20px",
+                  }}
+                />
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                <p
+                  style={{
+                    color: "var(--color-text-secondary)",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    textAlign: "center",
+                  }}
+                >
+                  Redirecting to Google...
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="pp-modal-icon">🔒</div>
+                <h3 className="pp-modal-title">Sign in to Contact</h3>
+                <p className="pp-modal-text">
+                  Sign in with your Google account to contact service providers
+                  via WhatsApp or phone call.
+                </p>
+
+                <div className="pp-modal-actions">
+                  {/* ✅ Full Google button matching SignInPage style */}
+                  <button
+                    className="pp-modal-google-btn"
+                    onClick={handleSignInRedirect}
+                    disabled={signingIn}
+                  >
+                    <svg className="pp-modal-google-icon" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      />
+                    </svg>
+                    Continue with Google
+                  </button>
+
+                  <button
+                    className="pp-modal-cancel-btn"
+                    onClick={() => setShowLoginPrompt(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 };

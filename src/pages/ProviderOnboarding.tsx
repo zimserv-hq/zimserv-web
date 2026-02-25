@@ -1,7 +1,7 @@
 // Location: src/pages/ProviderOnboarding.tsx
 // Provider onboarding flow for approved providers to complete their profile
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import SEO from "../components/SEO";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
@@ -9,12 +9,20 @@ import OnboardingSteps from "../components/Onboarding/OnboardingSteps";
 import { supabase } from "../lib/supabaseClient";
 import { useToast } from "../contexts/ToastContext";
 
+// ── ServiceEntry type ────────────────────────────────────────────────────────
+export type ServiceEntry = {
+  name: string;
+  price: string;
+  isCustom: boolean;
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface OnboardingData {
   // Step 1: Account
   email: string;
   password: string;
 
-  // Step 2: Profile - UPDATED WITH NEW FIELDS
+  // Step 2: Profile
   fullName: string;
   businessName: string;
   phoneNumber: string;
@@ -29,32 +37,59 @@ export interface OnboardingData {
   emergencyAvailable: boolean;
   profilePhoto: File | null;
 
-  // Step 3: Services - UPDATED WITH PRICING MODEL
+  // Step 3: Services
   category: string;
-  selectedServices: string[];
+  selectedServices: ServiceEntry[];
   pricingModel: string;
 
-  // Step 4: Areas - UPDATED WITH CITY
+  // Step 4: Areas
   city: string;
   areas: string[];
 
   // Step 5: Portfolio
   portfolioFiles: File[];
   licenseFiles: File[];
+  idFile: File | null; // ← NEW: ID document
 }
+
+// ── Step persistence key ─────────────────────────────────────────────────────
+const STEP_KEY = "zimserv_onboarding_step";
+
+// ── Slug generator ───────────────────────────────────────────────────────────
+const generateSlug = (businessName: string, fullName: string): string => {
+  const rawName = (businessName || fullName).trim();
+  return rawName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const ProviderOnboarding = () => {
   const [searchParams] = useSearchParams();
   const applicationId = searchParams.get("application_id");
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
 
-  const [currentStep, setCurrentStep] = useState(1);
+  const getInitialStep = () => {
+    try {
+      const saved = sessionStorage.getItem(STEP_KEY);
+      const parsed = saved ? parseInt(saved, 10) : 1;
+      return Number.isNaN(parsed) ? 1 : parsed;
+    } catch {
+      return 1;
+    }
+  };
+
+  const [currentStep, setCurrentStep] = useState<number>(getInitialStep);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
   const [formData, setFormData] = useState<OnboardingData>({
-    // Step 1: Account
+    // Step 1
     email: "",
     password: "",
 
-    // Step 2: Profile
+    // Step 2
     fullName: "",
     businessName: "",
     phoneNumber: "",
@@ -69,36 +104,49 @@ const ProviderOnboarding = () => {
     emergencyAvailable: false,
     profilePhoto: null,
 
-    // Step 3: Services
-    category: "Plumbing", // will be overwritten from application if present
+    // Step 3
+    category: "Plumbing",
     selectedServices: [],
     pricingModel: "Quote-based",
 
-    // Step 4: Areas
+    // Step 4
     city: "",
     areas: [],
 
-    // Step 5: Portfolio
+    // Step 5
     portfolioFiles: [],
     licenseFiles: [],
+    idFile: null, // ← NEW
   });
 
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const setStep = (step: number) => {
+    setCurrentStep(step);
+    try {
+      sessionStorage.setItem(STEP_KEY, String(step));
+    } catch {
+      // ignore
+    }
+  };
 
   const updateFormData = (data: Partial<OnboardingData>) => {
     setFormData((prev) => ({ ...prev, ...data }));
   };
 
   const nextStep = () => {
-    setCurrentStep((prev) => Math.min(prev + 1, 5));
+    const next = Math.min(currentStep + 1, 5);
+    setStep(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const prevStep = () => {
-    setCurrentStep((prev) => Math.max(prev - 1, 1));
+    const prev = Math.max(currentStep - 1, 1);
+    setStep(prev);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // ── Preload application data after account step ──────────────────────────
   const preloadFromApplication = async (
     applicationId: string,
     email: string,
@@ -130,9 +178,8 @@ const ProviderOnboarding = () => {
         phoneNumber: data.phone_number ?? prev.phoneNumber,
         whatsappNumber: data.whatsapp_number ?? prev.whatsappNumber,
         description: data.description ?? prev.description,
-        experience: data.years_experience ?? prev.experience,
+        // experience not preloaded – user will type it in onboarding
         city: data.city ?? prev.city,
-        // Use category name from application if you stored it
         category: data.primary_category ?? prev.category,
       }));
     } catch (e) {
@@ -145,6 +192,42 @@ const ProviderOnboarding = () => {
     }
   };
 
+  // ── On mount: if session exists, resume from step ≥ 2 ───────────────────
+  useEffect(() => {
+    const checkExistingSession = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          const userEmail = session.user.email ?? "";
+
+          const stored = getInitialStep();
+          if (stored <= 1) {
+            setStep(2);
+          }
+
+          if (applicationId && userEmail) {
+            await preloadFromApplication(applicationId, userEmail);
+          }
+
+          showInfo?.(
+            "Session restored",
+            "We detected an active session and resumed your onboarding.",
+          );
+        }
+      } catch (err) {
+        console.error("Error checking session on mount:", err);
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+
+    checkExistingSession();
+  }, []);
+
+  // ── Step 1: Account submit ───────────────────────────────────────────────
   const handleAccountSubmit = async (
     email: string,
     password: string,
@@ -152,7 +235,6 @@ const ProviderOnboarding = () => {
     setLoadError(null);
 
     try {
-      // 1) Ensure the invited user has an active session from the invite link
       const {
         data: { session },
         error: sessionError,
@@ -173,33 +255,43 @@ const ProviderOnboarding = () => {
         return false;
       }
 
-      // 2) Set password for the current invited user (no signInWithPassword)
       const { error: updateError } = await supabase.auth.updateUser({
         password,
       });
 
       if (updateError) {
-        console.error("Auth updateUser error during onboarding:", updateError);
-        setLoadError("Could not set your password. Please try again.");
-        showError(
-          "Password error",
-          "We were unable to set your password. Please try again.",
+        const msg = String(updateError.message || "").toLowerCase();
+
+        if (msg.includes("different from the old")) {
+          showSuccess(
+            "Account secured",
+            "Your password was already set. Continuing to your profile.",
+          );
+        } else {
+          console.error(
+            "Auth updateUser error during onboarding:",
+            updateError,
+          );
+          setLoadError("Could not set your password. Please try again.");
+          showError(
+            "Password error",
+            updateError.message ||
+              "We were unable to set your password. Please try again.",
+          );
+          return false;
+        }
+      } else {
+        showSuccess(
+          "Account secured",
+          "Your password has been set successfully.",
         );
-        return false;
       }
 
-      showSuccess(
-        "Account secured",
-        "Your password has been set successfully.",
-      );
-
-      // 3) Preload application data (read/write in state)
       if (applicationId) {
         await preloadFromApplication(applicationId, email);
       }
 
-      // 4) Move to next step
-      setCurrentStep(2);
+      setStep(2);
       window.scrollTo({ top: 0, behavior: "smooth" });
       return true;
     } catch (err) {
@@ -213,6 +305,9 @@ const ProviderOnboarding = () => {
     }
   };
 
+  // ── File upload helper ───────────────────────────────────────────────────
+  // Uploads `file` into the `provider-media` bucket at `folder/<uuid>.<ext>`
+  // Returns the bare storage key (e.g. "providers/<id>/profile/<uuid>.png")
   const uploadFile = async (
     file: File,
     _providerId: string,
@@ -230,16 +325,17 @@ const ProviderOnboarding = () => {
         return null;
       }
 
-      return fileName; // path stored in provider_media.file_path
+      return fileName; // bare key, e.g. "providers/<uuid>/profile/<uuid>.png"
     } catch (err) {
       console.error("Unexpected error during file upload:", err);
       return null;
     }
   };
 
+  // ── Step 5: Full profile submit ──────────────────────────────────────────
   const handleSubmitProfile = async (profileData: OnboardingData) => {
     try {
-      // 1) Get current auth user
+      // 1) Auth check
       const {
         data: { user },
         error: userError,
@@ -254,37 +350,82 @@ const ProviderOnboarding = () => {
         return;
       }
 
-      // 2) Insert provider row
+      // 2) Generate slug
+      const slug = generateSlug(profileData.businessName, profileData.fullName);
+
+      // 3) Parse years experience
       const yearsInt =
         typeof profileData.experience === "string"
           ? parseInt(profileData.experience, 10) || null
           : null;
 
+      // 4) Build provider insert payload
+      const providerPayload = {
+        user_id: user.id,
+        slug,
+        status: "pending_review",
+        activated_at: new Date().toISOString(),
+        email: profileData.email,
+        full_name: profileData.fullName,
+        business_name: profileData.businessName || null,
+        phone_number: profileData.phoneNumber,
+        whatsapp_number: profileData.whatsappNumber || null,
+        primary_category: profileData.category,
+        city: profileData.city,
+        bio: profileData.description,
+        years_experience: yearsInt,
+        call_available: profileData.callAvailable,
+        whatsapp_available: profileData.whatsappAvailable,
+        pricing_model: profileData.pricingModel,
+        website: profileData.website || null,
+        languages: profileData.languages,
+        profile_completed: true,
+      };
+
+      // 5) Insert provider row
       const { data: providerInsert, error: providerError } = await supabase
         .from("providers")
-        .insert({
-          user_id: user.id,
-          email: profileData.email,
-          full_name: profileData.fullName,
-          business_name: profileData.businessName || null,
-          phone_number: profileData.phoneNumber,
-          whatsapp_number: profileData.whatsappNumber || null,
-          primary_category: profileData.category,
-          city: profileData.city,
-          bio: profileData.description,
-          years_experience: yearsInt,
-          call_available: profileData.callAvailable,
-          whatsapp_available: profileData.whatsappAvailable,
-          pricing_model: profileData.pricingModel,
-          website: profileData.website || null,
-          languages: profileData.languages,
-          profile_completed: true,
-        })
+        .insert(providerPayload)
         .select("id")
         .single();
 
       if (providerError || !providerInsert) {
-        // handle duplicate phone gracefully
+        // Slug collision: retry once
+        if (
+          providerError?.code === "23505" &&
+          providerError.message.includes("slug")
+        ) {
+          console.warn("[handleSubmitProfile] slug collision — retrying...");
+
+          const retrySlug = generateSlug(
+            profileData.businessName,
+            profileData.fullName,
+          );
+          const { data: retryInsert, error: retryError } = await supabase
+            .from("providers")
+            .insert({ ...providerPayload, slug: retrySlug })
+            .select("id")
+            .single();
+
+          if (retryError || !retryInsert) {
+            console.error("Retry insert failed:", retryError);
+            showError(
+              "Submission failed",
+              "We could not save your profile. Please try again.",
+            );
+            return;
+          }
+
+          await insertRelatedData(profileData, retryInsert.id as string);
+          showSuccess(
+            "Profile submitted",
+            "Your profile is now live on ZimServ!",
+          );
+          sessionStorage.removeItem(STEP_KEY);
+          return;
+        }
+
+        // Phone number duplicate
         if (providerError?.code === "23505") {
           console.error("Duplicate provider phone number:", providerError);
           showError(
@@ -303,151 +444,9 @@ const ProviderOnboarding = () => {
       }
 
       const providerId = providerInsert.id as string;
-
-      // 3) Insert provider_services
-      if (profileData.selectedServices.length > 0) {
-        const servicesPayload = profileData.selectedServices.map(
-          (serviceName) => ({
-            provider_id: providerId,
-            service_name: serviceName,
-            service_keywords: [],
-          }),
-        );
-
-        const { error: servicesError } = await supabase
-          .from("provider_services")
-          .insert(servicesPayload);
-
-        if (servicesError) {
-          console.error("Error inserting provider_services:", servicesError);
-          showError(
-            "Services not saved",
-            "We saved your profile but had trouble saving your services.",
-          );
-        }
-      }
-
-      // 4) Insert provider_service_areas
-      if (profileData.areas.length > 0) {
-        const areasPayload = profileData.areas.map((suburb) => ({
-          provider_id: providerId,
-          city: profileData.city,
-          suburb,
-        }));
-
-        const { error: areasError } = await supabase
-          .from("provider_service_areas")
-          .insert(areasPayload);
-
-        if (areasError) {
-          console.error("Error inserting provider_service_areas:", areasError);
-          showError(
-            "Areas not saved",
-            "We saved your profile but had trouble saving your service areas.",
-          );
-        }
-      }
-
-      // 5) Upload media + insert provider_media
-      // 5a) Profile photo
-      if (profileData.profilePhoto) {
-        const path = await uploadFile(
-          profileData.profilePhoto,
-          providerId,
-          `providers/${providerId}/profile`,
-        );
-        if (path) {
-          const { error: mediaError } = await supabase
-            .from("provider_media")
-            .insert({
-              provider_id: providerId,
-              media_type: "profile_photo",
-              file_path: path,
-            });
-          if (mediaError) {
-            console.error("Error inserting profile_photo media:", mediaError);
-          }
-        }
-      }
-
-      // 5b) Portfolio images
-      if (profileData.portfolioFiles.length > 0) {
-        const portfolioPayload: {
-          provider_id: string;
-          media_type: string;
-          file_path: string;
-        }[] = [];
-
-        for (const file of profileData.portfolioFiles) {
-          const path = await uploadFile(
-            file,
-            providerId,
-            `providers/${providerId}/portfolio`,
-          );
-          if (path) {
-            portfolioPayload.push({
-              provider_id: providerId,
-              media_type: "portfolio",
-              file_path: path,
-            });
-          }
-        }
-
-        if (portfolioPayload.length > 0) {
-          const { error: portfolioError } = await supabase
-            .from("provider_media")
-            .insert(portfolioPayload);
-          if (portfolioError) {
-            console.error("Error inserting portfolio media:", portfolioError);
-            showError(
-              "Portfolio not fully saved",
-              "Some portfolio images could not be saved.",
-            );
-          }
-        }
-      }
-
-      // 5c) License files
-      if (profileData.licenseFiles.length > 0) {
-        const licensePayload: {
-          provider_id: string;
-          media_type: string;
-          file_path: string;
-        }[] = [];
-
-        for (const file of profileData.licenseFiles) {
-          const path = await uploadFile(
-            file,
-            providerId,
-            `providers/${providerId}/licenses`,
-          );
-          if (path) {
-            licensePayload.push({
-              provider_id: providerId,
-              media_type: "license",
-              file_path: path,
-            });
-          }
-        }
-
-        if (licensePayload.length > 0) {
-          const { error: licenseError } = await supabase
-            .from("provider_media")
-            .insert(licensePayload);
-          if (licenseError) {
-            console.error("Error inserting license media:", licenseError);
-            showError(
-              "Licenses not fully saved",
-              "Some license documents could not be saved.",
-            );
-          }
-        }
-      }
-
-      showSuccess(
-        "Profile submitted",
-        "Your profile has been submitted and is pending review.",
-      );
+      await insertRelatedData(profileData, providerId);
+      showSuccess("Profile submitted", "Your profile is now live on ZimServ!");
+      sessionStorage.removeItem(STEP_KEY);
     } catch (err) {
       console.error("Error submitting provider profile:", err);
       showError(
@@ -457,7 +456,239 @@ const ProviderOnboarding = () => {
     }
   };
 
+  // ── Insert services, areas, media ────────────────────────────────────────
+  const insertRelatedData = async (
+    profileData: OnboardingData,
+    providerId: string,
+  ) => {
+    // ── Services ────────────────────────────────────────────────────────────
+    if (profileData.selectedServices.length > 0) {
+      const servicesPayload = profileData.selectedServices.map((svc) => ({
+        provider_id: providerId,
+        service_name: svc.name,
+        price:
+          svc.price && !isNaN(parseFloat(svc.price))
+            ? parseFloat(svc.price)
+            : null,
+        is_custom: svc.isCustom,
+        service_keywords: [],
+      }));
+
+      const { error: servicesError } = await supabase
+        .from("provider_services")
+        .insert(servicesPayload);
+
+      if (servicesError) {
+        console.error("Error inserting provider_services:", servicesError);
+        showError(
+          "Services not saved",
+          "We saved your profile but had trouble saving your services.",
+        );
+      }
+    }
+
+    // ── Service areas ────────────────────────────────────────────────────────
+    if (profileData.areas.length > 0) {
+      const areasPayload = profileData.areas.map((suburb) => ({
+        provider_id: providerId,
+        city: profileData.city,
+        suburb,
+      }));
+
+      const { error: areasError } = await supabase
+        .from("provider_service_areas")
+        .insert(areasPayload);
+
+      if (areasError) {
+        console.error("Error inserting provider_service_areas:", areasError);
+        showError(
+          "Areas not saved",
+          "We saved your profile but had trouble saving your service areas.",
+        );
+      }
+    }
+
+    // ── Profile photo ────────────────────────────────────────────────────────
+    // Upload → insert into provider_media → update providers.profile_image_url
+    if (profileData.profilePhoto) {
+      const path = await uploadFile(
+        profileData.profilePhoto,
+        providerId,
+        `providers/${providerId}/profile`,
+      );
+
+      if (path) {
+        // Resolve bare key → public URL
+        const { data: urlData } = supabase.storage
+          .from("provider-media")
+          .getPublicUrl(path);
+        const publicUrl = urlData.publicUrl;
+
+        // 1) Insert into provider_media
+        const { error: mediaError } = await supabase
+          .from("provider_media")
+          .insert({
+            provider_id: providerId,
+            media_type: "profile_photo",
+            file_path: path, // bare key stored
+          });
+        if (mediaError) {
+          console.error("Error inserting profile_photo media:", mediaError);
+        }
+
+        // 2) Save public URL to providers.profile_image_url
+        const { error: profileImgError } = await supabase
+          .from("providers")
+          .update({ profile_image_url: publicUrl })
+          .eq("id", providerId);
+        if (profileImgError) {
+          console.error("Error updating profile_image_url:", profileImgError);
+          showError(
+            "Profile photo not linked",
+            "Your photo was uploaded but could not be set as your profile image.",
+          );
+        }
+      }
+    }
+
+    // ── Portfolio images ─────────────────────────────────────────────────────
+    if (profileData.portfolioFiles.length > 0) {
+      const portfolioPayload: {
+        provider_id: string;
+        media_type: string;
+        file_path: string;
+      }[] = [];
+
+      for (const file of profileData.portfolioFiles) {
+        const path = await uploadFile(
+          file,
+          providerId,
+          `providers/${providerId}/portfolio`,
+        );
+        if (path) {
+          portfolioPayload.push({
+            provider_id: providerId,
+            media_type: "portfolio",
+            file_path: path,
+          });
+        }
+      }
+
+      if (portfolioPayload.length > 0) {
+        const { error: portfolioError } = await supabase
+          .from("provider_media")
+          .insert(portfolioPayload);
+        if (portfolioError) {
+          console.error("Error inserting portfolio media:", portfolioError);
+          showError(
+            "Portfolio not fully saved",
+            "Some portfolio images could not be saved.",
+          );
+        }
+      }
+    }
+
+    // ── License files ────────────────────────────────────────────────────────
+    if (profileData.licenseFiles.length > 0) {
+      const licensePayload: {
+        provider_id: string;
+        media_type: string;
+        file_path: string;
+      }[] = [];
+
+      for (const file of profileData.licenseFiles) {
+        const path = await uploadFile(
+          file,
+          providerId,
+          `providers/${providerId}/licenses`,
+        );
+        if (path) {
+          licensePayload.push({
+            provider_id: providerId,
+            media_type: "license",
+            file_path: path,
+          });
+        }
+      }
+
+      if (licensePayload.length > 0) {
+        const { error: licenseError } = await supabase
+          .from("provider_media")
+          .insert(licensePayload);
+        if (licenseError) {
+          console.error("Error inserting license media:", licenseError);
+          showError(
+            "Licenses not fully saved",
+            "Some license documents could not be saved.",
+          );
+        }
+      }
+    }
+
+    // ── ID document ──────────────────────────────────────────────────────────
+    // Uploaded to: providers/<providerId>/ID/<uuid>.<ext>
+    // Stored in:   provider_media as media_type = "id_document"
+    // ID document
+    if (profileData.idFile) {
+      const path = await uploadFile(
+        profileData.idFile,
+        providerId,
+        `providers/${providerId}/ID`,
+      );
+
+      if (path) {
+        const { error: idError } = await supabase
+          .from("provider_media")
+          .insert({
+            provider_id: providerId,
+            media_type: "id_document",
+            file_path: path,
+          });
+        if (idError) {
+          console.error("Error inserting id_document media:", idError);
+          showError(
+            "ID not saved",
+            "Your ID document was uploaded but could not be saved.",
+          );
+        }
+      }
+    }
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
   const stepLabels = ["Account", "Profile", "Services", "Areas", "Portfolio"];
+
+  if (isCheckingSession) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--color-bg-section)",
+          fontFamily: "var(--font-primary)",
+          flexDirection: "column",
+          gap: "16px",
+        }}
+      >
+        <div
+          style={{
+            width: "40px",
+            height: "40px",
+            border: "3px solid var(--color-border)",
+            borderTop: "3px solid var(--color-accent)",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+        <p style={{ color: "var(--color-text-secondary)", fontSize: "15px" }}>
+          Checking your session...
+        </p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   return (
     <>

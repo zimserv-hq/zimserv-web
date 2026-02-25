@@ -536,6 +536,44 @@ export const PROVIDER_DETAILS_CSS = `
     color: var(--text-secondary);
   }
 
+  .file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;              /* space between icon and text */
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 999px;  /* pill shape */
+  border: 1px solid transparent;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, transform 0.1s ease;
+}
+
+/* Specific styling for the View button */
+.view-btn {
+  background-color: #eef4ff;
+  color: #1d4ed8;
+  border-color: #c7d2fe;
+  margin-top: 10px;
+}
+
+.view-btn:hover {
+  background-color: #dbe4ff;
+  border-color: #a5b4fc;
+  transform: translateY(-0.5px);
+}
+
+.view-btn:active {
+  transform: translateY(0);
+}
+
+/* Make the icon align nicely */
+.view-btn svg {
+  flex-shrink: 0;
+}
+
+
   /* ── CSS Variables ── */
   :root {
     --bg-primary: #f8f9fa;

@@ -2,6 +2,7 @@
    src/components/Onboarding/OnboardingSteps.css
    ───────────────────────────────────────────── */
 
+
 /* ── Page Layout ───────────────────────────── */
 .onboarding-page {
   width: 100%;
@@ -16,6 +17,40 @@
   margin: 0 auto;
   padding: 0 var(--container-padding);
 }
+
+
+/* ── Draft Resume Banner ────────────────────── */
+.draft-resume-banner {
+  background: var(--color-accent-soft);
+  border: 1.5px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.draft-resume-text {
+  font-size: 14px;
+  color: var(--color-primary);
+  font-weight: 500;
+  flex: 1;
+}
+
+.draft-resume-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.btn-sm {
+  padding: 8px 16px !important;
+  font-size: 13px !important;
+}
+
 
 /* ── Progress Steps ─────────────────────────── */
 .progress-section {
@@ -77,9 +112,7 @@
   color: #fff;
 }
 
-.step-circle.completed::before {
-  content: '✓';
-}
+/* ✅ removed ::before checkmark — now rendered via JSX {isCompleted ? "✓" : step.number} */
 
 .step-circle.inactive {
   background: #fff;
@@ -97,6 +130,7 @@
 .step-label.completed {
   color: var(--color-primary);
 }
+
 
 /* ── Form Card ──────────────────────────────── */
 .form-section {
@@ -120,6 +154,7 @@
   color: var(--color-text-secondary);
   margin-bottom: 32px;
 }
+
 
 /* ── Form Fields ────────────────────────────── */
 .form-group {
@@ -163,6 +198,17 @@
   box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
+/* Disabled fields — read-only from application */
+.form-input:disabled,
+.form-select:disabled,
+.form-textarea:disabled {
+  background: var(--color-bg-section);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+  opacity: 0.75;
+  border-style: dashed;
+}
+
 .form-textarea {
   min-height: 120px;
   resize: vertical;
@@ -181,6 +227,35 @@
   margin-top: 6px;
   display: block;
 }
+
+.input-error {
+  font-size: 13px;
+  color: #ef4444;
+  font-weight: 500;
+  margin-top: 6px;
+  display: block;
+}
+
+
+/* ── Tags inline (read-only language pills) ─── */
+.tags-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.pill-tag {
+  display: inline-block;
+  padding: 6px 12px;
+  background: var(--color-bg-section);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
 
 /* ── Password Strength ──────────────────────── */
 .password-strength {
@@ -210,6 +285,7 @@
 .strength-text.medium { color: #F59E0B; }
 .strength-text.strong { color: #10b981; }
 
+
 /* ── Checkboxes ─────────────────────────────── */
 .checkbox-wrapper {
   display: flex;
@@ -238,6 +314,11 @@
   text-decoration: none;
 }
 
+.checkbox-label a:hover {
+  text-decoration: underline;
+}
+
+
 /* ── File Upload ────────────────────────────── */
 .file-upload-zone {
   border: 2px dashed var(--color-border);
@@ -263,6 +344,7 @@
 .file-upload-hint { font-size: 13px; color: var(--color-text-secondary); }
 .file-input       { display: none; }
 
+
 /* ── Services Grid ──────────────────────────── */
 .services-grid {
   display: grid;
@@ -278,16 +360,21 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: background 0.2s;
+  border: 1.5px solid transparent;
 }
 
 .service-checkbox-item:hover    { background: var(--color-bg-section); }
-.service-checkbox-item.selected { background: var(--color-accent-soft); }
+.service-checkbox-item.selected {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
 
 .service-checkbox-item input[type="checkbox"] {
   width: 20px;
   height: 20px;
   cursor: pointer;
   accent-color: var(--color-accent);
+  flex-shrink: 0;
 }
 
 .service-checkbox-label {
@@ -296,8 +383,183 @@
   cursor: pointer;
 }
 
-.services-count { font-size: 13px; color: var(--color-text-secondary); margin-top: 8px; font-weight: 600; }
-.services-count span { color: var(--color-accent); font-weight: 700; }
+.services-count {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-top: 8px;
+  font-weight: 600;
+}
+.services-count span {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+
+/* ── Service price input ────────────────────── */
+.service-checkbox-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.service-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.service-price-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.service-price-currency {
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.service-price-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-family: var(--font-primary);
+  color: var(--color-primary);
+  background: var(--color-bg);
+  transition: border-color var(--transition-fast);
+}
+
+.service-price-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* ── Custom services ────────────────────────── */
+.custom-services-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.custom-services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.custom-service-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--color-bg-section);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.custom-service-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-primary);
+  flex: 1;
+}
+
+.custom-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.custom-service-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.custom-service-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 4px;
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.custom-service-remove:hover { color: #ef4444; }
+
+.custom-service-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.custom-service-input-row .form-input {
+  flex: 1;
+  margin: 0;
+}
+
+.add-custom-service-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1.5px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.add-custom-service-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+
+}
+
+@media (max-width: 640px) {
+  .custom-service-item { flex-direction: column; align-items: flex-start; }
+  .custom-service-right { width: 100%; justify-content: space-between; }
+  .custom-service-input-row { flex-direction: column; }
+  .custom-service-input-row .btn-sm { width: 100%; }
+}
+
 
 /* ── Category Badge ─────────────────────────── */
 .category-badge {
@@ -310,6 +572,7 @@
   font-size: 15px;
 }
 
+
 /* ── Tag / Area Input ───────────────────────── */
 .tag-input-container {
   border: 1.5px solid var(--color-border);
@@ -319,7 +582,8 @@
   flex-wrap: wrap;
   gap: 8px;
   min-height: 48px;
-  background: #fff;
+  background: var(--color-bg);
+  transition: all var(--transition-fast);
 }
 
 .tag-input-container:focus-within {
@@ -349,6 +613,7 @@
   align-items: center;
   font-weight: 700;
   font-size: 16px;
+  line-height: 1;
 }
 
 .tag-remove-btn:hover { color: #EF4444; }
@@ -362,7 +627,10 @@
   font-family: var(--font-primary);
   font-size: 15px;
   font-weight: 500;
+  background: transparent;
+  color: var(--color-primary);
 }
+
 
 /* ── Portfolio ──────────────────────────────── */
 .portfolio-previews {
@@ -398,6 +666,7 @@
   font-weight: 700;
 }
 
+
 /* ── License Files ──────────────────────────── */
 .license-files-list { margin-top: 12px; }
 
@@ -410,6 +679,9 @@
   font-weight: 600;
   color: var(--color-primary);
 }
+
+
+
 
 /* ── Form Actions / Buttons ─────────────────── */
 .form-actions {
@@ -455,11 +727,94 @@
   box-shadow: 0 4px 14px rgba(255, 107, 53, 0.25);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--color-accent-hover);
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
 }
+
+/* ✅ Disabled state for submit button */
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-sm {
+  padding: 8px 16px;
+  font-size: 13px;
+  flex: unset;               /* override flex:1 from .btn-primary */
+  box-shadow: none;
+}
+
+.btn-sm:hover:not(:disabled) {
+  transform: none;           /* no lift on small buttons */
+}
+
+
+.portfolio-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.license-files-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.license-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-bg-muted, #f5f5f5);
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--color-text, #222);
+  max-width: 100%;
+  word-break: break-all;
+}
+
+.license-file-item span {
+  flex: 1;
+  margin-right: 8px;
+}
+
+/* Reuse look of small “x” buttons (if you want a specific tweak for this list) */
+.license-file-item .custom-service-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: var(--color-text-muted, #999);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.license-file-item .custom-service-remove:hover {
+  background: var(--color-text, #333);
+}
+
+
 
 /* ── Responsive ─────────────────────────────── */
 @media (max-width: 900px) {
@@ -476,6 +831,21 @@
   .form-title           { font-size: 22px; }
   .form-grid-2          { grid-template-columns: 1fr; }
   .services-grid        { grid-template-columns: 1fr; }
+
+  .draft-resume-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .draft-resume-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .draft-resume-actions .btn-sm {
+    width: 100%;
+    text-align: center;
+  }
 
   .form-actions {
     flex-direction: column-reverse;

@@ -13,6 +13,11 @@ import ProviderProfilePage from "./pages/ProviderProfilePage";
 import BecomeProviderPage from "./pages/BecomeProviderPage";
 import ProviderOnboarding from "./pages/ProviderOnboarding";
 
+// ✅ NEW: Auth Pages
+import SignInPage from "./pages/SignInPage";
+import SignUpPage from "./pages/SignUpPage";
+import AuthCallbackPage from "./pages/AuthCallbackPage";
+
 import HostRedirector from "./components/HostRedirector";
 
 // Admin Pages
@@ -43,11 +48,10 @@ function App() {
       <HostRedirector />
 
       <Routes>
-        {/* Admin Login - Public */}
+        {/* ── ADMIN ─────────────────────────────────────────── */}
         <Route path="/admin" element={<Navigate to="/admin/login" replace />} />
         <Route path="/admin/login" element={<AdminLogin />} />
 
-        {/* Admin Routes - Protected */}
         <Route
           path="/admin"
           element={
@@ -67,8 +71,6 @@ function App() {
           <Route path="reviews" element={<AdminReviews />} />
           <Route path="categories" element={<AdminCategories />} />
           <Route path="users" element={<AdminUsers />} />
-
-          {/* Super Admin Only */}
           <Route
             path="management"
             element={
@@ -79,14 +81,13 @@ function App() {
           />
         </Route>
 
-        {/* Provider Login - Public */}
+        {/* ── PROVIDER PANEL ────────────────────────────────── */}
         <Route
           path="/provider"
           element={<Navigate to="/provider/login" replace />}
         />
         <Route path="/provider/login" element={<ProviderLogin />} />
 
-        {/* Provider Panel Routes - Protected */}
         <Route
           path="/provider"
           element={
@@ -101,7 +102,12 @@ function App() {
           <Route path="profile" element={<ProviderProfile />} />
         </Route>
 
-        {/* Public Routes */}
+        {/* ── AUTH — no Header/Footer (standalone pages) ────── */}
+        <Route path="/signin" element={<SignInPage />} />
+        <Route path="/signup" element={<SignUpPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+
+        {/* ── PUBLIC ────────────────────────────────────────── */}
         <Route
           path="/"
           element={
@@ -163,7 +169,7 @@ function App() {
           }
         />
 
-        {/* 404 */}
+        {/* ── 404 ───────────────────────────────────────────── */}
         <Route
           path="*"
           element={

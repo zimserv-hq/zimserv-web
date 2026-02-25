@@ -11,9 +11,14 @@ import type { ProviderPublic } from "../../types/provider";
 
 interface ProviderInfoCardProps {
   provider: ProviderPublic;
+  currentUser: any; // ✅ added
+  onContactClick: (action: () => void) => void; // ✅ added
 }
 
-const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
+const ProviderInfoCard = ({
+  provider,
+  onContactClick, // ✅ added
+}: ProviderInfoCardProps) => {
   const handleCall = () => {
     if (!provider.contact.phone) return;
     window.location.href = `tel:${provider.contact.phone}`;
@@ -433,14 +438,13 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
       `}</style>
 
       <div className="pic">
-        {/* Hero image */}
+        {/* Hero image — unchanged */}
         <div className="pic-hero">
           <img
             src={provider.gallery[0]?.url}
             alt={provider.name}
             className="pic-hero-img"
           />
-
           <div className="pic-hero-badges">
             <span className="pic-cat-badge">{provider.category}</span>
             {provider.verified && (
@@ -450,7 +454,6 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
               </span>
             )}
           </div>
-
           <div className="pic-hero-rating">
             <Star size={13} fill="#F59E0B" strokeWidth={0} />
             {provider.rating.toFixed(1)}
@@ -458,21 +461,15 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
           </div>
         </div>
 
-        {/* Identity */}
+        {/* Identity — unchanged */}
         <div className="pic-identity">
           <div className="pic-name-row">
             <h2 className="pic-name">{provider.name}</h2>
-            {provider.pricing && (
-              <div className="pic-price-block">
-                {/* Reserved for future “from USD xx” */}
-              </div>
-            )}
+            {provider.pricing && <div className="pic-price-block" />}
           </div>
-
           {provider.tagline && (
             <p className="pic-tagline">{provider.tagline}</p>
           )}
-
           <div className="pic-stars-row">
             <div className="pic-stars">
               {[1, 2, 3, 4, 5].map((s) => (
@@ -490,7 +487,6 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
               ({provider.reviewCount} reviews)
             </span>
           </div>
-
           <div className="pic-stats">
             <span className="pic-stat-chip">
               <Briefcase size={12} strokeWidth={2} />
@@ -505,11 +501,11 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
           </div>
         </div>
 
-        {/* Contact buttons */}
+        {/* ✅ Contact buttons — now gated by auth */}
         <div className="pic-contact">
           <button
             className="pic-btn pic-btn-call"
-            onClick={handleCall}
+            onClick={() => onContactClick(handleCall)}
             disabled={!hasPhone}
           >
             <Phone size={15} strokeWidth={2.5} />
@@ -517,7 +513,7 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
           </button>
           <button
             className="pic-btn pic-btn-wa"
-            onClick={handleWhatsApp}
+            onClick={() => onContactClick(handleWhatsApp)}
             disabled={!hasWhatsapp}
           >
             <MessageCircle size={15} strokeWidth={2.5} />
@@ -525,7 +521,7 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
           </button>
         </div>
 
-        {/* Details body – location + neatly formatted service areas */}
+        {/* Details body — unchanged */}
         <div className="pic-body">
           <div>
             <div className="pic-section-label">Location</div>
@@ -536,7 +532,6 @@ const ProviderInfoCard = ({ provider }: ProviderInfoCardProps) => {
                 <div className="pic-detail-value">{provider.city}</div>
               </div>
             </div>
-
             {provider.areas.length > 0 && (
               <div className="pic-areas-wrap">
                 <div className="pic-areas-label-row">

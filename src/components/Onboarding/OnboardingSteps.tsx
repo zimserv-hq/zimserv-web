@@ -1,9 +1,12 @@
-// src/components/Onboarding/OnboardingSteps.tsx
-// Onboarding: only collect data NOT collected in the application
+// Location: src/components/Onboarding/OnboardingSteps.tsx
 
 import { useState, useEffect } from "react";
-import type { OnboardingData } from "../../pages/ProviderOnboarding";
+import type {
+  OnboardingData,
+  ServiceEntry,
+} from "../../pages/ProviderOnboarding";
 import { SERVICES_BY_CATEGORY } from "../../data/services";
+import { useToast } from "../../contexts/ToastContext";
 import "./OnboardingSteps.css";
 
 interface OnboardingStepsProps {
@@ -17,6 +20,46 @@ interface OnboardingStepsProps {
   loadError?: string | null;
 }
 
+// ── Draft helpers ───────────────────────────────────────────────────────────
+const DRAFT_KEY = "zimserv_onboarding_draft";
+
+type DraftData = {
+  teamSize: string;
+  callAvailable: boolean;
+  whatsappAvailable: boolean;
+  emergencyAvailable: boolean;
+  selectedServices: ServiceEntry[];
+  pricingModel: string;
+  areas: string[];
+  savedStep: number;
+};
+
+function saveDraft(data: DraftData) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+}
+
+function loadDraft(): DraftData | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as DraftData) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+// ── Component ───────────────────────────────────────────────────────────────
 const OnboardingSteps = ({
   currentStep,
   formData,
@@ -27,18 +70,20 @@ const OnboardingSteps = ({
   onSubmitProfile,
   loadError,
 }: OnboardingStepsProps) => {
-  // STEP 1: ACCOUNT (new – not in application)
-  const [email, setEmail] = useState(formData.email || "");
+  const { showError, showSuccess, showInfo } = useToast();
+
+  // ── Step 1: Account ──────────────────────────────────────────────────────
+  const [email, setEmail] = useState(formData.email);
   const [confirmEmail, setConfirmEmail] = useState("");
-  const [password, setPassword] = useState(formData.password || "");
+  const [password, setPassword] = useState(formData.password);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState<
     "weak" | "medium" | "strong" | null
   >(null);
 
-  // STEP 2: PROFILE (only fields NOT collected in application)
-  const [teamSize, setTeamSize] = useState(formData.teamSize || "");
+  // ── Step 2: Profile ──────────────────────────────────────────────────────
+  const [teamSize, setTeamSize] = useState(formData.teamSize);
   const [callAvailable, setCallAvailable] = useState(
     formData.callAvailable ?? true,
   );
@@ -49,43 +94,130 @@ const OnboardingSteps = ({
     formData.emergencyAvailable ?? false,
   );
   const [profilePhoto, setProfilePhoto] = useState<File | null>(
-    formData.profilePhoto || null,
+    formData.profilePhoto ?? null,
   );
 
-  // Read-only fields from application
-  const fullName = formData.fullName;
-  const businessName = formData.businessName;
-  const phoneNumber = formData.phoneNumber;
-  const whatsappNumber = formData.whatsappNumber;
-  const description = formData.description;
-  const experience = formData.experience;
-  const website = formData.website;
-  const languages = formData.languages || ["English"];
-
-  // STEP 3: SERVICES
-  const [selectedServices, setSelectedServices] = useState<string[]>(
-    formData.selectedServices || [],
+  // Preloaded but editable (except full name)
+  const [fullName] = useState(formData.fullName); // read-only
+  const [businessName, setBusinessName] = useState(formData.businessName || "");
+  const [phoneNumber, setPhoneNumber] = useState(
+    formData.phoneNumber || "+263",
   );
-  const [pricingModel, setPricingModel] = useState(
-    formData.pricingModel || "Quote-based",
+  const [whatsappNumber, setWhatsappNumber] = useState(
+    formData.whatsappNumber || "+263",
   );
 
-  // STEP 4: AREAS
+  const [description, setDescription] = useState(formData.description || "");
+  const [experience, setExperience] = useState(""); // not preloaded
+  const [website, setWebsite] = useState(formData.website || "");
+
+  // ── Step 3: Services ─────────────────────────────────────────────────────
+  const [selectedServices, setSelectedServices] = useState<ServiceEntry[]>(
+    formData.selectedServices,
+  );
+  const [pricingModel, setPricingModel] = useState<string>(
+    formData.pricingModel ?? "Quote-based",
+  );
+  const [customServiceName, setCustomServiceName] = useState("");
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // ── Step 4: Areas ────────────────────────────────────────────────────────
   const city = formData.city;
-  const [areas, setAreas] = useState<string[]>(formData.areas || []);
+  const [areas, setAreas] = useState<string[]>(formData.areas);
   const [areaInput, setAreaInput] = useState("");
+  const [showAreaInput, setShowAreaInput] = useState(false);
 
-  // STEP 5: PORTFOLIO
+  // ── Step 5: Portfolio + ID ───────────────────────────────────────────────
   const [portfolioFiles, setPortfolioFiles] = useState<File[]>(
-    formData.portfolioFiles || [],
+    formData.portfolioFiles,
   );
-  const [licenseFiles, setLicenseFiles] = useState<File[]>(
-    formData.licenseFiles || [],
-  );
+  const [licenseFiles] = useState<File[]>(formData.licenseFiles);
+  const [idFile, setIdFile] = useState<File | null>(formData.idFile ?? null);
   const [portfolioPreviews, setPortfolioPreviews] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  // Draft banner state
+  const [showResumeBanner, setShowResumeBanner] = useState(false);
+  const [savedStep, setSavedStep] = useState<number | null>(null);
 
+  // ── Draft logic ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const draft = loadDraft();
+    if (draft && currentStep === 1) {
+      setSavedStep(draft.savedStep);
+      setShowResumeBanner(true);
+    }
+  }, [currentStep]);
+
+  const applyDraft = () => {
+    const draft = loadDraft();
+    if (!draft) return;
+
+    setTeamSize(draft.teamSize);
+    setCallAvailable(draft.callAvailable ?? true);
+    setWhatsappAvailable(draft.whatsappAvailable ?? true);
+    setEmergencyAvailable(draft.emergencyAvailable ?? false);
+    setSelectedServices(draft.selectedServices);
+    setPricingModel(draft.pricingModel ?? "Quote-based");
+    setAreas(draft.areas);
+    setShowResumeBanner(false);
+    showInfo?.(
+      "Draft restored",
+      "We loaded your saved progress from this device.",
+    );
+  };
+
+  const discardDraft = () => {
+    clearDraft();
+    setShowResumeBanner(false);
+    showInfo?.("Draft cleared", "Your saved onboarding progress was removed.");
+  };
+
+  // Save draft when key fields change
+  useEffect(() => {
+    if (!formData.email) return;
+    saveDraft({
+      teamSize,
+      callAvailable,
+      whatsappAvailable,
+      emergencyAvailable,
+      selectedServices,
+      pricingModel,
+      areas,
+      savedStep: currentStep,
+    });
+  }, [
+    teamSize,
+    callAvailable,
+    whatsappAvailable,
+    emergencyAvailable,
+    selectedServices,
+    pricingModel,
+    areas,
+    currentStep,
+    formData.email,
+  ]);
+
+  // Re-sync availability flags when returning to step 2
+  useEffect(() => {
+    if (currentStep === 2) {
+      setTeamSize(formData.teamSize);
+      setCallAvailable(formData.callAvailable ?? true);
+      setWhatsappAvailable(formData.whatsappAvailable ?? true);
+      setEmergencyAvailable(formData.emergencyAvailable ?? false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep]);
+
+  // Clean up previews
+  useEffect(
+    () => () => {
+      portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
+    },
+    [portfolioPreviews],
+  );
+
+  // ── Password strength helpers ────────────────────────────────────────────
   const checkPasswordStrength = (
     pwd: string,
   ): "weak" | "medium" | "strong" | null => {
@@ -93,11 +225,12 @@ const OnboardingSteps = ({
     let score = 0;
     if (/[A-Z]/.test(pwd)) score++;
     if (/[a-z]/.test(pwd)) score++;
-    if (/\d/.test(pwd)) score++;
-    if (/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) score++;
+    if (/[0-9]/.test(pwd)) score++;
+    if (/[^A-Za-z0-9]/.test(pwd)) score++;
     if (pwd.length >= 8) score++;
+
     if (score >= 4) return "strong";
-    if (score >= 3) return "medium";
+    if (score === 3) return "medium";
     return "weak";
   };
 
@@ -108,147 +241,294 @@ const OnboardingSteps = ({
   const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
 
   const isStrongPassword = (pwd: string) =>
-    /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /\d/.test(pwd);
+    /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /[0-9]/.test(pwd);
 
-  // ── Step validation ───────────────────────────────────────────────────────
-
+  // ── Step 1 validation ────────────────────────────────────────────────────
   const validateAccountAndContinue = async () => {
     if (!email || !confirmEmail || !password || !confirmPassword) {
-      alert("Please fill in all required fields");
+      showError("Missing fields", "Please fill in all required fields.");
       return;
     }
     if (email !== confirmEmail) {
-      alert("Email addresses do not match");
+      showError("Email mismatch", "Email addresses do not match.");
       return;
     }
     if (!isValidEmail(email)) {
-      alert("Please enter a valid email address");
+      showError("Invalid email", "Please enter a valid email address.");
       return;
     }
     if (password !== confirmPassword) {
-      alert("Passwords do not match");
+      showError("Password mismatch", "Passwords do not match.");
       return;
     }
     if (password.length < 8) {
-      alert("Password must be at least 8 characters long");
+      showError(
+        "Weak password",
+        "Password must be at least 8 characters long.",
+      );
       return;
     }
     if (!isStrongPassword(password)) {
-      alert("Password must contain uppercase, lowercase, and numbers");
+      showError(
+        "Weak password",
+        "Password must contain uppercase, lowercase, and numbers.",
+      );
       return;
     }
     if (!termsAccepted) {
-      alert("You must accept the Terms of Service and Privacy Policy");
+      showError(
+        "Terms not accepted",
+        "You must accept the Terms of Service and Privacy Policy.",
+      );
       return;
     }
 
-    // Save into parent state
     updateFormData({ email, password });
 
-    // Delegate to parent for auth + application preload
     if (onAccountSubmit) {
-      await onAccountSubmit(email, password);
-      return;
+      const ok = await onAccountSubmit(email, password);
+      if (!ok) return;
     }
 
-    // Fallback (if no handler provided)
     nextStep();
   };
 
+  // ── Step 2 validation ────────────────────────────────────────────────────
   const validateProfileAndContinue = () => {
+    if (!businessName.trim()) {
+      showError(
+        "Business name missing",
+        "Please enter your business or trading name.",
+      );
+      return;
+    }
+    if (!phoneNumber.trim()) {
+      showError(
+        "Phone number missing",
+        "Please enter your main contact phone number.",
+      );
+      return;
+    }
+    if (!whatsappNumber.trim()) {
+      showError(
+        "WhatsApp number missing",
+        "Please enter the WhatsApp number customers can contact.",
+      );
+      return;
+    }
     if (!teamSize) {
-      alert("Please provide your team size");
+      showError("Team size missing", "Please provide your team size.");
       return;
     }
     if (!profilePhoto) {
-      alert("Please upload a profile photo");
+      showError("Profile photo missing", "Please upload a profile photo.");
       return;
     }
 
     updateFormData({
+      businessName,
+      phoneNumber,
+      whatsappNumber,
+      description,
+      experience,
+      website,
       teamSize,
       callAvailable,
       whatsappAvailable,
       emergencyAvailable,
       profilePhoto,
     });
+
     nextStep();
   };
 
-  const toggleService = (service: string) => {
+  // ── Step 3 service logic ─────────────────────────────────────────────────
+  const toggleService = (name: string) => {
+    setSelectedServices((prev) => {
+      const exists = prev.find((s) => s.name === name);
+      if (exists) return prev.filter((s) => s.name !== name);
+      return [...prev, { name, price: "", isCustom: false }];
+    });
+  };
+
+  const updateServicePrice = (name: string, price: string) => {
     setSelectedServices((prev) =>
-      prev.includes(service)
-        ? prev.filter((s) => s !== service)
-        : [...prev, service],
+      prev.map((s) => (s.name === name ? { ...s, price } : s)),
     );
+  };
+
+  const addCustomService = () => {
+    const trimmed = customServiceName.trim();
+    if (!trimmed) {
+      showError("Service name missing", "Please enter a service name.");
+      return;
+    }
+    if (
+      selectedServices.some(
+        (s) => s.name.toLowerCase() === trimmed.toLowerCase(),
+      )
+    ) {
+      showError("Duplicate service", "This service is already added.");
+      return;
+    }
+    setSelectedServices((prev) => [
+      ...prev,
+      { name: trimmed, price: "", isCustom: true },
+    ]);
+    setCustomServiceName("");
+    setShowCustomInput(false);
+    showSuccess("Service added", `${trimmed} was added to your services.`);
+  };
+
+  const removeCustomService = (name: string) => {
+    setSelectedServices((prev) => prev.filter((s) => s.name !== name));
+    showInfo?.("Service removed", `${name} was removed from your services.`);
   };
 
   const validateServicesAndContinue = () => {
     if (selectedServices.length < 3) {
-      alert("Please select at least 3 services");
+      showError("Not enough services", "Please select at least 3 services.");
       return;
     }
+    const missingPrice = selectedServices.find(
+      (s) => !s.price || isNaN(parseFloat(s.price)) || parseFloat(s.price) <= 0,
+    );
+    if (missingPrice) {
+      showError(
+        "Missing starting price",
+        `Please enter a valid starting price for ${missingPrice.name}.`,
+      );
+      return;
+    }
+
     updateFormData({ selectedServices, pricingModel });
     nextStep();
   };
 
-  const addArea = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // ── Step 4 logic (areas, with custom-style add UI) ───────────────────────
+  const addAreaFromInput = () => {
+    const value = areaInput.trim();
+    if (!value) return;
+    if (areas.includes(value)) {
+      showInfo?.("Already added", `${value} is already in your service areas.`);
+      return;
+    }
+    setAreas([...areas, value]);
+    setAreaInput("");
+    setShowAreaInput(false);
+  };
+
+  const handleAreaKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const value = areaInput.trim();
-      if (value && !areas.includes(value)) {
-        setAreas([...areas, value]);
-        setAreaInput("");
-      }
+      addAreaFromInput();
+    }
+    if (e.key === "Escape") {
+      setShowAreaInput(false);
+      setAreaInput("");
     }
   };
 
-  const removeArea = (area: string) =>
+  const removeArea = (area: string) => {
     setAreas(areas.filter((a) => a !== area));
+  };
 
   const validateAreasAndContinue = () => {
     if (!city) {
-      alert(
-        "Your primary city is missing from your application. Please contact support.",
+      showError(
+        "City missing",
+        "Your primary city is missing. Please contact support.",
       );
       return;
     }
     if (areas.length < 2) {
-      alert("Please add at least 2 service areas");
+      showError("Not enough areas", "Please add at least 2 service areas.");
       return;
     }
+
     updateFormData({ areas });
     nextStep();
   };
 
-  // ── File handlers ─────────────────────────────────────────────────────────
-
+  // ── File handlers ────────────────────────────────────────────────────────
   const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) setProfilePhoto(e.target.files[0]);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      showError(
+        "Invalid file type",
+        "Only JPG, PNG, or WebP images are allowed.",
+      );
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showError("File too large", "Profile photo must be under 5MB.");
+      return;
+    }
+
+    setProfilePhoto(file);
   };
 
   const handlePortfolioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files);
-      setPortfolioFiles(files);
-      setPortfolioPreviews(files.map((f) => URL.createObjectURL(f)));
-    }
+    if (!e.target.files) return;
+    const newFiles = Array.from(e.target.files);
+
+    // Append new files to existing list
+    setPortfolioFiles((prev) => [...prev, ...newFiles]);
+    setPortfolioPreviews((prev) => [
+      ...prev,
+      ...newFiles.map((f) => URL.createObjectURL(f)),
+    ]);
+
+    // Allow selecting the same file again later
+    e.target.value = "";
   };
 
-  const handleLicenseChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) setLicenseFiles(Array.from(e.target.files));
+  const handleIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setIdFile(file);
   };
 
+  const removePortfolioFile = (index: number) => {
+    setPortfolioFiles((prev) => prev.filter((_, i) => i !== index));
+    setPortfolioPreviews((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const clearIdFile = () => {
+    setIdFile(null);
+  };
+
+  // ── Step 5 submit ────────────────────────────────────────────────────────
   const submitProfile = async () => {
     if (portfolioFiles.length < 1) {
-      alert("Please upload at least 1 portfolio image");
+      showError(
+        "Portfolio missing",
+        "Please upload at least 1 portfolio image.",
+      );
       return;
     }
+    if (!idFile) {
+      showError(
+        "ID missing",
+        "Please upload at least 1 government ID document.",
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
 
     const profileData: OnboardingData = {
       ...formData,
       email,
       password,
+      fullName,
+      businessName,
+      phoneNumber,
+      whatsappNumber,
+      description,
+      experience,
+      website,
       teamSize,
       callAvailable,
       whatsappAvailable,
@@ -259,24 +539,34 @@ const OnboardingSteps = ({
       areas,
       portfolioFiles,
       licenseFiles,
+      idFile,
     };
 
-    // Keep parent state in sync
     updateFormData(profileData);
 
-    if (onSubmitProfile) {
-      await onSubmitProfile(profileData);
-      return;
+    try {
+      if (onSubmitProfile) {
+        await onSubmitProfile(profileData);
+        clearDraft();
+      } else {
+        showSuccess(
+          "Profile submitted",
+          "Your account is now ready to receive customers.",
+        );
+        clearDraft();
+      }
+    } catch (err) {
+      console.error("Error submitting profile:", err);
+      showError(
+        "Submission error",
+        "We could not submit your profile. Please try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Fallback if no handler provided
-    alert(
-      "Profile submitted successfully! Your account is now ready to receive customers.",
-    );
   };
 
-  // ── Step metadata ─────────────────────────────────────────────────────────
-
+  // ── Render ────────────────────────────────────────────────────────────────
   const steps = [
     { number: 1, label: "Account" },
     { number: 2, label: "Profile" },
@@ -285,11 +575,31 @@ const OnboardingSteps = ({
     { number: 5, label: "Portfolio" },
   ];
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const availableServices = SERVICES_BY_CATEGORY[formData.category] ?? [];
+
+  const customServices = selectedServices.filter((s) => s.isCustom);
 
   return (
     <div className="onboarding-page">
       <div className="onboarding-container">
+        {/* Draft banner */}
+        {showResumeBanner && savedStep && (
+          <div className="draft-resume-banner">
+            <div className="draft-resume-text">
+              You have an unfinished application saved (last on step {savedStep}
+              ).
+            </div>
+            <div className="draft-resume-actions">
+              <button className="btn-primary btn-sm" onClick={applyDraft}>
+                Resume where I left off
+              </button>
+              <button className="btn-secondary btn-sm" onClick={discardDraft}>
+                Start fresh
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Progress */}
         <div className="progress-section">
           <div className="progress-steps">
@@ -307,7 +617,7 @@ const OnboardingSteps = ({
                           : "inactive"
                     }`}
                   >
-                    {!isCompleted && step.number}
+                    {isCompleted ? "✓" : step.number}
                   </div>
                   <div
                     className={`step-label ${
@@ -322,7 +632,7 @@ const OnboardingSteps = ({
           </div>
         </div>
 
-        {/* STEP 1: ACCOUNT */}
+        {/* STEP 1: Account */}
         {currentStep === 1 && (
           <div className="form-section">
             <h2 className="form-title">Create Your Account</h2>
@@ -334,7 +644,7 @@ const OnboardingSteps = ({
             {loadError && (
               <div
                 className="input-error"
-                style={{ marginBottom: "12px", fontWeight: 500 }}
+                style={{ marginBottom: 12, fontWeight: 500 }}
               >
                 {loadError}
               </div>
@@ -350,7 +660,7 @@ const OnboardingSteps = ({
                 className="form-input"
               />
               <span className="input-hint">
-                Use the same email you used to apply
+                Use the same email you used to apply.
               </span>
             </div>
 
@@ -375,14 +685,14 @@ const OnboardingSteps = ({
                 className="form-input"
               />
               <span className="input-hint">
-                At least 8 characters with uppercase, lowercase, and numbers
+                At least 8 characters with uppercase, lowercase, and numbers.
               </span>
               {passwordStrength && (
                 <div className="password-strength">
                   <div className="strength-bar">
                     <div className={`strength-bar-fill ${passwordStrength}`} />
                   </div>
-                  <div className={`strength-text ${passwordStrength}`}>
+                  <div className="strength-text">
                     {passwordStrength === "weak"
                       ? "Weak password"
                       : passwordStrength === "medium"
@@ -412,8 +722,8 @@ const OnboardingSteps = ({
                 className="form-checkbox"
               />
               <label className="checkbox-label">
-                I agree to ZimServ's <a href="#">Terms of Service</a> and{" "}
-                <a href="#">Privacy Policy</a>
+                I agree to ZimServ&apos;s <a href="/terms">Terms of Service</a>{" "}
+                and <a href="/privacy">Privacy Policy</a>.
               </label>
             </div>
 
@@ -428,22 +738,22 @@ const OnboardingSteps = ({
                 onClick={validateAccountAndContinue}
                 className="btn-primary"
               >
-                Create Account &amp; Continue →
+                Create Account &amp; Continue
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 2: PROFILE (read-only summary + new fields) */}
+        {/* STEP 2: Profile */}
         {currentStep === 2 && (
           <div className="form-section">
             <h2 className="form-title">Profile Information</h2>
             <p className="form-description">
-              We’ve pre-filled your details from your application. Review them
-              and add anything new.
+              We’ve pre-filled what we can from your application. Complete and
+              update the rest.
             </p>
 
-            {/* Read-only summary from application */}
+            {/* Full name (read-only) */}
             <div className="form-group">
               <label className="form-label">Full Name (from application)</label>
               <input
@@ -454,97 +764,72 @@ const OnboardingSteps = ({
               />
             </div>
 
-            {businessName && (
-              <div className="form-group">
-                <label className="form-label">
-                  Business Name (from application)
-                </label>
-                <input
-                  type="text"
-                  value={businessName}
-                  className="form-input"
-                  disabled
-                />
-              </div>
-            )}
+            {/* Editable core business details */}
+            <div className="form-group">
+              <label className="form-label required">Business Name</label>
+              <input
+                type="text"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="e.g.,  Zimserv Plumbing"
+                className="form-input"
+              />
+            </div>
 
             <div className="form-group">
-              <label className="form-label">
-                Phone Number (from application)
-              </label>
+              <label className="form-label required">Phone Number</label>
               <input
                 type="tel"
                 value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="Enter your main contact number"
                 className="form-input"
-                disabled
               />
             </div>
 
-            {whatsappNumber && (
-              <div className="form-group">
-                <label className="form-label">
-                  WhatsApp (from application)
-                </label>
-                <input
-                  type="tel"
-                  value={whatsappNumber}
-                  className="form-input"
-                  disabled
-                />
-              </div>
-            )}
+            <div className="form-group">
+              <label className="form-label required">WhatsApp Number</label>
+              <input
+                type="tel"
+                value={whatsappNumber}
+                onChange={(e) => setWhatsappNumber(e.target.value)}
+                placeholder="Enter your WhatsApp number"
+                className="form-input"
+              />
+            </div>
 
             <div className="form-group">
-              <label className="form-label">
-                About Your Services (from application)
-              </label>
+              <label className="form-label">About Your Services</label>
               <textarea
                 value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe your services, experience, and what makes you stand out."
                 className="form-textarea"
-                disabled
               />
             </div>
 
             <div className="form-group">
-              <label className="form-label">
-                Experience (from application)
-              </label>
+              <label className="form-label">Experience (years)</label>
               <input
                 type="text"
                 value={experience}
+                onChange={(e) => setExperience(e.target.value)}
+                placeholder="e.g., 5"
                 className="form-input"
-                disabled
               />
             </div>
 
-            {website && (
-              <div className="form-group">
-                <label className="form-label">Website (from application)</label>
-                <input
-                  type="url"
-                  value={website}
-                  className="form-input"
-                  disabled
-                />
-              </div>
-            )}
+            <div className="form-group">
+              <label className="form-label">Website (Optional)</label>
+              <input
+                type="url"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="https://yourbusiness.co.zw"
+                className="form-input"
+              />
+            </div>
 
-            {languages && languages.length > 0 && (
-              <div className="form-group">
-                <label className="form-label">
-                  Languages (from application)
-                </label>
-                <div className="tags-inline">
-                  {languages.map((lang) => (
-                    <span key={lang} className="pill-tag">
-                      {lang}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* New onboarding-only inputs */}
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label required">Team Size</label>
@@ -553,15 +838,15 @@ const OnboardingSteps = ({
                   value={teamSize}
                   onChange={(e) => setTeamSize(e.target.value)}
                   placeholder="e.g., 3"
-                  min="1"
+                  min={1}
                   className="form-input"
                 />
-                <span className="input-hint">Including yourself</span>
+                <span className="input-hint">Including yourself.</span>
               </div>
 
               <div className="form-group">
                 <label className="form-label">Contact Availability</label>
-                <div style={{ display: "grid", gap: "12px" }}>
+                <div style={{ display: "grid", gap: 12 }}>
                   <div className="checkbox-wrapper">
                     <input
                       type="checkbox"
@@ -599,26 +884,27 @@ const OnboardingSteps = ({
               </div>
             </div>
 
+            {/* Profile photo */}
             <div className="form-group">
               <label className="form-label required">Profile Photo</label>
               <div
                 onClick={() => document.getElementById("photoInput")?.click()}
                 className={`file-upload-zone ${profilePhoto ? "has-file" : ""}`}
               >
-                <div className="file-upload-icon">📸</div>
+                <div className="file-upload-icon" />
                 <div className="file-upload-text">
                   {profilePhoto
                     ? `Selected: ${profilePhoto.name}`
                     : "Click to upload your profile photo"}
                 </div>
                 <div className="file-upload-hint">
-                  JPG or PNG, max 5MB. Professional headshot recommended.
+                  JPG, PNG, or WebP. Max 5MB. Professional headshot recommended.
                 </div>
               </div>
               <input
                 type="file"
                 id="photoInput"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 onChange={handleProfilePhotoChange}
                 className="file-input"
               />
@@ -626,59 +912,191 @@ const OnboardingSteps = ({
 
             <div className="form-actions">
               <button onClick={prevStep} className="btn-secondary">
-                ← Back
+                Back
               </button>
               <button
                 onClick={validateProfileAndContinue}
                 className="btn-primary"
               >
-                Continue to Services →
+                Continue to Services
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 3: SERVICES (new) */}
+        {/* STEP 3: Services */}
         {currentStep === 3 && (
           <div className="form-section">
             <h2 className="form-title">Services You Offer</h2>
             <p className="form-description">
-              Select all services you can provide. This helps customers find
-              you.
+              Select services and set a starting price for each. Add custom
+              services if yours aren&apos;t listed.
             </p>
 
             <div className="form-group">
               <label className="form-label">Your Category</label>
               <div className="category-badge">{formData.category}</div>
-              <span className="input-hint">From your application</span>
+              <span className="input-hint">From your application.</span>
             </div>
 
             <div className="form-group">
               <label className="form-label required">
                 Select Services (Choose at least 3)
               </label>
-              <div className="services-grid">
-                {SERVICES_BY_CATEGORY[formData.category]?.map((service) => (
-                  <label
-                    key={service}
-                    className={`service-checkbox-item ${
-                      selectedServices.includes(service) ? "selected" : ""
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedServices.includes(service)}
-                      onChange={() => toggleService(service)}
-                    />
-                    <span className="service-checkbox-label">{service}</span>
-                  </label>
-                ))}
-              </div>
+              {availableServices.length === 0 ? (
+                <p
+                  className="input-hint"
+                  style={{ color: "var(--color-accent)" }}
+                >
+                  No catalog services found for {formData.category}. Use the
+                  custom service option below.
+                </p>
+              ) : (
+                <div className="services-grid">
+                  {availableServices.map((serviceName: string) => {
+                    const entry = selectedServices.find(
+                      (s) => s.name === serviceName,
+                    );
+                    const isSelected = !!entry;
+                    return (
+                      <div
+                        key={serviceName}
+                        className={`service-checkbox-item ${
+                          isSelected ? "selected" : ""
+                        }`}
+                      >
+                        <div className="service-checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleService(serviceName)}
+                          />
+                          <span className="service-checkbox-label">
+                            {serviceName}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <div className="service-price-row">
+                            <span className="service-price-currency">$</span>
+                            <input
+                              type="number"
+                              className="service-price-input"
+                              placeholder="Starting price"
+                              min={1}
+                              required
+                              value={entry?.price ?? ""}
+                              onChange={(e) =>
+                                updateServicePrice(serviceName, e.target.value)
+                              }
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="services-count">
                 <span>{selectedServices.length}</span> services selected
               </div>
             </div>
 
+            {/* Custom services */}
+            <div className="form-group">
+              <div className="custom-services-header">
+                <label className="form-label" style={{ margin: 0 }}>
+                  Custom Services
+                </label>
+                <span className="input-hint" style={{ margin: 0 }}>
+                  Don&apos;t see your service above? Add it here.
+                </span>
+              </div>
+
+              {customServices.length > 0 && (
+                <div className="custom-services-list">
+                  {customServices.map((svc) => (
+                    <div key={svc.name} className="custom-service-item">
+                      <div className="custom-service-name">
+                        <span className="custom-badge">Custom</span> {svc.name}
+                      </div>
+                      <div className="custom-service-right">
+                        <div className="service-price-row">
+                          <span className="service-price-currency">$</span>
+                          <input
+                            type="number"
+                            className="service-price-input"
+                            placeholder="Starting price"
+                            min={0}
+                            value={svc.price}
+                            onChange={(e) =>
+                              updateServicePrice(svc.name, e.target.value)
+                            }
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="custom-service-remove"
+                          onClick={() => removeCustomService(svc.name)}
+                          aria-label="Remove"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {showCustomInput ? (
+                <div className="custom-service-input-row">
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g., Solar panel cleaning"
+                    value={customServiceName}
+                    onChange={(e) => setCustomServiceName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustomService();
+                      }
+                      if (e.key === "Escape") {
+                        setShowCustomInput(false);
+                        setCustomServiceName("");
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={addCustomService}
+                  >
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => {
+                      setShowCustomInput(false);
+                      setCustomServiceName("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="add-custom-service-btn"
+                  onClick={() => setShowCustomInput(true)}
+                >
+                  Add a custom service
+                </button>
+              )}
+            </div>
+
+            {/* Pricing model */}
             <div className="form-group">
               <label className="form-label required">Pricing Model</label>
               <select
@@ -687,7 +1105,7 @@ const OnboardingSteps = ({
                 className="form-input"
               >
                 <option value="Quote-based">
-                  Quote-based (Custom pricing per job)
+                  Quote-based (Custom per job)
                 </option>
                 <option value="Fixed Price">
                   Fixed Price (Standard rates)
@@ -702,19 +1120,19 @@ const OnboardingSteps = ({
 
             <div className="form-actions">
               <button onClick={prevStep} className="btn-secondary">
-                ← Back
+                Back
               </button>
               <button
                 onClick={validateServicesAndContinue}
                 className="btn-primary"
               >
-                Continue to Service Areas →
+                Continue to Service Areas
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 4: AREAS (city from application, only suburbs are new) */}
+        {/* STEP 4: Areas (custom-style add UI) */}
         {currentStep === 4 && (
           <div className="form-section">
             <h2 className="form-title">Service Areas</h2>
@@ -732,59 +1150,100 @@ const OnboardingSteps = ({
 
             <div className="form-group">
               <label className="form-label required">
-                Add Service Areas (At least 2 required)
+                Add Service Areas (at least 2)
               </label>
-              <div className="tag-input-container">
-                {areas.map((area) => (
-                  <span key={area} className="area-tag">
-                    {area}
-                    <button
-                      onClick={() => removeArea(area)}
-                      className="tag-remove-btn"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                <input
-                  type="text"
-                  value={areaInput}
-                  onChange={(e) => setAreaInput(e.target.value)}
-                  onKeyPress={addArea}
-                  placeholder="Type a suburb/area and press Enter..."
-                  className="tag-input"
-                />
-              </div>
+
+              {areas.length > 0 && (
+                <div className="custom-services-list">
+                  {areas.map((area) => (
+                    <div key={area} className="custom-service-item">
+                      <div className="custom-service-name">{area}</div>
+                      <div className="custom-service-right">
+                        <button
+                          type="button"
+                          className="custom-service-remove"
+                          onClick={() => removeArea(area)}
+                          aria-label="Remove"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {showAreaInput ? (
+                <div className="custom-service-input-row">
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g., Borrowdale, Avondale"
+                    value={areaInput}
+                    onChange={(e) => setAreaInput(e.target.value)}
+                    onKeyDown={handleAreaKeyDown}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={addAreaFromInput}
+                  >
+                    Add area
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => {
+                      setShowAreaInput(false);
+                      setAreaInput("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="add-custom-service-btn"
+                  onClick={() => setShowAreaInput(true)}
+                >
+                  Add a service area
+                </button>
+              )}
+
               <span className="input-hint">
-                Examples: Borrowdale, Mount Pleasant, Avondale, Glen Lorne
+                Examples: Borrowdale, Mount Pleasant, Avondale.
               </span>
             </div>
 
             <div className="form-actions">
               <button onClick={prevStep} className="btn-secondary">
-                ← Back
+                Back
               </button>
               <button
                 onClick={validateAreasAndContinue}
                 className="btn-primary"
               >
-                Continue to Portfolio →
+                Continue to Portfolio
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 5: PORTFOLIO */}
+        {/* STEP 5: Portfolio + ID */}
         {currentStep === 5 && (
           <div className="form-section">
-            <h2 className="form-title">Portfolio</h2>
+            <h2 className="form-title">Portfolio &amp; ID Verification</h2>
             <p className="form-description">
-              Showcase your work to build trust with potential customers.
+              Showcase your work to build trust with customers and securely
+              verify your identity with our team.
             </p>
 
+            {/* Work portfolio */}
             <div className="form-group">
               <label className="form-label required">
-                Work Portfolio (At least 1 photo required)
+                Work Portfolio (at least 1 photo)
               </label>
               <div
                 onClick={() =>
@@ -794,11 +1253,11 @@ const OnboardingSteps = ({
                   portfolioFiles.length > 0 ? "has-file" : ""
                 }`}
               >
-                <div className="file-upload-icon">🖼️</div>
+                <div className="file-upload-icon" />
                 <div className="file-upload-text">
-                  {portfolioFiles.length > 0
-                    ? `${portfolioFiles.length} file(s) selected`
-                    : "Click to upload portfolio images"}
+                  {portfolioFiles.length === 0
+                    ? "Click to upload portfolio images"
+                    : `${portfolioFiles.length} files selected`}
                 </div>
                 <div className="file-upload-hint">
                   Upload photos of your completed work. JPG or PNG, max 5MB
@@ -819,58 +1278,75 @@ const OnboardingSteps = ({
                     <div key={i} className="portfolio-preview-item">
                       <img src={preview} alt={`Portfolio ${i + 1}`} />
                       <div className="portfolio-preview-badge">{i + 1}</div>
+                      <button
+                        type="button"
+                        className="portfolio-remove-btn"
+                        onClick={() => removePortfolioFile(i)}
+                        aria-label="Remove image"
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
+            {/* Government ID (idFile) */}
             <div className="form-group">
-              <label className="form-label">
-                Licenses &amp; Certificates (Optional but recommended)
+              <label className="form-label required">
+                Government ID{" "}
+                <span style={{ fontWeight: 400 }}>
+                  (Private — not shown to customers)
+                </span>
               </label>
               <div
-                onClick={() => document.getElementById("licenseInput")?.click()}
-                className={`file-upload-zone ${
-                  licenseFiles.length > 0 ? "has-file" : ""
-                }`}
+                onClick={() => document.getElementById("idInput")?.click()}
+                className={`file-upload-zone ${idFile ? "has-file" : ""}`}
               >
-                <div className="file-upload-icon">📄</div>
+                <div className="file-upload-icon" />
                 <div className="file-upload-text">
-                  {licenseFiles.length > 0
-                    ? `${licenseFiles.length} file(s) selected`
-                    : "Upload licenses or certificates"}
+                  {idFile ? idFile.name : "Upload a photo or scan of your ID"}
                 </div>
                 <div className="file-upload-hint">
-                  Professional licenses, training certificates increase
-                  credibility. PDF or images accepted.
+                  This is only visible to ZimServ staff for verification and
+                  safety. It will never be publicly displayed on your profile.
                 </div>
               </div>
               <input
                 type="file"
-                id="licenseInput"
+                id="idInput"
                 accept="image/*,application/pdf"
-                multiple
-                onChange={handleLicenseChange}
+                onChange={handleIdChange}
                 className="file-input"
               />
-              {licenseFiles.length > 0 && (
+              {idFile && (
                 <div className="license-files-list">
-                  {licenseFiles.map((file, i) => (
-                    <div key={i} className="license-file-item">
-                      📄 {file.name}
-                    </div>
-                  ))}
+                  <div className="license-file-item">
+                    <span>{idFile.name}</span>
+                    <button
+                      type="button"
+                      className="custom-service-remove"
+                      onClick={clearIdFile}
+                      aria-label="Remove ID file"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
 
             <div className="form-actions">
               <button onClick={prevStep} className="btn-secondary">
-                ← Back
+                Back
               </button>
-              <button onClick={submitProfile} className="btn-primary">
-                Submit for Review ✓
+              <button
+                onClick={submitProfile}
+                className="btn-primary"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Submitting..." : "Submit for Review"}
               </button>
             </div>
           </div>

@@ -92,8 +92,8 @@ type FormState = {
 const initialState: FormState = {
   fullName: "",
   email: "",
-  phone: "",
-  whatsapp: "",
+  phone: "+263 ",
+  whatsapp: "+263 ",
   city: "",
   category: "",
   yearsExperience: "",
@@ -181,23 +181,12 @@ export default function BecomeProviderPage(): JSX.Element {
       return;
     }
 
-    const validTypes = [
-      "image/jpeg",
-      "image/jpg",
-      "image/png",
-      "application/pdf",
-    ];
-    if (!validTypes.includes(file.type)) {
-      setErrors((prev) => ({
-        ...prev,
-        verificationFile: "Only JPG/PNG/PDF allowed",
-      }));
-      return;
-    }
+    // Only enforce size limit — any file format accepted
     if (file.size > 5 * 1024 * 1024) {
       setErrors((prev) => ({ ...prev, verificationFile: "Max file size 5MB" }));
       return;
     }
+
     setVerificationFile(file);
     setErrors((prev) => ({ ...prev, verificationFile: "" }));
   }
@@ -208,9 +197,15 @@ export default function BecomeProviderPage(): JSX.Element {
     if (!formData.fullName.trim()) e.fullName = "Full name is required";
     if (!formData.email.trim()) e.email = "Email is required";
     else if (!/\S+@\S+\.\S+/.test(formData.email)) e.email = "Invalid email";
-    if (!formData.phone.trim()) e.phone = "Phone number is required";
-    else if (!/^\+?[0-9]{7,15}$/.test(formData.phone.replace(/\s/g, "")))
-      e.phone = "Invalid phone number";
+    if (!formData.phone.trim()) {
+      e.phone = "Phone number is required";
+    } else {
+      const normalizedPhone = formData.phone.replace(/\s/g, "");
+      if (!/^\+?[0-9]{3,16}$/.test(normalizedPhone)) {
+        e.phone = "Invalid phone number";
+      }
+    }
+
     if (!formData.city) e.city = "City is required";
     if (!formData.category) e.category = "Category is required";
     if (!formData.yearsExperience) e.yearsExperience = "Experience is required";
@@ -291,15 +286,34 @@ export default function BecomeProviderPage(): JSX.Element {
         return;
       }
 
+      const normalizePhone = (value: string) => {
+        const trimmed = value.trim();
+        // If it is still exactly "+263" or "+263" plus optional spaces, store as "+263"
+        if (/^\+263\s*$/.test(trimmed)) {
+          return "+263";
+        }
+        return trimmed;
+      };
+
+      const normalizeWhatsapp = (value: string | undefined) => {
+        if (!value) return null;
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        if (/^\+263\s*$/.test(trimmed)) {
+          return "+263";
+        }
+        return trimmed;
+      };
+
       // Step 3: Insert application with both category name AND ID
       const insertData = {
         full_name: formData.fullName.trim(),
         email: formData.email.toLowerCase().trim(),
-        phone_number: formData.phone.trim(),
-        whatsapp_number: formData.whatsapp?.trim() || null,
+        phone_number: normalizePhone(formData.phone),
+        whatsapp_number: normalizeWhatsapp(formData.whatsapp),
         city: formData.city,
-        primary_category: selectedCategory.name, // ✅ text column (NOT NULL)
-        primary_category_id: selectedCategory.id, // ✅ UUID FK
+        primary_category: selectedCategory.name,
+        primary_category_id: selectedCategory.id,
         years_experience: formData.yearsExperience,
         work_type: formData.workType,
         availability: formData.availability || null,
@@ -1090,13 +1104,12 @@ export default function BecomeProviderPage(): JSX.Element {
               >
                 <label className="file-label" htmlFor="verificationFile">
                   <Upload size={16} strokeWidth={2} />
-                  {verificationFile ? "Change File" : "Upload Proof Document"}
+                  {verificationFile ? "Change File" : "Upload Proof of Service"}
                 </label>
                 <input
                   id="verificationFile"
                   className="file-input"
                   type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
                   onChange={handleFileChange}
                 />
                 <div
@@ -1106,8 +1119,8 @@ export default function BecomeProviderPage(): JSX.Element {
                     marginTop: "8px",
                   }}
                 >
-                  Upload a business license, certificate, or ID (speeds up
-                  approval)
+                  Upload any document — business license, certificate (speeds up
+                  approval). Max 5MB.
                 </div>
                 {verificationFile && (
                   <div className="file-info">

@@ -1,16 +1,61 @@
 // src/components/Header/Header.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Menu, X, Grid, Briefcase, LogIn } from "lucide-react";
+import {
+  Menu,
+  X,
+  Grid,
+  Briefcase,
+  LogIn,
+  LogOut,
+  User,
+  ChevronDown,
+} from "lucide-react";
+import { supabase } from "../../lib/supabaseClient";
 
 const Header = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
+  const [, setShowSearch] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
 
   const navigate = useNavigate();
 
+  // ── Auth state ───────────────────────────────────────
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+    });
+
+    // Listen for changes (sign in / sign out)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Close profile dropdown on outside click ──────────
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        profileRef.current &&
+        !profileRef.current.contains(e.target as Node)
+      ) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // ── Scroll ───────────────────────────────────────────
   useEffect(() => {
     const handleScroll = () => {
       const scrollY = window.scrollY;
@@ -43,6 +88,24 @@ const Header = () => {
     navigate("/");
     setSearchQuery("");
   };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setProfileOpen(false);
+    setMobileMenuOpen(false);
+    navigate("/");
+  };
+
+  // ── Helpers ──────────────────────────────────────────
+  const userName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email?.split("@")[0] ||
+    "Account";
+
+  const userAvatar = user?.user_metadata?.avatar_url ?? null;
+
+  const firstName = userName.split(" ")[0];
 
   return (
     <>
@@ -130,7 +193,7 @@ const Header = () => {
           filter: drop-shadow(var(--shadow-md));
         }
 
-        /* ── SEARCH (appears on scroll) ───────────────────── */
+        /* ── SEARCH ───────────────────────────────────────── */
         .hdr-search-wrap {
           display: flex;
           justify-content: center;
@@ -138,9 +201,7 @@ const Header = () => {
           opacity: 0;
           transform: translateY(-8px);
           pointer-events: none;
-          transition:
-            opacity 0.3s ease,
-            transform 0.3s ease;
+          transition: opacity 0.3s ease, transform 0.3s ease;
         }
 
         .hdr-search-wrap.visible {
@@ -195,9 +256,7 @@ const Header = () => {
           transition: color var(--transition-fast);
         }
 
-        .hdr-search:focus-within .hdr-search-icon {
-          color: var(--color-accent);
-        }
+        .hdr-search:focus-within .hdr-search-icon { color: var(--color-accent); }
 
         .hdr-search-input {
           flex: 1;
@@ -211,9 +270,7 @@ const Header = () => {
           min-width: 0;
         }
 
-        .hdr-search-input::placeholder {
-          color: var(--color-text-secondary);
-        }
+        .hdr-search-input::placeholder { color: var(--color-text-secondary); }
 
         .hdr-search-btn {
           background: var(--color-accent);
@@ -240,11 +297,7 @@ const Header = () => {
         }
 
         .hdr-search-btn:active:not(:disabled) { transform: scale(0.97); }
-
-        .hdr-search-btn:disabled {
-          opacity: 0.4;
-          cursor: not-allowed;
-        }
+        .hdr-search-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
         /* ── RIGHT NAV ────────────────────────────────────── */
         .hdr-nav {
@@ -255,7 +308,6 @@ const Header = () => {
           justify-self: end;
         }
 
-        /* Thin vertical divider between nav groups */
         .hdr-nav-divider {
           width: 1px;
           height: 20px;
@@ -264,7 +316,6 @@ const Header = () => {
           flex-shrink: 0;
         }
 
-        /* Ghost — Browse Categories */
         .hdr-nav-link {
           display: flex;
           align-items: center;
@@ -292,12 +343,9 @@ const Header = () => {
           transition: opacity var(--transition-fast), transform var(--transition-fast);
         }
 
-        .hdr-nav-link:hover svg {
-          opacity: 1;
-          transform: scale(1.1);
-        }
+        .hdr-nav-link:hover svg { opacity: 1; transform: scale(1.1); }
 
-        /* Filled — Sign In */
+        /* Sign In button */
         .hdr-signin {
           display: flex;
           align-items: center;
@@ -340,6 +388,163 @@ const Header = () => {
         }
 
         .hdr-signin:active { transform: scale(0.98); }
+
+        /* ── PROFILE BUTTON + DROPDOWN ────────────────────── */
+        .hdr-profile-wrap {
+          position: relative;
+        }
+
+        .hdr-profile-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 12px 6px 6px;
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-full);
+          background: var(--color-bg);
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--color-primary);
+          cursor: pointer;
+          white-space: nowrap;
+          transition:
+            border-color var(--transition-fast),
+            background var(--transition-fast),
+            box-shadow var(--transition-fast);
+        }
+
+        .hdr-profile-btn:hover {
+          border-color: var(--color-accent);
+          background: var(--color-accent-soft);
+          box-shadow: var(--shadow-sm);
+        }
+
+        .hdr-profile-avatar {
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          object-fit: cover;
+          border: 1.5px solid var(--color-border);
+          flex-shrink: 0;
+        }
+
+        .hdr-profile-initials {
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          background: var(--color-accent);
+          color: #fff;
+          font-size: 13px;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          letter-spacing: 0.3px;
+        }
+
+        .hdr-profile-name {
+          max-width: 120px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .hdr-profile-chevron {
+          color: var(--color-text-secondary);
+          transition: transform var(--transition-fast);
+          flex-shrink: 0;
+        }
+
+        .hdr-profile-wrap.open .hdr-profile-chevron {
+          transform: rotate(180deg);
+        }
+
+        /* Dropdown */
+        .hdr-profile-dropdown {
+          position: absolute;
+          top: calc(100% + 10px);
+          right: 0;
+          min-width: 200px;
+          background: var(--color-bg);
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-lg);
+          padding: 8px;
+          opacity: 0;
+          transform: translateY(-6px) scale(0.98);
+          pointer-events: none;
+          transition:
+            opacity var(--transition-fast),
+            transform var(--transition-fast);
+          z-index: 100;
+        }
+
+        .hdr-profile-wrap.open .hdr-profile-dropdown {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+          pointer-events: auto;
+        }
+
+        .hdr-dropdown-user {
+          padding: 10px 12px 12px;
+          border-bottom: 1px solid var(--color-border);
+          margin-bottom: 6px;
+        }
+
+        .hdr-dropdown-name {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--color-primary);
+          margin-bottom: 2px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .hdr-dropdown-email {
+          font-size: 12px;
+          color: var(--color-text-secondary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .hdr-dropdown-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          padding: 9px 12px;
+          border: none;
+          border-radius: var(--radius-sm);
+          background: transparent;
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--color-text-primary);
+          cursor: pointer;
+          text-align: left;
+          transition: background var(--transition-fast), color var(--transition-fast);
+        }
+
+        .hdr-dropdown-item:hover {
+          background: var(--color-bg-section);
+          color: var(--color-accent);
+        }
+
+        .hdr-dropdown-item.signout {
+          color: #DC2626;
+          margin-top: 4px;
+          border-top: 1px solid var(--color-border);
+          padding-top: 10px;
+        }
+
+        .hdr-dropdown-item.signout:hover {
+          background: #FEF2F2;
+          color: #DC2626;
+        }
 
         /* Outlined — Become a Provider */
         .hdr-cta {
@@ -404,10 +609,7 @@ const Header = () => {
           z-index: 9998;
         }
 
-        .mob-overlay.open {
-          opacity: 1;
-          pointer-events: auto;
-        }
+        .mob-overlay.open { opacity: 1; pointer-events: auto; }
 
         .mob-drawer {
           position: fixed;
@@ -434,10 +636,7 @@ const Header = () => {
           background: var(--color-bg-section);
         }
 
-        .mob-drawer-logo {
-          height: 34px;
-          width: auto;
-        }
+        .mob-drawer-logo { height: 34px; width: auto; }
 
         .mob-close {
           width: 38px; height: 38px;
@@ -457,10 +656,61 @@ const Header = () => {
           transform: rotate(90deg);
         }
 
-        .mob-body {
-          flex: 1;
-          overflow-y: auto;
-          padding: 24px;
+        .mob-body { flex: 1; overflow-y: auto; padding: 24px; }
+
+        /* Mobile user card */
+        .mob-user-card {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px;
+          background: var(--color-accent-soft);
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-md);
+          margin-bottom: 20px;
+        }
+
+        .mob-user-avatar {
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          object-fit: cover;
+          border: 2px solid var(--color-accent);
+          flex-shrink: 0;
+        }
+
+        .mob-user-initials {
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          background: var(--color-accent);
+          color: #fff;
+          font-size: 16px;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .mob-user-info { min-width: 0; }
+
+        .mob-user-name {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--color-primary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .mob-user-email {
+          font-size: 12px;
+          color: var(--color-text-secondary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          margin-top: 2px;
         }
 
         .mob-search-box {
@@ -507,9 +757,7 @@ const Header = () => {
           font-size: 14px;
           font-weight: 700;
           cursor: pointer;
-          transition:
-            background var(--transition-fast),
-            transform var(--transition-fast);
+          transition: background var(--transition-fast), transform var(--transition-fast);
         }
 
         .mob-search-submit:hover {
@@ -560,62 +808,82 @@ const Header = () => {
 
         .mob-nav-item:hover svg { color: var(--color-accent); }
 
-       /* Filled — Sign In mobile */
-      .mob-signin-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        width: 100%;
-        padding: 13px 16px;
-        border: none;
-        border-radius: var(--radius-md);
-        background: var(--color-accent);
-        font-family: var(--font-primary);
-        font-size: 14px;
-        font-weight: 700;
-        color: #fff;
-        cursor: pointer;
-        margin-bottom: 2px;
-        box-shadow: var(--shadow-sm);
-        transition:
-          background var(--transition-fast),
-          transform var(--transition-fast),
-          box-shadow var(--transition-fast);
-      }
+        .mob-signin-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          width: 100%;
+          padding: 13px 16px;
+          border: none;
+          border-radius: var(--radius-md);
+          background: var(--color-accent);
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 700;
+          color: #fff;
+          cursor: pointer;
+          margin-bottom: 2px;
+          box-shadow: var(--shadow-sm);
+          transition:
+            background var(--transition-fast),
+            transform var(--transition-fast),
+            box-shadow var(--transition-fast);
+        }
 
-      .mob-signin-btn:hover {
-        background: var(--color-accent-hover);
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-md);
-      }
+        .mob-signin-btn:hover {
+          background: var(--color-accent-hover);
+          transform: translateY(-1px);
+          box-shadow: var(--shadow-md);
+        }
 
-      /* Outlined — Become a Provider mobile */
-      .mob-cta {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        width: 100%;
-        padding: 12px 16px;
-        border: 1.5px solid var(--color-border);
-        border-radius: var(--radius-md);
-        background: transparent;
-        font-family: var(--font-primary);
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--color-primary);
-        cursor: pointer;
-        text-align: left;
-        transition: all var(--transition-fast);
-      }
+        .mob-signout-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          width: 100%;
+          padding: 12px 16px;
+          border: 1.5px solid #FECACA;
+          border-radius: var(--radius-md);
+          background: #FEF2F2;
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 700;
+          color: #DC2626;
+          cursor: pointer;
+          transition: all var(--transition-fast);
+        }
 
-      .mob-cta:hover {
-        border-color: var(--color-accent);
-        color: var(--color-accent);
-        background: var(--color-accent-soft);
-        transform: translateY(-1px);
-      }
+        .mob-signout-btn:hover {
+          background: #FEE2E2;
+          transform: translateY(-1px);
+        }
 
+        .mob-cta {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          width: 100%;
+          padding: 12px 16px;
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-md);
+          background: transparent;
+          font-family: var(--font-primary);
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--color-primary);
+          cursor: pointer;
+          text-align: left;
+          transition: all var(--transition-fast);
+        }
+
+        .mob-cta:hover {
+          border-color: var(--color-accent);
+          color: var(--color-accent);
+          background: var(--color-accent-soft);
+          transform: translateY(-1px);
+        }
 
         .mob-hr {
           height: 1px;
@@ -668,37 +936,7 @@ const Header = () => {
               <img src="/assets/logo.png" alt="ZimServ" />
             </div>
 
-            {/* SEARCH — appears after scrolling past hero */}
-            <div className={`hdr-search-wrap ${showSearch ? "visible" : ""}`}>
-              <form className="hdr-search-form" onSubmit={handleSearch}>
-                <div className="hdr-search">
-                  <div className="hdr-search-left">
-                    <Search
-                      size={16}
-                      className="hdr-search-icon"
-                      strokeWidth={2.2}
-                    />
-                    <input
-                      type="text"
-                      placeholder="What are you looking for?"
-                      className="hdr-search-input"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      aria-label="Search for services"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="hdr-search-btn"
-                    disabled={!searchQuery.trim()}
-                  >
-                    Search
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* RIGHT NAV — ghost → divider → outlined → filled */}
+            {/* RIGHT NAV */}
             <nav className="hdr-nav" aria-label="Main navigation">
               <button
                 className="hdr-nav-link"
@@ -710,13 +948,78 @@ const Header = () => {
 
               <div className="hdr-nav-divider" aria-hidden="true" />
 
-              <button
-                className="hdr-signin"
-                onClick={() => navigate("/signin")}
-              >
-                <LogIn size={15} strokeWidth={2.2} />
-                Sign In
-              </button>
+              {/* ── Signed out → Sign In button ── */}
+              {!user && (
+                <button
+                  className="hdr-signin"
+                  onClick={() => navigate("/signin")}
+                >
+                  <LogIn size={15} strokeWidth={2.2} />
+                  Sign In
+                </button>
+              )}
+
+              {/* ── Signed in → Profile dropdown ── */}
+              {user && (
+                <div
+                  ref={profileRef}
+                  className={`hdr-profile-wrap ${profileOpen ? "open" : ""}`}
+                >
+                  <button
+                    className="hdr-profile-btn"
+                    onClick={() => setProfileOpen((p) => !p)}
+                    aria-label="Account menu"
+                    aria-expanded={profileOpen}
+                  >
+                    {userAvatar ? (
+                      <img
+                        src={userAvatar}
+                        alt={firstName}
+                        className="hdr-profile-avatar"
+                      />
+                    ) : (
+                      <div className="hdr-profile-initials">
+                        {firstName.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="hdr-profile-name">{firstName}</span>
+                    <ChevronDown
+                      size={14}
+                      strokeWidth={2.5}
+                      className="hdr-profile-chevron"
+                    />
+                  </button>
+
+                  {/* Dropdown */}
+                  <div className="hdr-profile-dropdown" role="menu">
+                    <div className="hdr-dropdown-user">
+                      <div className="hdr-dropdown-name">{userName}</div>
+                      <div className="hdr-dropdown-email">{user.email}</div>
+                    </div>
+
+                    <button
+                      className="hdr-dropdown-item"
+                      onClick={() => {
+                        navigate("/profile");
+                        setProfileOpen(false);
+                      }}
+                      role="menuitem"
+                    >
+                      <User size={15} strokeWidth={2} />
+                      My Profile
+                    </button>
+
+                    <button
+                      className="hdr-dropdown-item signout"
+                      onClick={handleSignOut}
+                      role="menuitem"
+                    >
+                      <LogOut size={15} strokeWidth={2} />
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <button
                 className="hdr-cta"
@@ -727,7 +1030,7 @@ const Header = () => {
               </button>
             </nav>
 
-            {/* HAMBURGER — mobile only */}
+            {/* HAMBURGER */}
             <button
               className="hdr-hamburger"
               onClick={() => setMobileMenuOpen(true)}
@@ -770,6 +1073,27 @@ const Header = () => {
         </div>
 
         <div className="mob-body">
+          {/* ── Signed in: user card ── */}
+          {user && (
+            <div className="mob-user-card">
+              {userAvatar ? (
+                <img
+                  src={userAvatar}
+                  alt={firstName}
+                  className="mob-user-avatar"
+                />
+              ) : (
+                <div className="mob-user-initials">
+                  {firstName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="mob-user-info">
+                <div className="mob-user-name">{userName}</div>
+                <div className="mob-user-email">{user.email}</div>
+              </div>
+            </div>
+          )}
+
           {/* Search */}
           <div className="mob-search-box">
             <input
@@ -829,16 +1153,28 @@ const Header = () => {
 
           {/* Account */}
           <div className="mob-section-label">Account</div>
-          <button
-            className="mob-signin-btn"
-            onClick={() => {
-              navigate("/signin");
-              setMobileMenuOpen(false);
-            }}
-          >
-            <LogIn size={18} strokeWidth={2} />
-            Sign In
-          </button>
+
+          {/* ── Signed out → Sign In ── */}
+          {!user && (
+            <button
+              className="mob-signin-btn"
+              onClick={() => {
+                navigate("/signin");
+                setMobileMenuOpen(false);
+              }}
+            >
+              <LogIn size={18} strokeWidth={2} />
+              Sign In
+            </button>
+          )}
+
+          {/* ── Signed in → Sign Out ── */}
+          {user && (
+            <button className="mob-signout-btn" onClick={handleSignOut}>
+              <LogOut size={18} strokeWidth={2} />
+              Sign Out
+            </button>
+          )}
 
           <hr className="mob-hr" />
 

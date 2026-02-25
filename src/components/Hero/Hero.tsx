@@ -278,13 +278,13 @@ const Hero = () => {
           align-items: flex-end;
           justify-content: center;
           height: 100%;
-          min-height: 550px;
+          min-height: 580px;
         }
 
         .hero-image {
           width: 100%;
           height: auto;
-          max-height: 640px;
+          max-height: 650px;
           object-fit: contain;
           object-position: bottom center;
           filter: drop-shadow(0 16px 40px rgba(15, 23, 42, 0.08));
@@ -483,7 +483,7 @@ const Hero = () => {
                   strokeWidth={2}
                 />
                 <span className="hero-stat-text">
-                  <span className="hero-stat-number">500+</span> Verified
+                  <span className="hero-stat-number">100+</span> Verified
                   Providers
                 </span>
               </div>
@@ -491,7 +491,7 @@ const Hero = () => {
               <div className="hero-stat">
                 <Users size={18} className="hero-stat-icon" strokeWidth={2} />
                 <span className="hero-stat-text">
-                  <span className="hero-stat-number">10K+</span> Happy Customers
+                  <span className="hero-stat-number">1K+</span> Happy Customers
                 </span>
               </div>
             </div>
