@@ -838,8 +838,15 @@ const OnboardingSteps = ({
                 className="form-checkbox"
               />
               <label className="checkbox-label">
-                I agree to ZimServ&apos;s <a href="/terms">Terms of Service</a>{" "}
-                and <a href="/privacy">Privacy Policy</a>.
+                I agree to ZimServ&apos;s{" "}
+                <a href="/legal/terms.pdf" target="_blank" rel="noreferrer">
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a href="/legal/privacy.pdf" target="_blank" rel="noreferrer">
+                  Privacy Policy
+                </a>
+                .
               </label>
             </div>
             <div className="form-actions">

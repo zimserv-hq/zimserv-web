@@ -1177,11 +1177,11 @@ export default function BecomeProviderPage(): JSX.Element {
                 />
                 <label htmlFor="terms">
                   I agree to ZimServ's{" "}
-                  <a href="/terms" target="_blank" rel="noreferrer">
+                  <a href="/legal/terms.pdf" target="_blank" rel="noreferrer">
                     Terms of Service
                   </a>{" "}
                   and{" "}
-                  <a href="/privacy" target="_blank" rel="noreferrer">
+                  <a href="/legal/privacy.pdf" target="_blank" rel="noreferrer">
                     Privacy Policy
                   </a>
                 </label>
