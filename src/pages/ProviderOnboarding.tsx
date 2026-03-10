@@ -15,7 +15,6 @@ export type ServiceEntry = {
   price: string;
   isCustom: boolean;
 };
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface OnboardingData {
   // Step 1: Account
@@ -63,7 +62,6 @@ const generateSlug = (businessName: string, fullName: string): string => {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 };
-// ─────────────────────────────────────────────────────────────────────────────
 
 const ProviderOnboarding = () => {
   const [searchParams] = useSearchParams();
@@ -85,11 +83,8 @@ const ProviderOnboarding = () => {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   const [formData, setFormData] = useState<OnboardingData>({
-    // Step 1
     email: "",
     password: "",
-
-    // Step 2
     fullName: "",
     businessName: "",
     phoneNumber: "",
@@ -103,17 +98,11 @@ const ProviderOnboarding = () => {
     whatsappAvailable: true,
     emergencyAvailable: false,
     profilePhoto: null,
-
-    // Step 3
     category: "Plumbing",
     selectedServices: [],
     pricingModel: "Quote-based",
-
-    // Step 4
     city: "",
     areas: [],
-
-    // Step 5
     portfolioFiles: [],
     licenseFiles: [],
     idFile: null,
@@ -146,7 +135,7 @@ const ProviderOnboarding = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // ── Preload application data after account step ──────────────────────────
+  // ── Preload application data ─────────────────────────────────────────────
   const preloadFromApplication = async (
     applicationId: string,
     email: string,
@@ -178,7 +167,6 @@ const ProviderOnboarding = () => {
         phoneNumber: data.phone_number ?? prev.phoneNumber,
         whatsappNumber: data.whatsapp_number ?? prev.whatsappNumber,
         description: data.description ?? prev.description,
-        // experience not preloaded – user will type it in onboarding
         city: data.city ?? prev.city,
         category: data.primary_category ?? prev.category,
       }));
@@ -192,7 +180,52 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── On mount: check session and decide starting step ────────────────────
+  // ── 1️⃣ FIRST: Handle invite hash tokens from email link ─────────────────
+  useEffect(() => {
+    const handleInviteHash = async () => {
+      const hash = window.location.hash;
+      if (!hash || !hash.includes("access_token")) return;
+
+      const params = new URLSearchParams(hash.replace("#", ""));
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      const type = params.get("type");
+
+      if (type !== "invite" || !accessToken || !refreshToken) return;
+
+      console.log("📧 Invite hash detected — establishing session...");
+
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+
+      if (sessionError) {
+        console.error(
+          "❌ Failed to set session from invite hash:",
+          sessionError,
+        );
+        showError(
+          "Invite link expired",
+          "Your invite link has expired. Please contact support for a new one.",
+        );
+        return;
+      }
+
+      // Clean tokens from URL bar — keep application_id query param
+      window.history.replaceState(
+        null,
+        "",
+        `/provider/onboarding${applicationId ? `?application_id=${applicationId}` : ""}`,
+      );
+
+      console.log("✅ Session established from invite link");
+    };
+
+    handleInviteHash();
+  }, []);
+
+  // ── 2️⃣ SECOND: Check session and decide starting step ───────────────────
   useEffect(() => {
     const checkExistingSession = async () => {
       try {
@@ -233,6 +266,7 @@ const ProviderOnboarding = () => {
     checkExistingSession();
   }, []);
 
+  // ── 3️⃣ THIRD: Clear step on page unload ────────────────────────────────
   useEffect(() => {
     const handleUnload = () => {
       sessionStorage.removeItem(STEP_KEY);
@@ -346,7 +380,7 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── Send "profile received" email via edge function ──────────────────────
+  // ── Send "profile received" email ────────────────────────────────────────
   const sendProfileReceivedEmail = async (email: string, fullName: string) => {
     try {
       const { error } = await supabase.functions.invoke(
@@ -354,7 +388,6 @@ const ProviderOnboarding = () => {
         { body: { email, fullName } },
       );
       if (error) {
-        // Non-fatal — profile is saved, just log the failure
         console.error("Failed to send profile received email:", error);
       }
     } catch (err) {
@@ -365,7 +398,6 @@ const ProviderOnboarding = () => {
   // ── Step 5: Full profile submit ──────────────────────────────────────────
   const handleSubmitProfile = async (profileData: OnboardingData) => {
     try {
-      // 1) Auth check
       const {
         data: { user },
         error: userError,
@@ -380,16 +412,13 @@ const ProviderOnboarding = () => {
         return;
       }
 
-      // 2) Generate slug
       const slug = generateSlug(profileData.businessName, profileData.fullName);
 
-      // 3) Parse years experience
       const yearsInt =
         typeof profileData.experience === "string"
           ? parseInt(profileData.experience, 10) || null
           : null;
 
-      // 4) Build provider insert payload
       const providerPayload = {
         user_id: user.id,
         slug,
@@ -412,7 +441,6 @@ const ProviderOnboarding = () => {
         profile_completed: true,
       };
 
-      // 5) Insert provider row
       const { data: providerInsert, error: providerError } = await supabase
         .from("providers")
         .insert(providerPayload)
@@ -420,7 +448,7 @@ const ProviderOnboarding = () => {
         .single();
 
       if (providerError || !providerInsert) {
-        // Slug collision: retry once
+        // Slug collision — retry once
         if (
           providerError?.code === "23505" &&
           providerError.message.includes("slug")
@@ -502,7 +530,7 @@ const ProviderOnboarding = () => {
     profileData: OnboardingData,
     providerId: string,
   ) => {
-    // ── Services ─────────────────────────────────────────────────────────────
+    // Services
     if (profileData.selectedServices.length > 0) {
       const servicesPayload = profileData.selectedServices.map((svc) => ({
         provider_id: providerId,
@@ -528,7 +556,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── Service areas ─────────────────────────────────────────────────────────
+    // Service areas
     if (profileData.areas.length > 0) {
       const areasPayload = profileData.areas.map((suburb) => ({
         provider_id: providerId,
@@ -549,7 +577,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── Profile photo ─────────────────────────────────────────────────────────
+    // Profile photo
     if (profileData.profilePhoto) {
       const path = await uploadFile(
         profileData.profilePhoto,
@@ -588,7 +616,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── Portfolio images ──────────────────────────────────────────────────────
+    // Portfolio images
     if (profileData.portfolioFiles.length > 0) {
       const portfolioPayload: {
         provider_id: string;
@@ -625,7 +653,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── License files ─────────────────────────────────────────────────────────
+    // License files
     if (profileData.licenseFiles.length > 0) {
       const licensePayload: {
         provider_id: string;
@@ -662,7 +690,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── ID document ───────────────────────────────────────────────────────────
+    // ID document
     if (profileData.idFile) {
       const path = await uploadFile(
         profileData.idFile,
@@ -688,7 +716,6 @@ const ProviderOnboarding = () => {
       }
     }
   };
-  // ─────────────────────────────────────────────────────────────────────────
 
   const stepLabels = ["Account", "Profile", "Services", "Areas", "Portfolio"];
 
