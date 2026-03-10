@@ -310,7 +310,7 @@ const HowItWorks = () => {
         }
       `}</style>
 
-      <section className="hiw-section">
+      <section className="hiw-section" id="how-it-works">
         <div className="hiw-container">
           {/* Header */}
           <div

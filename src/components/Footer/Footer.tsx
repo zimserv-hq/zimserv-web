@@ -1,4 +1,5 @@
 // src/components/Footer/Footer.tsx
+import { useEffect, useState } from "react";
 import {
   Facebook,
   Instagram,
@@ -7,7 +8,8 @@ import {
   Phone,
   MapPin,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { supabase } from "../../lib/supabaseClient";
 
 // Simple TikTok icon as inline SVG
 const TikTokIcon = ({ size = 20 }: { size?: number }) => (
@@ -22,22 +24,63 @@ const TikTokIcon = ({ size = 20 }: { size?: number }) => (
   </svg>
 );
 
-const CATEGORIES = [
-  { name: "Plumbing", slug: "plumbing" },
-  { name: "Electrical", slug: "electrical" },
-  { name: "Cleaning", slug: "cleaning" },
-  { name: "Automotive", slug: "automotive" },
-  { name: "Painting", slug: "painting" },
-  { name: "Carpentry", slug: "carpentry" },
-  { name: "HVAC", slug: "hvac" },
-  { name: "IT & Tech", slug: "it-tech" },
-];
+type DbCategory = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  icon_url: string | null;
+  display_order: number | null;
+};
 
 const Footer = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [categories, setCategories] = useState<DbCategory[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleCategoryClick = (slug: string) => {
-    navigate(`/category/${slug}`);
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setLoading(true);
+
+        const { data, error } = await supabase
+          .from("categories")
+          .select("id, name, description, status, icon_url, display_order")
+          .eq("status", "Active")
+          .order("display_order", { ascending: true })
+          .limit(6);
+
+        if (error) {
+          console.error("Error loading footer categories:", error);
+          setCategories([]);
+          return;
+        }
+
+        setCategories(data || []);
+      } catch (err) {
+        console.error("Unexpected error loading footer categories:", err);
+        setCategories([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCategories();
+  }, []);
+
+  const handleCategoryClick = (categoryName: string) => {
+    navigate(`/providers?category=${encodeURIComponent(categoryName)}`);
+  };
+
+  const handleHowItWorksClick = () => {
+    if (location.pathname === "/") {
+      document
+        .getElementById("how-it-works")
+        ?.scrollIntoView({ behavior: "smooth" });
+    } else {
+      navigate("/#how-it-works");
+    }
   };
 
   return (
@@ -139,6 +182,26 @@ const Footer = () => {
           text-decoration: none;
         }
 
+        /* Skeleton shimmer for footer */
+        @keyframes footer-shimmer {
+          0%   { background-position: -400px 0; }
+          100% { background-position:  400px 0; }
+        }
+
+        .footer-sk-item {
+          height: 13px;
+          border-radius: 4px;
+          margin-bottom: 14px;
+          background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.06) 25%,
+            rgba(255,255,255,0.12) 50%,
+            rgba(255,255,255,0.06) 75%
+          );
+          background-size: 400px 100%;
+          animation: footer-shimmer 1.4s ease-in-out infinite;
+        }
+
         .contact-item {
           display: flex;
           align-items: flex-start;
@@ -216,7 +279,6 @@ const Footer = () => {
           color: var(--accent-blue-light);
         }
 
-        /* 📱 RESPONSIVE */
         @media (max-width: 1200px) {
           .footer {
             padding: 0 32px;
@@ -237,86 +299,36 @@ const Footer = () => {
             margin-top: 60px;
             padding-top: 48px;
           }
-
           .footer {
             padding: 0 24px;
             padding-bottom: 40px;
           }
-
           .footer h3 {
             font-size: 17px;
             margin-bottom: 20px;
           }
-
-          .company-description {
-            font-size: 14px;
-          }
-
-          .footer li {
-            font-size: 14px;
-            margin-bottom: 12px;
-          }
-
-          .contact-item {
-            font-size: 14px;
-            margin-bottom: 16px;
-          }
-
-          .social-icon {
-            width: 42px;
-            height: 42px;
-          }
-
-          .copyright {
-            font-size: 13px;
-            padding: 20px 24px;
-          }
+          .company-description { font-size: 14px; }
+          .footer li { font-size: 14px; margin-bottom: 12px; }
+          .contact-item { font-size: 14px; margin-bottom: 16px; }
+          .social-icon { width: 42px; height: 42px; }
+          .copyright { font-size: 13px; padding: 20px 24px; }
         }
 
         @media (max-width: 480px) {
-          .footer-wrapper {
-            padding-top: 40px;
-          }
-
+          .footer-wrapper { padding-top: 40px; }
           .footer {
             grid-template-columns: 1fr;
             gap: 36px;
             padding: 0 20px;
             padding-bottom: 32px;
           }
-
-          .footer h3 {
-            font-size: 16px;
-            margin-bottom: 16px;
-          }
-
-          .company-description {
-            font-size: 13px;
-          }
-
-          .footer li {
-            font-size: 13px;
-            margin-bottom: 11px;
-          }
-
-          .contact-item {
-            font-size: 13px;
-            margin-bottom: 14px;
-          }
-
-          .social-row {
-            gap: 10px;
-          }
-
-          .social-icon {
-            width: 40px;
-            height: 40px;
-          }
-
-          .copyright {
-            font-size: 12px;
-            padding: 18px 20px;
-          }
+          .footer h3 { font-size: 16px; margin-bottom: 16px; }
+          .company-description { font-size: 13px; }
+          .footer li { font-size: 13px; margin-bottom: 11px; }
+          .contact-item { font-size: 13px; margin-bottom: 14px; }
+          .social-row { gap: 10px; }
+          .social-icon { width: 40px; height: 40px; }
+          .copyright { font-size: 12px; padding: 18px 20px; }
         }
 
         .footer li:focus,
@@ -326,9 +338,7 @@ const Footer = () => {
         }
 
         @media (prefers-reduced-motion: reduce) {
-          * {
-            transition: none !important;
-          }
+          * { transition: none !important; animation: none !important; }
         }
       `}</style>
 
@@ -352,7 +362,6 @@ const Footer = () => {
               >
                 <Facebook size={20} />
               </a>
-
               <a
                 href="https://instagram.com/zimserv"
                 className="social-icon"
@@ -362,7 +371,6 @@ const Footer = () => {
               >
                 <Instagram size={20} />
               </a>
-
               <a
                 href="https://twitter.com/zimserv"
                 className="social-icon"
@@ -372,7 +380,6 @@ const Footer = () => {
               >
                 <Twitter size={20} />
               </a>
-
               <a
                 href="https://www.tiktok.com/@zimserv"
                 className="social-icon"
@@ -385,18 +392,27 @@ const Footer = () => {
             </div>
           </div>
 
-          {/* POPULAR SERVICES SECTION */}
+          {/* POPULAR CATEGORIES SECTION */}
           <div>
-            <h3>Popular Services</h3>
+            <h3>Popular Categories</h3>
             <ul>
-              {CATEGORIES.slice(0, 6).map((category) => (
-                <li
-                  key={category.slug}
-                  onClick={() => handleCategoryClick(category.slug)}
-                >
-                  {category.name}
-                </li>
-              ))}
+              {loading
+                ? [70, 85, 60, 80, 65, 75].map((w, i) => (
+                    <li key={i} style={{ pointerEvents: "none" }}>
+                      <div
+                        className="footer-sk-item"
+                        style={{ width: `${w}%`, margin: 0 }}
+                      />
+                    </li>
+                  ))
+                : categories.map((cat) => (
+                    <li
+                      key={cat.id}
+                      onClick={() => handleCategoryClick(cat.name)}
+                    >
+                      {cat.name}
+                    </li>
+                  ))}
             </ul>
           </div>
 
@@ -404,25 +420,22 @@ const Footer = () => {
           <div>
             <h3>Quick Links</h3>
             <ul>
-              <li onClick={() => navigate("/how-it-works")}>How It Works</li>
+              <li onClick={handleHowItWorksClick}>How It Works</li>
               <li onClick={() => navigate("/become-provider")}>
                 Become a Provider
               </li>
-              <li onClick={() => navigate("/about")}>About Us</li>
-              <li onClick={() => navigate("/contact")}>Contact Us</li>
-              <li onClick={() => navigate("/faq")}>FAQ</li>
               <li>
                 <a
-                  href="/legal/terms-and-conditions.pdf"
+                  href="/legal/terms.pdf"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Terms & Conditions
+                  Terms of Service
                 </a>
               </li>
               <li>
                 <a
-                  href="/legal/privacy-policy.pdf"
+                  href="/legal/privacy.pdf"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -435,24 +448,17 @@ const Footer = () => {
           {/* CONTACT INFO SECTION */}
           <div>
             <h3>Contact Us</h3>
-
             <div className="contact-item">
               <MapPin size={18} />
-              <span>
-                123 Business Center,
-                <br />
-                Harare, Zimbabwe
-              </span>
+              <span>Harare, Zimbabwe</span>
             </div>
-
             <div className="contact-item">
               <Phone size={18} />
-              <a href="tel:+263771234567">+263 77 123 4567</a>
+              <a href="tel:+263771926517">+263 77 192 6517</a>
             </div>
-
             <div className="contact-item">
               <Mail size={18} />
-              <a href="mailto:info@zimserv.co.zw">info@zimserv.co.zw</a>
+              <a href="mailto:support@zimserv.co.zw">support@zimserv.co.zw</a>
             </div>
           </div>
         </div>
@@ -460,8 +466,6 @@ const Footer = () => {
         {/* COPYRIGHT */}
         <div className="copyright">
           © {new Date().getFullYear()} ZimServ. All rights reserved.
-          <br />
-          Connecting Zimbabweans with Trusted Service Providers
         </div>
       </div>
     </>
