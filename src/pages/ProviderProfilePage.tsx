@@ -4,6 +4,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, X } from "lucide-react";
 import ProviderContent from "../components/Provider/ProviderContent";
 import ProviderInfoCard from "../components/Provider/ProviderInfoCard";
+import ProviderSkeleton from "../components/Provider/ProviderSkeleton";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
 import type {
@@ -20,6 +21,7 @@ const ProviderProfilePage = () => {
   const [provider, setProvider] = useState<ProviderPublic | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [contentVisible, setContentVisible] = useState(false);
 
   // ── AUTH STATE ────────────────────────────────────────────────────────────
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -61,20 +63,27 @@ const ProviderProfilePage = () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    console.log("[ProviderProfilePage] route param slug =", slug);
     if (slug) {
       fetchProviderData(slug);
     } else {
-      console.warn("[ProviderProfilePage] slug is undefined, not fetching");
       setLoading(false);
     }
   }, [slug]);
 
+  // Fade in content once loading is complete
+  useEffect(() => {
+    if (!loading && provider) {
+      // Small delay so skeleton fade-out is visible before content appears
+      const t = setTimeout(() => setContentVisible(true), 60);
+      return () => clearTimeout(t);
+    }
+  }, [loading, provider]);
+
   const fetchProviderData = async (slugValue: string) => {
     try {
-      console.log("[fetchProviderData] start, slug =", slugValue);
       setLoading(true);
       setError(null);
+      setContentVisible(false);
 
       const { data: providerData, error: providerError } = await supabase
         .from("providers")
@@ -108,48 +117,31 @@ const ProviderProfilePage = () => {
         .eq("slug", slugValue)
         .single();
 
-      console.log("[fetchProviderData] providerData =", providerData);
-      if (providerError) {
-        console.error("[fetchProviderData] providerError =", providerError);
-        throw providerError;
-      }
-      if (!providerData) {
-        console.error("[fetchProviderData] providerData is null");
-        throw new Error("Provider not found");
-      }
+      if (providerError) throw providerError;
+      if (!providerData) throw new Error("Provider not found");
 
       const providerId = providerData.id as string;
-      console.log("[fetchProviderData] providerId from DB =", providerId);
 
       const { data: serviceAreas, error: areasError } = await supabase
         .from("provider_service_areas")
         .select("city, suburb")
         .eq("provider_id", providerId);
 
-      if (areasError) {
-        console.error("[fetchProviderData] areasError =", areasError);
-        throw areasError;
-      }
+      if (areasError) throw areasError;
 
       const { data: services, error: servicesError } = await supabase
         .from("provider_services")
         .select("service_name, price")
         .eq("provider_id", providerId);
 
-      if (servicesError) {
-        console.error("[fetchProviderData] servicesError =", servicesError);
-        throw servicesError;
-      }
+      if (servicesError) throw servicesError;
 
       const { data: media, error: mediaError } = await supabase
         .from("provider_media")
         .select("id, file_path, media_type, is_verified")
         .eq("provider_id", providerId);
 
-      if (mediaError) {
-        console.error("[fetchProviderData] mediaError =", mediaError);
-        throw mediaError;
-      }
+      if (mediaError) throw mediaError;
 
       const transformedServices: ProviderService[] =
         services?.map((s: any) => ({
@@ -158,24 +150,18 @@ const ProviderProfilePage = () => {
         })) ?? [];
 
       const portfolioMedia =
-        media?.filter(
-          (m: any) => m.media_type === "portfolio" && m.is_verified,
-        ) ?? [];
+        media?.filter((m: any) => m.media_type === "portfolio") ?? [];
 
-      const gallery: ProviderGalleryImage[] =
-        portfolioMedia.length > 0
-          ? portfolioMedia.map((m: any) => ({
-              id: m.id,
-              url: getMediaUrl(m.file_path),
-            }))
-          : [
-              {
-                id: "primary",
-                url:
-                  providerData.profile_image_url ||
-                  getDefaultImage(providerData.primary_category),
-              },
-            ];
+      // Gallery: only real portfolio images (shown in the gallery tab)
+      const gallery: ProviderGalleryImage[] = portfolioMedia.map((m: any) => ({
+        id: m.id,
+        url: getMediaUrl(m.file_path),
+      }));
+
+      // Hero image: profile pic, or a category placeholder if none
+      const heroImageUrl =
+        providerData.profile_image_url ||
+        getDefaultImage(providerData.primary_category);
 
       const transformedProvider: ProviderPublic = {
         id: providerData.id,
@@ -220,6 +206,7 @@ const ProviderProfilePage = () => {
           emergency: providerData.call_available ? "Available 24/7" : undefined,
         },
         gallery,
+        heroImageUrl,
         stats: {
           jobsCompleted: providerData.total_jobs_completed || 0,
           responseTime: providerData.response_time_minutes
@@ -229,16 +216,11 @@ const ProviderProfilePage = () => {
         },
       };
 
-      console.log(
-        "[fetchProviderData] transformedProvider =",
-        transformedProvider,
-      );
       setProvider(transformedProvider);
     } catch (err: any) {
       console.error("Error fetching provider:", err);
       setError(err.message || "Failed to load provider data");
     } finally {
-      console.log("[fetchProviderData] done, setting loading=false");
       setLoading(false);
     }
   };
@@ -261,12 +243,6 @@ const ProviderProfilePage = () => {
     const { data } = supabase.storage
       .from("provider-media")
       .getPublicUrl(filePath);
-    console.log(
-      "[getMediaUrl] filePath =",
-      filePath,
-      "publicUrl =",
-      data.publicUrl,
-    );
     return data.publicUrl;
   };
 
@@ -279,53 +255,14 @@ const ProviderProfilePage = () => {
       Carpentry:
         "https://images.unsplash.com/photo-1581858726788-75bc0f6a952d?w=800&h=600&fit=crop&q=80",
     };
-    const url =
+    return (
       placeholders[category] ||
-      "https://placehold.co/800x600?text=Service+Provider";
-    console.log("[getDefaultImage] category =", category, "url =", url);
-    return url;
+      "https://placehold.co/800x600?text=Service+Provider"
+    );
   };
 
-  // ── LOADING STATE ─────────────────────────────────────────────────────────
-  if (loading) {
-    console.log("[ProviderProfilePage] loading=true, showing loader UI");
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--color-bg-section)",
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              width: "50px",
-              height: "50px",
-              border: "4px solid var(--color-border)",
-              borderTop: "4px solid var(--color-accent)",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite",
-              margin: "0 auto 16px",
-            }}
-          />
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-          <p style={{ color: "var(--color-text-secondary)" }}>
-            Loading provider...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   // ── ERROR STATE ───────────────────────────────────────────────────────────
-  if (error || !provider) {
-    console.log("[ProviderProfilePage] error or no provider", {
-      error,
-      provider,
-    });
+  if (!loading && (error || !provider)) {
     return (
       <div
         style={{
@@ -369,11 +306,6 @@ const ProviderProfilePage = () => {
     );
   }
 
-  console.log(
-    "[ProviderProfilePage] rendering page with provider id =",
-    provider.id,
-  );
-
   return (
     <>
       <style>{`
@@ -388,7 +320,7 @@ const ProviderProfilePage = () => {
         .profile-container {
           max-width: var(--container-max-width);
           margin: 0 auto;
-          padding: 0 var(--container-padding);
+          padding: 0 40px;
         }
 
         .back-btn {
@@ -416,9 +348,40 @@ const ProviderProfilePage = () => {
 
         .profile-grid {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           gap: 28px;
           align-items: start;
+        }
+
+        .profile-grid-sticky {
+          position: sticky;
+          top: 24px;
+        }
+
+        .profile-grid-scroll {
+          position: sticky;
+          top: 24px;
+        }
+
+        /* Skeleton / content transitions */
+        .sk-wrapper {
+          transition: opacity 0.35s ease;
+        }
+
+        .sk-wrapper.hidden {
+          opacity: 0;
+          pointer-events: none;
+          position: absolute;
+          width: 100%;
+        }
+
+        .content-wrapper {
+          opacity: 0;
+          transition: opacity 0.4s ease;
+        }
+
+        .content-wrapper.visible {
+          opacity: 1;
         }
 
         /* ── LOGIN PROMPT MODAL ───────────────────────────── */
@@ -583,11 +546,13 @@ const ProviderProfilePage = () => {
 
         @media (max-width: 1024px) {
           .profile-grid { grid-template-columns: 1fr; gap: 24px; }
+          .profile-grid-sticky,
+          .profile-grid-scroll { position: static; top: auto; }
         }
 
         @media (max-width: 920px) {
           .profile-page { padding: 32px 0 60px; }
-          .profile-container { padding: 0 20px; }
+          .profile-container { padding: 0 24px; }
         }
 
         @media (max-width: 640px) {
@@ -598,19 +563,19 @@ const ProviderProfilePage = () => {
         }
       `}</style>
 
-      <Breadcrumb
-        items={[
-          { label: "Providers", path: "/providers" },
-          { label: provider.city, path: `/providers?city=${provider.city}` },
-          {
-            label: provider.category,
-            path: `/providers?category=${encodeURIComponent(
-              provider.category,
-            )}`,
-          },
-          { label: provider.name },
-        ]}
-      />
+      {provider && (
+        <Breadcrumb
+          items={[
+            { label: "Providers", path: "/providers" },
+            { label: provider.city, path: `/providers?city=${provider.city}` },
+            {
+              label: provider.category,
+              path: `/providers?category=${encodeURIComponent(provider.category)}`,
+            },
+            { label: provider.name },
+          ]}
+        />
+      )}
 
       <div className="profile-page">
         <div className="profile-container">
@@ -619,25 +584,39 @@ const ProviderProfilePage = () => {
             Back to Results
           </button>
 
-          <div className="profile-grid">
-            {/* ✅ Auth props passed down to ProviderInfoCard */}
-            <ProviderInfoCard
-              provider={provider}
-              currentUser={currentUser}
-              onContactClick={handleContactClick}
-            />
-            <ProviderContent provider={provider} />
+          {/* Skeleton — shown while loading */}
+          <div className={`sk-wrapper${!loading ? " hidden" : ""}`}>
+            <ProviderSkeleton />
           </div>
+
+          {/* Real content — fades in after data loads */}
+          {provider && (
+            <div
+              className={`content-wrapper profile-grid${contentVisible ? " visible" : ""}`}
+            >
+              <div className="profile-grid-sticky">
+                <ProviderInfoCard
+                  provider={provider}
+                  currentUser={currentUser}
+                  onContactClick={handleContactClick}
+                />
+              </div>
+              <div className="profile-grid-scroll">
+                <ProviderContent provider={provider} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── Login Prompt Modal ── */}
+      {/* Login Prompt Modal */}
       {showLoginPrompt && (
         <div
           className="pp-modal-overlay"
           onClick={() => !signingIn && setShowLoginPrompt(false)}
         >
           <div className="pp-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pp-modal-stripe" />
             <button
               className="pp-modal-close"
               onClick={() => setShowLoginPrompt(false)}

@@ -29,12 +29,37 @@ const DEFAULT_IMAGE =
 
 const DEFAULT_COLOR = "#FF6B35";
 
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+const CategoriesPageSkeleton = ({ count = 8 }: { count?: number }) => (
+  <>
+    {Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="cat-sk-card">
+        <div className="cat-shimmer cat-sk-img" />
+        <div className="cat-sk-body">
+          <div className="cat-shimmer" style={{ height: 22, width: "55%" }} />
+          <div
+            className="cat-shimmer"
+            style={{ height: 13, width: "90%", marginTop: 4 }}
+          />
+          <div
+            className="cat-shimmer"
+            style={{ height: 13, width: "70%", marginTop: 4 }}
+          />
+          <div className="cat-sk-footer">
+            <div className="cat-shimmer" style={{ height: 13, width: "40%" }} />
+            <div className="cat-shimmer cat-sk-circle" />
+          </div>
+        </div>
+      </div>
+    ))}
+  </>
+);
+
 const CategoriesPage = () => {
   const navigate = useNavigate();
   const [categories, setCategories] = useState<UiCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // send category NAME so ProvidersPage filter (p.category === selectedCategory) works
   const handleCategoryClick = (categoryName: string) => {
     navigate(`/providers?category=${encodeURIComponent(categoryName)}`);
   };
@@ -140,6 +165,53 @@ const CategoriesPage = () => {
   return (
     <>
       <style>{`
+        /* ── SHIMMER ──────────────────────────────────────── */
+        @keyframes cat-shimmer {
+          0%   { background-position: -600px 0; }
+          100% { background-position:  600px 0; }
+        }
+        .cat-shimmer {
+          background: linear-gradient(
+            90deg,
+            var(--color-border) 25%,
+            var(--color-bg-section) 50%,
+            var(--color-border) 75%
+          );
+          background-size: 600px 100%;
+          animation: cat-shimmer 1.4s ease-in-out infinite;
+          border-radius: 6px;
+        }
+        .cat-sk-card {
+          background: var(--color-bg);
+          border: 1.5px solid var(--color-border);
+          border-radius: var(--radius-lg);
+          overflow: hidden;
+        }
+        .cat-sk-img {
+          width: 100%;
+          height: 160px;
+          border-radius: 0;
+        }
+        .cat-sk-body {
+          padding: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .cat-sk-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 4px;
+        }
+        .cat-sk-circle {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+
+        /* ── PAGE ─────────────────────────────────────────── */
         .categories-page {
           width: 100%;
           min-height: 100vh;
@@ -157,7 +229,7 @@ const CategoriesPage = () => {
         }
         .categories-title {
           font-family: var(--font-primary);
-          font-size: 30px;
+          font-size: 25px;
           font-weight: 800;
           color: var(--color-primary);
           margin-bottom: 10px;
@@ -166,7 +238,7 @@ const CategoriesPage = () => {
           margin-top: -10px;
         }
         .categories-subtitle {
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 500;
           color: var(--color-text-secondary);
         }
@@ -186,13 +258,13 @@ const CategoriesPage = () => {
             border-color var(--transition-base),
             box-shadow var(--transition-base);
           position: relative;
+          display: flex;
+          flex-direction: column;
         }
         .category-card::before {
           content: '';
           position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
+          top: 0; left: 0; right: 0;
           height: 4px;
           background: var(--accent-color);
           transform: scaleX(0);
@@ -200,9 +272,7 @@ const CategoriesPage = () => {
           transition: transform 0.3s ease;
           z-index: 2;
         }
-        .category-card:hover::before {
-          transform: scaleX(1);
-        }
+        .category-card:hover::before { transform: scaleX(1); }
         .category-card:hover {
           transform: translateY(-6px);
           border-color: var(--accent-color);
@@ -214,6 +284,7 @@ const CategoriesPage = () => {
           overflow: hidden;
           background: var(--color-bg-soft);
           position: relative;
+          flex-shrink: 0;
         }
         .category-image {
           width: 100%;
@@ -221,20 +292,17 @@ const CategoriesPage = () => {
           object-fit: cover;
           transition: transform 0.4s ease;
         }
-        .category-card:hover .category-image {
-          transform: scale(1.08);
-        }
+        .category-card:hover .category-image { transform: scale(1.08); }
         .category-image-overlay {
           position: absolute;
           inset: 0;
-          background: linear-gradient(
-            to bottom,
-            transparent 0%,
-            rgba(0,0,0,0.3) 100%
-          );
+          background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.3) 100%);
         }
         .category-content {
           padding: 20px;
+          display: flex;
+          flex-direction: column;
+          flex: 1;
         }
         .category-name {
           font-family: var(--font-primary);
@@ -244,6 +312,11 @@ const CategoriesPage = () => {
           margin-bottom: 6px;
           line-height: 1.3;
           letter-spacing: -0.3px;
+          min-height: 52px;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
         .category-description {
           font-size: 13px;
@@ -254,11 +327,13 @@ const CategoriesPage = () => {
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
+          flex: 1;
         }
         .category-footer {
           display: flex;
           align-items: center;
           justify-content: space-between;
+          margin-top: auto;
         }
         .category-count {
           font-size: 13px;
@@ -285,36 +360,29 @@ const CategoriesPage = () => {
           color: #fff;
           transform: translateX(4px);
         }
+
+        /* ── RESPONSIVE ───────────────────────────────────── */
         @media (max-width: 1200px) {
           .categories-container { padding: 0 32px; }
-          .categories-grid {
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-          }
+          .categories-grid { grid-template-columns: repeat(3, 1fr); gap: 20px; }
         }
         @media (max-width: 900px) {
           .categories-page { padding: 32px 0 60px; }
           .categories-container { padding: 0 24px; }
-          .categories-title { font-size: 36px; }
-          .categories-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
+          .categories-title { font-size: 22px; }
+          .categories-grid { grid-template-columns: repeat(2, 1fr); }
         }
         @media (max-width: 640px) {
           .categories-page { padding: 24px 0 48px; }
           .categories-container { padding: 0 16px; }
-          .categories-title { font-size: 30px; letter-spacing: -0.8px; }
-          .categories-subtitle { font-size: 16px; }
-          .categories-grid {
-            grid-template-columns: 1fr;
-            gap: 16px;
-          }
-          .category-image-wrap {
-            height: 180px;
-          }
+          .categories-title { font-size: 18px; letter-spacing: -0.8px; }
+          .categories-subtitle { font-size: 13px; }
+          .categories-grid { grid-template-columns: repeat(2, 1fr); }
+          .category-image-wrap { height: 180px; }
+          .cat-sk-img { height: 180px; }
         }
         @media (prefers-reduced-motion: reduce) {
-          * {
+          *, *::before, *::after {
             animation: none !important;
             transition: none !important;
           }
@@ -333,9 +401,9 @@ const CategoriesPage = () => {
           </div>
 
           {loading ? (
-            <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
-              Loading categories...
-            </p>
+            <div className="categories-grid">
+              <CategoriesPageSkeleton count={8} />
+            </div>
           ) : categories.length === 0 ? (
             <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
               No categories available yet.

@@ -357,6 +357,8 @@ export const RejectReasonModal = ({
 
 // ─── Edit Comparison Modal ────────────────────────────────────────────────────
 
+// ─── Edit Comparison Modal ────────────────────────────────────────────────────
+
 interface PendingEdit {
   id: string;
   auto_approved_fields: Record<string, any>;
@@ -369,14 +371,13 @@ interface PendingEdit {
 interface EditComparisonModalProps {
   isOpen: boolean;
   onClose: () => void;
-  // FIX: accepts all pending edits, not just the first one
   editRequests: PendingEdit[];
   provider: any;
   isProcessing: boolean;
   onApprove: (id: string) => Promise<void>;
   onReject: (id: string) => void;
   getFieldLabel: (field: string) => string;
-  formatValue: (value: any) => string;
+  formatValue: (field: string, value: any) => string; // ← FIXED: two args
 }
 
 export const EditComparisonModal = ({
@@ -390,7 +391,6 @@ export const EditComparisonModal = ({
   getFieldLabel,
   formatValue,
 }: EditComparisonModalProps) => {
-  // FIX: navigation state for multiple requests
   const [currentIndex, setCurrentIndex] = useState(0);
 
   if (!isOpen || !editRequests || editRequests.length === 0) return null;
@@ -402,16 +402,37 @@ export const EditComparisonModal = ({
     Object.keys(editRequest.pending_review_fields || {}).length > 0;
   const hasMultiple = editRequests.length > 1;
 
-  // FIX: await approve before closing
   const handleApprove = async () => {
     await onApprove(editRequest.id);
-    // If this was the last request, close — otherwise move to next
     if (editRequests.length <= 1) {
       onClose();
     } else {
       setCurrentIndex((prev) => Math.min(prev, editRequests.length - 2));
     }
   };
+
+  function getOldValue(field: string): any {
+    if (field === "services") {
+      // provider.subcategories is string[] from provider_services table
+      return (provider?.subcategories ?? []).map((name: string) => ({ name }));
+    }
+    return provider?._rawData?.[field] ?? null;
+  }
+
+  function getNewValue(field: string, rawNewValue: any): any {
+    if (field === "services" && Array.isArray(rawNewValue)) {
+      const existing = new Set(
+        (provider?.subcategories ?? []).map((s: string) =>
+          s.toLowerCase().trim(),
+        ),
+      );
+      const added = rawNewValue.filter(
+        (s: any) => !existing.has((s.name ?? "").toLowerCase().trim()),
+      );
+      return added.length > 0 ? added : rawNewValue; // fallback to all if nothing new
+    }
+    return rawNewValue;
+  }
 
   return (
     <>
@@ -429,8 +450,6 @@ export const EditComparisonModal = ({
         .edit-modal-header { padding: 24px; border-bottom: 1.5px solid var(--border-color); }
         .edit-modal-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
         .edit-modal-subtitle { font-size: 14px; color: var(--text-secondary); }
-
-        /* FIX: pagination nav styles */
         .edit-modal-nav {
           display: flex; align-items: center; gap: 12px;
           margin-top: 12px; padding-top: 12px;
@@ -445,7 +464,6 @@ export const EditComparisonModal = ({
         .edit-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
         .edit-nav-btn:not(:disabled):hover { background: var(--hover-bg); }
         .edit-nav-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-
         .edit-modal-body { padding: 24px; }
         .edit-comparison {
           margin-bottom: 20px; padding: 16px; background: var(--chip-bg);
@@ -458,16 +476,13 @@ export const EditComparisonModal = ({
         }
         .edit-values { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; }
         .edit-value-box { padding: 12px; border-radius: 8px; font-size: 14px; }
-        .edit-value-old { background: rgba(239,68,68,0.1); color: var(--text-secondary); text-decoration: line-through; }
+        .edit-value-old { background: rgba(239,68,68,0.1); color: var(--text-secondary);  }
         .edit-value-new { background: rgba(16,185,129,0.1); color: var(--text-primary); font-weight: 600; }
         .edit-arrow { color: var(--orange-primary); font-size: 20px; font-weight: 700; }
-
-        /* FIX: empty state */
         .edit-empty-state {
           text-align: center; padding: 40px 20px;
           color: var(--text-secondary); font-size: 14px; font-weight: 500;
         }
-
         .edit-modal-footer {
           padding: 20px 24px; border-top: 1.5px solid var(--border-color);
           display: flex; gap: 12px; justify-content: flex-end;
@@ -511,8 +526,6 @@ export const EditComparisonModal = ({
                 </span>
               )}
             </div>
-
-            {/* FIX: multi-request navigation */}
             {hasMultiple && (
               <div className="edit-modal-nav">
                 <button
@@ -538,7 +551,6 @@ export const EditComparisonModal = ({
 
           {/* Body */}
           <div className="edit-modal-body">
-            {/* FIX: empty state */}
             {!hasAutoApproved && !hasPendingReview && (
               <div className="edit-empty-state">
                 No field changes found for this request.
@@ -590,7 +602,6 @@ export const EditComparisonModal = ({
                         </span>
                       </div>
                       <div className="edit-values">
-                        {/* FIX: show a note instead of wrong old value since it was already applied */}
                         <div
                           className="edit-value-box edit-value-old"
                           style={{
@@ -602,7 +613,7 @@ export const EditComparisonModal = ({
                         </div>
                         <div className="edit-arrow">→</div>
                         <div className="edit-value-box edit-value-new">
-                          {formatValue(newValue as any)}
+                          {formatValue(field, newValue)} {/* ← FIXED */}
                         </div>
                       </div>
                     </div>
@@ -655,11 +666,12 @@ export const EditComparisonModal = ({
                       </div>
                       <div className="edit-values">
                         <div className="edit-value-box edit-value-old">
-                          {formatValue(provider?._rawData[field])}
+                          {formatValue(field, getOldValue(field))}{" "}
+                          {/* ← FIXED: field + smart old value */}
                         </div>
                         <div className="edit-arrow">→</div>
                         <div className="edit-value-box edit-value-new">
-                          {formatValue(newValue as any)}
+                          {formatValue(field, getNewValue(field, newValue))}
                         </div>
                       </div>
                     </div>
@@ -688,7 +700,6 @@ export const EditComparisonModal = ({
                   <XCircle size={16} strokeWidth={2.5} />
                   Reject Sensitive Changes
                 </button>
-                {/* FIX: awaits async approve before closing */}
                 <button
                   className="modal-btn approve"
                   onClick={handleApprove}

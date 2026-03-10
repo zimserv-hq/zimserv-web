@@ -44,6 +44,7 @@ export type ProviderPublic = {
   languages: string[];
   workingHours?: ProviderWorkingHours;
   gallery: ProviderGalleryImage[];
+  heroImageUrl?: string;
   stats: {
     jobsCompleted: number;
     responseTime?: string;

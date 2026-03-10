@@ -1,11 +1,11 @@
 // Location: src/components/Onboarding/OnboardingSteps.tsx
-
 import { useState, useEffect } from "react";
 import type {
   OnboardingData,
   ServiceEntry,
 } from "../../pages/ProviderOnboarding";
-import { SERVICES_BY_CATEGORY } from "../../data/services";
+import { Eye, X } from "lucide-react";
+import { useServicesByCategory } from "../../data/services";
 import { useToast } from "../../contexts/ToastContext";
 import "./OnboardingSteps.css";
 
@@ -20,7 +20,7 @@ interface OnboardingStepsProps {
   loadError?: string | null;
 }
 
-// ── Draft helpers ───────────────────────────────────────────────────────────
+// ── Draft helpers ────────────────────────────────────────────────────────────
 const DRAFT_KEY = "zimserv_onboarding_draft";
 
 type DraftData = {
@@ -38,10 +38,9 @@ function saveDraft(data: DraftData) {
   try {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   } catch {
-    // ignore
+    /* ignore */
   }
 }
-
 function loadDraft(): DraftData | null {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
@@ -50,16 +49,62 @@ function loadDraft(): DraftData | null {
     return null;
   }
 }
-
 function clearDraft() {
   try {
     localStorage.removeItem(DRAFT_KEY);
   } catch {
-    // ignore
+    /* ignore */
   }
 }
 
-// ── Component ───────────────────────────────────────────────────────────────
+// ── Eye toggle SVG helpers ───────────────────────────────────────────────────
+const EyeIcon = (
+  <svg
+    width={20}
+    height={20}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx={12} cy={12} r={3} />
+  </svg>
+);
+const EyeOffIcon = (
+  <svg
+    width={20}
+    height={20}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+    <line x1={1} y1={1} x2={23} y2={23} />
+  </svg>
+);
+
+const eyeButtonStyle: React.CSSProperties = {
+  position: "absolute",
+  right: 12,
+  top: "50%",
+  transform: "translateY(-50%)",
+  background: "none",
+  border: "none",
+  cursor: "pointer",
+  padding: 0,
+  color: "var(--color-text-secondary)",
+  display: "flex",
+  alignItems: "center",
+};
+
+// ── Component ────────────────────────────────────────────────────────────────
 const OnboardingSteps = ({
   currentStep,
   formData,
@@ -72,17 +117,19 @@ const OnboardingSteps = ({
 }: OnboardingStepsProps) => {
   const { showError, showSuccess, showInfo } = useToast();
 
-  // ── Step 1: Account ──────────────────────────────────────────────────────
+  // Step 1: Account
   const [email, setEmail] = useState(formData.email);
-  const [confirmEmail, setConfirmEmail] = useState("");
   const [password, setPassword] = useState(formData.password);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState<
     "weak" | "medium" | "strong" | null
   >(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
-  // ── Step 2: Profile ──────────────────────────────────────────────────────
+  // Step 2: Profile
   const [teamSize, setTeamSize] = useState(formData.teamSize);
   const [callAvailable, setCallAvailable] = useState(
     formData.callAvailable ?? true,
@@ -96,22 +143,86 @@ const OnboardingSteps = ({
   const [profilePhoto, setProfilePhoto] = useState<File | null>(
     formData.profilePhoto ?? null,
   );
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(
+    null,
+  );
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
 
   // Preloaded but editable (except full name)
   const [fullName] = useState(formData.fullName); // read-only
-  const [businessName, setBusinessName] = useState(formData.businessName || "");
+  const [businessName, setBusinessName] = useState(formData.businessName);
   const [phoneNumber, setPhoneNumber] = useState(
     formData.phoneNumber || "+263",
   );
   const [whatsappNumber, setWhatsappNumber] = useState(
     formData.whatsappNumber || "+263",
   );
-
-  const [description, setDescription] = useState(formData.description || "");
+  const [description, setDescription] = useState(formData.description);
   const [experience, setExperience] = useState(""); // not preloaded
-  const [website, setWebsite] = useState(formData.website || "");
+  const [website, setWebsite] = useState(formData.website);
 
-  // ── Step 3: Services ─────────────────────────────────────────────────────
+  // Languages
+  const QUICK_LANGUAGES = ["English", "Shona", "Ndebele"];
+  const MAX_LANGUAGES = 3;
+  const MAX_SERVICES = 8;
+  const [languages, setLanguages] = useState<string[]>(
+    formData.languages?.length > 0 ? formData.languages : ["English"],
+  );
+  const [languageInput, setLanguageInput] = useState("");
+  const [showLanguageInput, setShowLanguageInput] = useState(false);
+
+  const toggleQuickLanguage = (lang: string) => {
+    if (languages.some((l) => l.toLowerCase() === lang.toLowerCase())) {
+      const updated = languages.filter(
+        (l) => l.toLowerCase() !== lang.toLowerCase(),
+      );
+      setLanguages(updated.length === 0 ? ["English"] : updated);
+    } else if (languages.length >= MAX_LANGUAGES) {
+      showError(
+        "Maximum reached",
+        `You can only add up to ${MAX_LANGUAGES} languages.`,
+      );
+    } else {
+      setLanguages([...languages, lang]);
+    }
+  };
+
+  const addLanguage = () => {
+    const value = languageInput.trim();
+    if (!value) return;
+    if (languages.some((l) => l.toLowerCase() === value.toLowerCase())) {
+      showInfo?.("Already added", `${value} is already in your languages.`);
+      return;
+    }
+    if (languages.length >= MAX_LANGUAGES) {
+      showError(
+        "Maximum reached",
+        `You can only add up to ${MAX_LANGUAGES} languages.`,
+      );
+      return;
+    }
+    setLanguages([...languages, value]);
+    setLanguageInput("");
+    setShowLanguageInput(false);
+  };
+
+  const handleLanguageKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addLanguage();
+    }
+    if (e.key === "Escape") {
+      setShowLanguageInput(false);
+      setLanguageInput("");
+    }
+  };
+
+  const removeLanguage = (lang: string) => {
+    const updated = languages.filter((l) => l !== lang);
+    setLanguages(updated.length === 0 ? ["English"] : updated);
+  };
+
+  // Step 3: Services
   const [selectedServices, setSelectedServices] = useState<ServiceEntry[]>(
     formData.selectedServices,
   );
@@ -121,13 +232,17 @@ const OnboardingSteps = ({
   const [customServiceName, setCustomServiceName] = useState("");
   const [showCustomInput, setShowCustomInput] = useState(false);
 
-  // ── Step 4: Areas ────────────────────────────────────────────────────────
+  // ── Load services from DB ────────────────────────────────────────────────
+  const { services: availableServices, loading: servicesLoading } =
+    useServicesByCategory(formData.category);
+
+  // Step 4: Areas
   const city = formData.city;
   const [areas, setAreas] = useState<string[]>(formData.areas);
   const [areaInput, setAreaInput] = useState("");
   const [showAreaInput, setShowAreaInput] = useState(false);
 
-  // ── Step 5: Portfolio + ID ───────────────────────────────────────────────
+  // Step 5: Portfolio / ID
   const [portfolioFiles, setPortfolioFiles] = useState<File[]>(
     formData.portfolioFiles,
   );
@@ -140,10 +255,10 @@ const OnboardingSteps = ({
   const [showResumeBanner, setShowResumeBanner] = useState(false);
   const [savedStep, setSavedStep] = useState<number | null>(null);
 
-  // ── Draft logic ──────────────────────────────────────────────────────────
+  // Draft logic
   useEffect(() => {
     const draft = loadDraft();
-    if (draft && currentStep === 1) {
+    if (draft && currentStep === 1 && draft.savedStep > 1) {
       setSavedStep(draft.savedStep);
       setShowResumeBanner(true);
     }
@@ -152,7 +267,6 @@ const OnboardingSteps = ({
   const applyDraft = () => {
     const draft = loadDraft();
     if (!draft) return;
-
     setTeamSize(draft.teamSize);
     setCallAvailable(draft.callAvailable ?? true);
     setWhatsappAvailable(draft.whatsappAvailable ?? true);
@@ -210,14 +324,11 @@ const OnboardingSteps = ({
   }, [currentStep]);
 
   // Clean up previews
-  useEffect(
-    () => () => {
-      portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
-    },
-    [portfolioPreviews],
-  );
+  useEffect(() => {
+    portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
+  }, [portfolioPreviews]);
 
-  // ── Password strength helpers ────────────────────────────────────────────
+  // Password strength helpers
   const checkPasswordStrength = (
     pwd: string,
   ): "weak" | "medium" | "strong" | null => {
@@ -228,9 +339,8 @@ const OnboardingSteps = ({
     if (/[0-9]/.test(pwd)) score++;
     if (/[^A-Za-z0-9]/.test(pwd)) score++;
     if (pwd.length >= 8) score++;
-
     if (score >= 4) return "strong";
-    if (score === 3) return "medium";
+    if (score >= 3) return "medium";
     return "weak";
   };
 
@@ -238,19 +348,14 @@ const OnboardingSteps = ({
     setPasswordStrength(checkPasswordStrength(password));
   }, [password]);
 
-  const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
-
+  const isValidEmail = (val: string) => /\S+@\S+\.\S+/.test(val);
   const isStrongPassword = (pwd: string) =>
     /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /[0-9]/.test(pwd);
 
-  // ── Step 1 validation ────────────────────────────────────────────────────
+  // Step 1 validation
   const validateAccountAndContinue = async () => {
-    if (!email || !confirmEmail || !password || !confirmPassword) {
+    if (!email || !password || !confirmPassword) {
       showError("Missing fields", "Please fill in all required fields.");
-      return;
-    }
-    if (email !== confirmEmail) {
-      showError("Email mismatch", "Email addresses do not match.");
       return;
     }
     if (!isValidEmail(email)) {
@@ -282,18 +387,17 @@ const OnboardingSteps = ({
       );
       return;
     }
-
     updateFormData({ email, password });
-
     if (onAccountSubmit) {
+      setIsCreatingAccount(true);
       const ok = await onAccountSubmit(email, password);
+      setIsCreatingAccount(false);
       if (!ok) return;
     }
-
     nextStep();
   };
 
-  // ── Step 2 validation ────────────────────────────────────────────────────
+  // Step 2 validation
   const validateProfileAndContinue = () => {
     if (!businessName.trim()) {
       showError(
@@ -320,11 +424,19 @@ const OnboardingSteps = ({
       showError("Team size missing", "Please provide your team size.");
       return;
     }
+    if (
+      !experience.trim() ||
+      isNaN(Number(experience)) ||
+      Number(experience) < 0
+    ) {
+      showError("Experience missing", "Please enter your years of experience.");
+      return;
+    }
     if (!profilePhoto) {
       showError("Profile photo missing", "Please upload a profile photo.");
       return;
     }
-
+    const finalLanguages = languages.length > 0 ? languages : ["English"];
     updateFormData({
       businessName,
       phoneNumber,
@@ -337,16 +449,23 @@ const OnboardingSteps = ({
       whatsappAvailable,
       emergencyAvailable,
       profilePhoto,
+      languages: finalLanguages,
     });
-
     nextStep();
   };
 
-  // ── Step 3 service logic ─────────────────────────────────────────────────
+  // Step 3 service logic
   const toggleService = (name: string) => {
     setSelectedServices((prev) => {
       const exists = prev.find((s) => s.name === name);
       if (exists) return prev.filter((s) => s.name !== name);
+      if (prev.length >= MAX_SERVICES) {
+        showError(
+          "Limit reached",
+          `You can only select up to ${MAX_SERVICES} services.`,
+        );
+        return prev;
+      }
       return [...prev, { name, price: "", isCustom: false }];
     });
   };
@@ -369,6 +488,13 @@ const OnboardingSteps = ({
       )
     ) {
       showError("Duplicate service", "This service is already added.");
+      return;
+    }
+    if (selectedServices.length >= MAX_SERVICES) {
+      showError(
+        "Limit reached",
+        `You can only select up to ${MAX_SERVICES} services.`,
+      );
       return;
     }
     setSelectedServices((prev) => [
@@ -400,12 +526,11 @@ const OnboardingSteps = ({
       );
       return;
     }
-
     updateFormData({ selectedServices, pricingModel });
     nextStep();
   };
 
-  // ── Step 4 logic (areas, with custom-style add UI) ───────────────────────
+  // Step 4 logic
   const addAreaFromInput = () => {
     const value = areaInput.trim();
     if (!value) return;
@@ -429,9 +554,8 @@ const OnboardingSteps = ({
     }
   };
 
-  const removeArea = (area: string) => {
+  const removeArea = (area: string) =>
     setAreas(areas.filter((a) => a !== area));
-  };
 
   const validateAreasAndContinue = () => {
     if (!city) {
@@ -445,16 +569,14 @@ const OnboardingSteps = ({
       showError("Not enough areas", "Please add at least 2 service areas.");
       return;
     }
-
     updateFormData({ areas });
     nextStep();
   };
 
-  // ── File handlers ────────────────────────────────────────────────────────
+  // File handlers
   const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       showError(
         "Invalid file type",
@@ -466,22 +588,23 @@ const OnboardingSteps = ({
       showError("File too large", "Profile photo must be under 5MB.");
       return;
     }
-
+    if (profilePhotoPreview) URL.revokeObjectURL(profilePhotoPreview);
+    setProfilePhotoPreview(URL.createObjectURL(file));
     setProfilePhoto(file);
+  };
+
+  const removeProfilePhoto = () => {
+    if (profilePhotoPreview) URL.revokeObjectURL(profilePhotoPreview);
+    setProfilePhotoPreview(null);
+    setProfilePhoto(null);
+    const input = document.getElementById("photoInput") as HTMLInputElement;
+    if (input) input.value = "";
   };
 
   const handlePortfolioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const newFiles = Array.from(e.target.files);
-
-    // Append new files to existing list
     setPortfolioFiles((prev) => [...prev, ...newFiles]);
-    setPortfolioPreviews((prev) => [
-      ...prev,
-      ...newFiles.map((f) => URL.createObjectURL(f)),
-    ]);
-
-    // Allow selecting the same file again later
     e.target.value = "";
   };
 
@@ -495,11 +618,9 @@ const OnboardingSteps = ({
     setPortfolioPreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const clearIdFile = () => {
-    setIdFile(null);
-  };
+  const clearIdFile = () => setIdFile(null);
 
-  // ── Step 5 submit ────────────────────────────────────────────────────────
+  // Step 5 submit
   const submitProfile = async () => {
     if (portfolioFiles.length < 1) {
       showError(
@@ -515,9 +636,7 @@ const OnboardingSteps = ({
       );
       return;
     }
-
     setIsSubmitting(true);
-
     const profileData: OnboardingData = {
       ...formData,
       email,
@@ -534,6 +653,7 @@ const OnboardingSteps = ({
       whatsappAvailable,
       emergencyAvailable,
       profilePhoto,
+      languages: languages.length > 0 ? languages : ["English"],
       selectedServices,
       pricingModel,
       areas,
@@ -541,9 +661,7 @@ const OnboardingSteps = ({
       licenseFiles,
       idFile,
     };
-
     updateFormData(profileData);
-
     try {
       if (onSubmitProfile) {
         await onSubmitProfile(profileData);
@@ -566,7 +684,7 @@ const OnboardingSteps = ({
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // Render
   const steps = [
     { number: 1, label: "Account" },
     { number: 2, label: "Profile" },
@@ -574,8 +692,6 @@ const OnboardingSteps = ({
     { number: 4, label: "Areas" },
     { number: 5, label: "Portfolio" },
   ];
-
-  const availableServices = SERVICES_BY_CATEGORY[formData.category] ?? [];
 
   const customServices = selectedServices.filter((s) => s.isCustom);
 
@@ -586,8 +702,8 @@ const OnboardingSteps = ({
         {showResumeBanner && savedStep && (
           <div className="draft-resume-banner">
             <div className="draft-resume-text">
-              You have an unfinished application saved (last on step {savedStep}
-              ).
+              You have an unfinished application saved, last on step {savedStep}
+              .
             </div>
             <div className="draft-resume-actions">
               <button className="btn-primary btn-sm" onClick={applyDraft}>
@@ -609,20 +725,12 @@ const OnboardingSteps = ({
               return (
                 <div key={step.number} className="progress-step">
                   <div
-                    className={`step-circle ${
-                      isActive
-                        ? "active"
-                        : isCompleted
-                          ? "completed"
-                          : "inactive"
-                    }`}
+                    className={`step-circle ${isActive ? "active" : isCompleted ? "completed" : "inactive"}`}
                   >
                     {isCompleted ? "✓" : step.number}
                   </div>
                   <div
-                    className={`step-label ${
-                      isActive || isCompleted ? "active" : ""
-                    }`}
+                    className={`step-label ${isActive || isCompleted ? "active" : ""}`}
                   >
                     {step.label}
                   </div>
@@ -640,7 +748,6 @@ const OnboardingSteps = ({
               Set up your login credentials to access your ZimServ provider
               dashboard.
             </p>
-
             {loadError && (
               <div
                 className="input-error"
@@ -649,7 +756,6 @@ const OnboardingSteps = ({
                 {loadError}
               </div>
             )}
-
             <div className="form-group">
               <label className="form-label required">Email Address</label>
               <input
@@ -663,27 +769,26 @@ const OnboardingSteps = ({
                 Use the same email you used to apply.
               </span>
             </div>
-
-            <div className="form-group">
-              <label className="form-label required">Confirm Email</label>
-              <input
-                type="email"
-                value={confirmEmail}
-                onChange={(e) => setConfirmEmail(e.target.value)}
-                placeholder="your.email@example.com"
-                className="form-input"
-              />
-            </div>
-
             <div className="form-group">
               <label className="form-label required">Create Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter a strong password"
-                className="form-input"
-              />
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter a strong password"
+                  className="form-input"
+                  style={{ paddingRight: 42 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((p) => !p)}
+                  style={eyeButtonStyle}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? EyeOffIcon : EyeIcon}
+                </button>
+              </div>
               <span className="input-hint">
                 At least 8 characters with uppercase, lowercase, and numbers.
               </span>
@@ -702,18 +807,29 @@ const OnboardingSteps = ({
                 </div>
               )}
             </div>
-
             <div className="form-group">
               <label className="form-label required">Confirm Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter your password"
-                className="form-input"
-              />
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your password"
+                  className="form-input"
+                  style={{ paddingRight: 42 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((p) => !p)}
+                  style={eyeButtonStyle}
+                  aria-label={
+                    showConfirmPassword ? "Hide password" : "Show password"
+                  }
+                >
+                  {showConfirmPassword ? EyeOffIcon : EyeIcon}
+                </button>
+              </div>
             </div>
-
             <div className="checkbox-wrapper">
               <input
                 type="checkbox"
@@ -726,7 +842,6 @@ const OnboardingSteps = ({
                 and <a href="/privacy">Privacy Policy</a>.
               </label>
             </div>
-
             <div className="form-actions">
               <button
                 onClick={() => window.history.back()}
@@ -737,8 +852,11 @@ const OnboardingSteps = ({
               <button
                 onClick={validateAccountAndContinue}
                 className="btn-primary"
+                disabled={isCreatingAccount}
               >
-                Create Account &amp; Continue
+                {isCreatingAccount
+                  ? "Creating account..."
+                  : "Create Account & Continue"}
               </button>
             </div>
           </div>
@@ -749,11 +867,9 @@ const OnboardingSteps = ({
           <div className="form-section">
             <h2 className="form-title">Profile Information</h2>
             <p className="form-description">
-              We’ve pre-filled what we can from your application. Complete and
-              update the rest.
+              We&apos;ve pre-filled what we can from your application. Complete
+              and update the rest.
             </p>
-
-            {/* Full name (read-only) */}
             <div className="form-group">
               <label className="form-label">Full Name (from application)</label>
               <input
@@ -763,19 +879,16 @@ const OnboardingSteps = ({
                 disabled
               />
             </div>
-
-            {/* Editable core business details */}
             <div className="form-group">
               <label className="form-label required">Business Name</label>
               <input
                 type="text"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="e.g.,  Zimserv Plumbing"
+                placeholder="e.g., Zimserv Plumbing"
                 className="form-input"
               />
             </div>
-
             <div className="form-group">
               <label className="form-label required">Phone Number</label>
               <input
@@ -786,7 +899,6 @@ const OnboardingSteps = ({
                 className="form-input"
               />
             </div>
-
             <div className="form-group">
               <label className="form-label required">WhatsApp Number</label>
               <input
@@ -797,7 +909,6 @@ const OnboardingSteps = ({
                 className="form-input"
               />
             </div>
-
             <div className="form-group">
               <label className="form-label">About Your Services</label>
               <textarea
@@ -807,9 +918,8 @@ const OnboardingSteps = ({
                 className="form-textarea"
               />
             </div>
-
             <div className="form-group">
-              <label className="form-label">Experience (years)</label>
+              <label className="form-label required">Experience (years)</label>
               <input
                 type="text"
                 value={experience}
@@ -818,7 +928,6 @@ const OnboardingSteps = ({
                 className="form-input"
               />
             </div>
-
             <div className="form-group">
               <label className="form-label">Website (Optional)</label>
               <input
@@ -828,6 +937,139 @@ const OnboardingSteps = ({
                 placeholder="https://yourbusiness.co.zw"
                 className="form-input"
               />
+            </div>
+
+            {/* Languages */}
+            <div className="form-group">
+              <label className="form-label">
+                Languages Spoken{" "}
+                <span
+                  style={{
+                    fontWeight: 400,
+                    color: "var(--color-text-secondary)",
+                  }}
+                >
+                  max {MAX_LANGUAGES}
+                </span>
+              </label>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginBottom: 12,
+                }}
+              >
+                {QUICK_LANGUAGES.map((lang) => {
+                  const isSelected = languages.some(
+                    (l) => l.toLowerCase() === lang.toLowerCase(),
+                  );
+                  const isDisabled =
+                    !isSelected && languages.length >= MAX_LANGUAGES;
+                  return (
+                    <button
+                      key={lang}
+                      type="button"
+                      onClick={() => toggleQuickLanguage(lang)}
+                      disabled={isDisabled}
+                      style={{
+                        padding: "7px 16px",
+                        borderRadius: "var(--radius-full)",
+                        border: `1.5px solid ${isSelected ? "var(--color-accent)" : "var(--color-border)"}`,
+                        background: isSelected
+                          ? "var(--color-accent)"
+                          : "var(--color-bg)",
+                        color: isSelected
+                          ? "#fff"
+                          : isDisabled
+                            ? "var(--color-border)"
+                            : "var(--color-text-secondary)",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: isDisabled ? "not-allowed" : "pointer",
+                        fontFamily: "var(--font-primary)",
+                        transition: "all 0.2s ease",
+                        opacity: isDisabled ? 0.5 : 1,
+                      }}
+                    >
+                      {isSelected ? `✓ ${lang}` : lang}
+                    </button>
+                  );
+                })}
+              </div>
+              {languages.filter(
+                (l) =>
+                  !QUICK_LANGUAGES.some(
+                    (q) => q.toLowerCase() === l.toLowerCase(),
+                  ),
+              ).length > 0 && (
+                <div
+                  className="custom-services-list"
+                  style={{ marginBottom: 10 }}
+                >
+                  {languages
+                    .filter(
+                      (l) =>
+                        !QUICK_LANGUAGES.some(
+                          (q) => q.toLowerCase() === l.toLowerCase(),
+                        ),
+                    )
+                    .map((lang) => (
+                      <div key={lang} className="custom-service-item">
+                        <div className="custom-service-name">{lang}</div>
+                        <div className="custom-service-right">
+                          <button
+                            type="button"
+                            className="custom-service-remove"
+                            onClick={() => removeLanguage(lang)}
+                            aria-label={`Remove ${lang}`}
+                          >
+                            <X size={14} strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+              {languages.length < MAX_LANGUAGES &&
+                (showLanguageInput ? (
+                  <div className="custom-service-input-row">
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g., Tonga, Venda, Kalanga"
+                      value={languageInput}
+                      onChange={(e) => setLanguageInput(e.target.value)}
+                      onKeyDown={handleLanguageKeyDown}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      onClick={addLanguage}
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() => {
+                        setShowLanguageInput(false);
+                        setLanguageInput("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="add-custom-service-btn"
+                    onClick={() => setShowLanguageInput(true)}
+                  >
+                    Add another language
+                  </button>
+                ))}
             </div>
 
             <div className="form-grid-2">
@@ -843,7 +1085,6 @@ const OnboardingSteps = ({
                 />
                 <span className="input-hint">Including yourself.</span>
               </div>
-
               <div className="form-group">
                 <label className="form-label">Contact Availability</label>
                 <div style={{ display: "grid", gap: 12 }}>
@@ -884,23 +1125,67 @@ const OnboardingSteps = ({
               </div>
             </div>
 
-            {/* Profile photo */}
+            {/* Profile Photo */}
             <div className="form-group">
               <label className="form-label required">Profile Photo</label>
-              <div
-                onClick={() => document.getElementById("photoInput")?.click()}
-                className={`file-upload-zone ${profilePhoto ? "has-file" : ""}`}
-              >
-                <div className="file-upload-icon" />
-                <div className="file-upload-text">
-                  {profilePhoto
-                    ? `Selected: ${profilePhoto.name}`
-                    : "Click to upload your profile photo"}
+              {profilePhoto && profilePhotoPreview ? (
+                <div className="photo-preview-row">
+                  <div
+                    className="photo-thumbnail-wrap"
+                    onClick={() => setShowPhotoModal(true)}
+                    title="Click to preview"
+                  >
+                    <img
+                      src={profilePhotoPreview}
+                      alt="Profile preview"
+                      className="photo-thumbnail"
+                    />
+                    <div className="photo-thumbnail-overlay">
+                      <Eye size={18} color="#fff" strokeWidth={2.5} />
+                    </div>
+                  </div>
+                  <div className="photo-preview-info">
+                    <span className="photo-file-name">{profilePhoto.name}</span>
+                    <span className="photo-file-size">
+                      {(profilePhoto.size / 1024).toFixed(0)} KB
+                    </span>
+                  </div>
+                  <div className="photo-preview-actions">
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() =>
+                        document.getElementById("photoInput")?.click()
+                      }
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      className="photo-remove-btn"
+                      onClick={removeProfilePhoto}
+                      aria-label="Remove photo"
+                      title="Remove photo"
+                    >
+                      <X size={16} strokeWidth={2.5} />
+                    </button>
+                  </div>
                 </div>
-                <div className="file-upload-hint">
-                  JPG, PNG, or WebP. Max 5MB. Professional headshot recommended.
+              ) : (
+                <div
+                  onClick={() => document.getElementById("photoInput")?.click()}
+                  className="file-upload-zone"
+                >
+                  <div className="file-upload-icon" />
+                  <div className="file-upload-text">
+                    Click to upload your profile photo
+                  </div>
+                  <div className="file-upload-hint">
+                    JPG, PNG, or WebP. Max 5MB. Professional headshot
+                    recommended.
+                  </div>
                 </div>
-              </div>
+              )}
               <input
                 type="file"
                 id="photoInput"
@@ -921,6 +1206,33 @@ const OnboardingSteps = ({
                 Continue to Services
               </button>
             </div>
+
+            {/* Photo preview modal */}
+            {showPhotoModal && profilePhotoPreview && (
+              <div
+                className="photo-modal-overlay"
+                onClick={() => setShowPhotoModal(false)}
+              >
+                <div
+                  className="photo-modal-content"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    className="photo-modal-close"
+                    onClick={() => setShowPhotoModal(false)}
+                    aria-label="Close preview"
+                  >
+                    <X size={20} strokeWidth={2.5} />
+                  </button>
+                  <img
+                    src={profilePhotoPreview}
+                    alt="Profile photo preview"
+                    className="photo-modal-img"
+                  />
+                  <p className="photo-modal-name">{profilePhoto?.name}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -943,7 +1255,9 @@ const OnboardingSteps = ({
               <label className="form-label required">
                 Select Services (Choose at least 3)
               </label>
-              {availableServices.length === 0 ? (
+              {servicesLoading ? (
+                <p className="input-hint">Loading services...</p>
+              ) : availableServices.length === 0 ? (
                 <p
                   className="input-hint"
                   style={{ color: "var(--color-accent)" }}
@@ -961,19 +1275,21 @@ const OnboardingSteps = ({
                     return (
                       <div
                         key={serviceName}
-                        className={`service-checkbox-item ${
-                          isSelected ? "selected" : ""
-                        }`}
+                        className={`service-checkbox-item${isSelected ? " selected" : ""}`}
                       >
-                        <div className="service-checkbox-row">
+                        <div
+                          className="service-checkbox-row"
+                          onClick={() => toggleService(serviceName)}
+                        >
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleService(serviceName)}
+                            onClick={(e) => e.stopPropagation()}
                           />
-                          <span className="service-checkbox-label">
+                          <label className="service-checkbox-label">
                             {serviceName}
-                          </span>
+                          </label>
                         </div>
                         {isSelected && (
                           <div className="service-price-row">
@@ -997,7 +1313,8 @@ const OnboardingSteps = ({
                 </div>
               )}
               <div className="services-count">
-                <span>{selectedServices.length}</span> services selected
+                <span>{selectedServices.length}</span>/{MAX_SERVICES} services
+                selected
               </div>
             </div>
 
@@ -1011,7 +1328,6 @@ const OnboardingSteps = ({
                   Don&apos;t see your service above? Add it here.
                 </span>
               </div>
-
               {customServices.length > 0 && (
                 <div className="custom-services-list">
                   {customServices.map((svc) => (
@@ -1039,14 +1355,13 @@ const OnboardingSteps = ({
                           onClick={() => removeCustomService(svc.name)}
                           aria-label="Remove"
                         >
-                          ✕
+                          <X size={14} strokeWidth={2.5} />
                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-
               {showCustomInput ? (
                 <div className="custom-service-input-row">
                   <input
@@ -1132,7 +1447,7 @@ const OnboardingSteps = ({
           </div>
         )}
 
-        {/* STEP 4: Areas (custom-style add UI) */}
+        {/* STEP 4: Areas */}
         {currentStep === 4 && (
           <div className="form-section">
             <h2 className="form-title">Service Areas</h2>
@@ -1140,19 +1455,16 @@ const OnboardingSteps = ({
               Your primary city comes from your application. Add the suburbs or
               areas you serve.
             </p>
-
             <div className="form-group">
               <label className="form-label">
                 Primary City (from application)
               </label>
               <input type="text" value={city} className="form-input" disabled />
             </div>
-
             <div className="form-group">
               <label className="form-label required">
                 Add Service Areas (at least 2)
               </label>
-
               {areas.length > 0 && (
                 <div className="custom-services-list">
                   {areas.map((area) => (
@@ -1165,14 +1477,13 @@ const OnboardingSteps = ({
                           onClick={() => removeArea(area)}
                           aria-label="Remove"
                         >
-                          ✕
+                          <X size={14} strokeWidth={2.5} />
                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-
               {showAreaInput ? (
                 <div className="custom-service-input-row">
                   <input
@@ -1211,12 +1522,10 @@ const OnboardingSteps = ({
                   Add a service area
                 </button>
               )}
-
               <span className="input-hint">
                 Examples: Borrowdale, Mount Pleasant, Avondale.
               </span>
             </div>
-
             <div className="form-actions">
               <button onClick={prevStep} className="btn-secondary">
                 Back
@@ -1231,37 +1540,49 @@ const OnboardingSteps = ({
           </div>
         )}
 
-        {/* STEP 5: Portfolio + ID */}
+        {/* STEP 5: Portfolio & ID */}
         {currentStep === 5 && (
           <div className="form-section">
-            <h2 className="form-title">Portfolio &amp; ID Verification</h2>
+            <h2 className="form-title">Portfolio & ID Verification</h2>
             <p className="form-description">
               Showcase your work to build trust with customers and securely
               verify your identity with our team.
             </p>
 
-            {/* Work portfolio */}
+            {/* Work Portfolio */}
             <div className="form-group">
               <label className="form-label required">
-                Work Portfolio (at least 1 photo)
+                Work Portfolio{" "}
+                <span style={{ fontWeight: 400 }}>(at least 1 photo)</span>
               </label>
               <div
                 onClick={() =>
                   document.getElementById("portfolioInput")?.click()
                 }
-                className={`file-upload-zone ${
-                  portfolioFiles.length > 0 ? "has-file" : ""
-                }`}
+                className="file-upload-zone"
+                style={{ marginBottom: portfolioFiles.length > 0 ? 12 : 0 }}
               >
                 <div className="file-upload-icon" />
                 <div className="file-upload-text">
                   {portfolioFiles.length === 0
                     ? "Click to upload portfolio images"
-                    : `${portfolioFiles.length} files selected`}
+                    : "Click to add more photos"}
                 </div>
                 <div className="file-upload-hint">
                   Upload photos of your completed work. JPG or PNG, max 5MB
                   each.
+                  {portfolioFiles.length > 0 && (
+                    <span
+                      style={{
+                        color: "var(--color-accent)",
+                        fontWeight: 600,
+                        marginLeft: 6,
+                      }}
+                    >
+                      {portfolioFiles.length}{" "}
+                      {portfolioFiles.length === 1 ? "photo" : "photos"} added
+                    </span>
+                  )}
                 </div>
               </div>
               <input
@@ -1272,47 +1593,98 @@ const OnboardingSteps = ({
                 onChange={handlePortfolioChange}
                 className="file-input"
               />
-              {portfolioPreviews.length > 0 && (
+              {portfolioFiles.length > 0 && (
                 <div className="portfolio-previews">
-                  {portfolioPreviews.map((preview, i) => (
-                    <div key={i} className="portfolio-preview-item">
-                      <img src={preview} alt={`Portfolio ${i + 1}`} />
-                      <div className="portfolio-preview-badge">{i + 1}</div>
-                      <button
-                        type="button"
-                        className="portfolio-remove-btn"
-                        onClick={() => removePortfolioFile(i)}
-                        aria-label="Remove image"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
+                  {portfolioFiles.map((file, i) => {
+                    const url = URL.createObjectURL(file);
+                    return (
+                      <div key={i} className="portfolio-preview-item">
+                        <img src={url} alt={`Portfolio ${i + 1}`} />
+                        <div className="portfolio-preview-badge">{i + 1}</div>
+                        <button
+                          type="button"
+                          className="portfolio-remove-btn"
+                          onClick={() => removePortfolioFile(i)}
+                          aria-label="Remove image"
+                        >
+                          <X size={14} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            {/* Government ID (idFile) */}
+            {/* Government ID */}
             <div className="form-group">
               <label className="form-label required">
                 Government ID{" "}
                 <span style={{ fontWeight: 400 }}>
-                  (Private — not shown to customers)
+                  Private, not shown to customers
                 </span>
               </label>
-              <div
-                onClick={() => document.getElementById("idInput")?.click()}
-                className={`file-upload-zone ${idFile ? "has-file" : ""}`}
-              >
-                <div className="file-upload-icon" />
-                <div className="file-upload-text">
-                  {idFile ? idFile.name : "Upload a photo or scan of your ID"}
+              {idFile ? (
+                <div className="photo-preview-row">
+                  <div className="id-file-icon">
+                    {idFile.type.startsWith("image") ? (
+                      <img
+                        src={URL.createObjectURL(idFile)}
+                        alt="ID preview"
+                        style={{
+                          width: 56,
+                          height: 56,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          display: "block",
+                        }}
+                      />
+                    ) : (
+                      <div className="id-file-placeholder" />
+                    )}
+                  </div>
+                  <div className="photo-preview-info">
+                    <span className="photo-file-name">{idFile.name}</span>
+                    <span className="photo-file-size">
+                      {(idFile.size / 1024).toFixed(0)} KB
+                    </span>
+                  </div>
+                  <div className="photo-preview-actions">
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() =>
+                        document.getElementById("idInput")?.click()
+                      }
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      className="photo-remove-btn"
+                      onClick={clearIdFile}
+                      aria-label="Remove ID file"
+                      title="Remove ID file"
+                    >
+                      <X size={16} strokeWidth={2.5} />
+                    </button>
+                  </div>
                 </div>
-                <div className="file-upload-hint">
-                  This is only visible to ZimServ staff for verification and
-                  safety. It will never be publicly displayed on your profile.
+              ) : (
+                <div
+                  onClick={() => document.getElementById("idInput")?.click()}
+                  className="file-upload-zone"
+                >
+                  <div className="file-upload-icon" />
+                  <div className="file-upload-text">
+                    Upload a photo or scan of your ID
+                  </div>
+                  <div className="file-upload-hint">
+                    This is only visible to ZimServ staff for verification and
+                    safety. It will never be publicly displayed on your profile.
+                  </div>
                 </div>
-              </div>
+              )}
               <input
                 type="file"
                 id="idInput"
@@ -1320,21 +1692,6 @@ const OnboardingSteps = ({
                 onChange={handleIdChange}
                 className="file-input"
               />
-              {idFile && (
-                <div className="license-files-list">
-                  <div className="license-file-item">
-                    <span>{idFile.name}</span>
-                    <button
-                      type="button"
-                      className="custom-service-remove"
-                      onClick={clearIdFile}
-                      aria-label="Remove ID file"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="form-actions">

@@ -65,27 +65,16 @@ const AdminLayout = () => {
       .channel("admin-dashboard-changes")
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "provider_applications",
-        },
+        { event: "*", schema: "public", table: "provider_applications" },
         () => {
-          // A new application / status change happened → refresh counts + notifications
           fetchCounts();
           fetchNotifications();
         },
       )
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "providers",
-          filter: "has_pending_edits=eq.true",
-        },
+        { event: "*", schema: "public", table: "providers" }, // ← no filter
         () => {
-          // Some provider's pending edits flag changed
           fetchCounts();
           fetchNotifications();
         },
@@ -119,7 +108,7 @@ const AdminLayout = () => {
 
   const fetchCounts = async () => {
     try {
-      // Count pending applications (status = pending_review)
+      // Count pending applications
       const { count: pendingApps } = await supabase
         .from("provider_applications")
         .select("*", { count: "exact", head: true })
@@ -131,8 +120,15 @@ const AdminLayout = () => {
         .select("*", { count: "exact", head: true })
         .eq("has_pending_edits", true);
 
-      setPendingApplicationsCount(pendingApps || 0);
-      setProvidersNeedReviewCount(needsReview || 0);
+      // Count providers awaiting approval (pending_review status)  ← NEW
+      const { count: pendingProviders } = await supabase
+        .from("providers")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending_review");
+
+      setPendingApplicationsCount(pendingApps ?? 0);
+      // Combine both — pending edits + awaiting approval  ← NEW
+      setProvidersNeedReviewCount((needsReview ?? 0) + (pendingProviders ?? 0));
     } catch (error) {
       console.error("Error fetching counts:", error);
     }

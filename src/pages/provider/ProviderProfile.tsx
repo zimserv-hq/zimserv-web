@@ -26,7 +26,7 @@ import { supabase } from "../../lib/supabaseClient";
 
 interface ServiceItem {
   name: string;
-  price: string; // "50.00"
+  price: string;
 }
 
 interface GalleryImage {
@@ -66,7 +66,7 @@ type FormField = {
   fullWidth?: boolean;
 };
 
-// ── Skeleton Components ────────────────────────────────────────────────────
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 const SkeletonBlock = ({
   w,
   h,
@@ -86,17 +86,126 @@ const ProfileSkeleton = () => (
   <div className="provider-profile">
     <style>{`
       @keyframes sk-shimmer {
-        0%   { background-position: -600px 0; }
-        100% { background-position:  600px 0; }
+        0%   { background-position: -800px 0; }
+        100% { background-position:  800px 0; }
       }
       .sk-block {
-        background: linear-gradient(90deg, var(--sk-base) 25%, var(--sk-hi) 50%, var(--sk-base) 75%);
-        background-size: 600px 100%;
+        background: linear-gradient(
+          90deg,
+          var(--sk-base) 25%,
+          var(--sk-hi)   50%,
+          var(--sk-base) 75%
+        );
+        background-size: 800px 100%;
         animation: sk-shimmer 1.6s ease-in-out infinite;
         display: block;
+        flex-shrink: 0;
       }
-      :root { --sk-base: #f0f0f0; --sk-hi: #e0e0e0; }
-      .dark-mode { --sk-base: #374151; --sk-hi: #4b5563; }
+      :root      { --sk-base:#f0f0f0; --sk-hi:#e0e0e0; }
+      .dark-mode { --sk-base:#374151; --sk-hi:#4b5563; }
+
+      .sk-card {
+        background: var(--card-bg, #fff);
+        border: 1.5px solid var(--border-color, #e5e7eb);
+        border-radius: 16px;
+        overflow: hidden;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      }
+      .sk-card-hd {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 18px 24px;
+        border-bottom: 1.5px solid var(--border-color, #e5e7eb);
+      }
+      .sk-card-hd-sm {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 20px;
+        border-bottom: 1.5px solid var(--border-color, #e5e7eb);
+      }
+      .sk-card-bd  { padding: 24px; }
+      .sk-card-bd-sm { padding: 20px; }
+
+      .sk-hdr-card {
+        background: var(--card-bg, #fff);
+        border: 1.5px solid var(--border-color, #e5e7eb);
+        border-radius: 16px;
+        overflow: hidden;
+        margin-bottom: 24px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      }
+
+      .sk-hero {
+        padding: 28px 32px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        border-bottom: 1.5px solid var(--border-color, #e5e7eb);
+        min-height: 120px;
+      }
+      .sk-hero-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .sk-hero-actions { display: flex; gap: 10px; flex-shrink: 0; }
+
+      .sk-stats {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        padding: 20px 28px;
+        gap: 20px;
+      }
+      .sk-stat { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+      .sk-grid {
+        display: grid;
+        grid-template-columns: 1fr 360px;
+        gap: 24px;
+      }
+
+      .sk-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+      .sk-field { display: flex; flex-direction: column; gap: 6px; }
+      .sk-field.full { grid-column: 1 / -1; }
+
+      .sk-photo-area {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .sk-photo-btns { display: flex; gap: 8px; width: 100%; }
+
+      .sk-gallery { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+
+      .sk-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+
+      @media (max-width: 1200px) {
+        .sk-grid  { grid-template-columns: 1fr; }
+        .sk-stats { grid-template-columns: repeat(5, 1fr); }
+      }
+      @media (max-width: 768px) {
+        .provider-profile { padding: 16px; }
+        .sk-hero          { flex-direction: column; align-items: flex-start; padding: 20px; gap: 16px; }
+        .sk-hero-actions  { flex-direction: row; width: 100%; }
+        .sk-form          { grid-template-columns: 1fr; gap: 14px; }
+        .sk-stats         { grid-template-columns: repeat(3,1fr); padding: 16px 20px; gap: 12px; }
+        .sk-card-bd       { padding: 16px; }
+        .sk-card-hd       { padding: 14px 16px; }
+      }
+      @media (max-width: 480px) {
+        .provider-profile { padding: 12px; }
+        .sk-stats   { grid-template-columns: repeat(2,1fr); }
+        .sk-gallery { grid-template-columns: repeat(2,1fr); }
+      }
     `}</style>
 
     <div
@@ -109,100 +218,116 @@ const ProfileSkeleton = () => (
     >
       <SkeletonBlock w={40} h={40} radius={10} />
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <SkeletonBlock w={120} h={20} />
-        <SkeletonBlock w={220} h={13} />
+        <SkeletonBlock w={120} h={22} radius={6} />
+        <SkeletonBlock w={232} h={13} radius={4} />
       </div>
     </div>
 
-    <div className="profile-header-card" style={{ marginBottom: 24 }}>
-      <div className="profile-hero">
+    <div className="sk-hdr-card">
+      <div className="sk-hero">
         <SkeletonBlock w={88} h={88} radius={16} />
-        <div
-          style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}
-        >
-          <SkeletonBlock w={200} h={24} />
-          <SkeletonBlock w={260} h={14} />
-          <SkeletonBlock w={80} h={26} radius={20} />
+        <div className="sk-hero-info">
+          <SkeletonBlock w={204} h={26} radius={6} />
+          <SkeletonBlock w={264} h={14} radius={4} />
+          <SkeletonBlock w={88} h={26} radius={20} />
         </div>
-        <SkeletonBlock w={130} h={42} radius={12} />
+        <div className="sk-hero-actions">
+          <SkeletonBlock w={130} h={42} radius={12} />
+        </div>
       </div>
-
-      <div className="profile-stats-row">
-        {[...Array(5)].map((_, i) => (
-          <div
-            key={i}
-            className="stat-box"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <SkeletonBlock w={44} h={26} />
-            <SkeletonBlock w={72} h={12} />
+      <div className="sk-stats">
+        {[
+          { nw: 36, lw: 92 },
+          { nw: 28, lw: 60 },
+          { nw: 44, lw: 76 },
+          { nw: 32, lw: 56 },
+          { nw: 40, lw: 72 },
+        ].map(({ nw, lw }, i) => (
+          <div key={i} className="sk-stat">
+            <SkeletonBlock w={nw} h={26} radius={5} />
+            <SkeletonBlock w={lw} h={12} radius={3} />
           </div>
         ))}
       </div>
     </div>
 
-    <div className="profile-content-grid">
+    <div className="sk-grid">
       <div>
-        <div className="profile-card" style={{ marginBottom: 20 }}>
-          <div className="profile-card-header">
+        <div className="sk-card">
+          <div className="sk-card-hd">
             <SkeletonBlock w={36} h={36} radius={10} />
-            <SkeletonBlock w={180} h={15} />
+            <SkeletonBlock w={192} h={15} radius={5} />
           </div>
-          <div className="profile-card-body">
-            <div className="form-grid">
-              {[...Array(4)].map((_, j) => (
-                <div key={j} className="form-field">
-                  <SkeletonBlock w={90} h={11} />
-                  <SkeletonBlock w="100%" h={44} radius={10} />
-                </div>
-              ))}
-              <div className="form-field full-width">
-                <SkeletonBlock w={40} h={11} />
+          <div className="sk-card-bd">
+            <div className="sk-form">
+              <div className="sk-field">
+                <SkeletonBlock w={72} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field">
+                <SkeletonBlock w={104} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field">
+                <SkeletonBlock w={104} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field">
+                <SkeletonBlock w={132} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field full">
+                <SkeletonBlock w={36} h={11} radius={3} />
                 <SkeletonBlock w="100%" h={44} radius={10} />
               </div>
             </div>
           </div>
         </div>
 
-        <div className="profile-card" style={{ marginBottom: 20 }}>
-          <div className="profile-card-header">
+        <div className="sk-card">
+          <div className="sk-card-hd">
             <SkeletonBlock w={36} h={36} radius={10} />
-            <SkeletonBlock w={200} h={15} />
+            <SkeletonBlock w={212} h={15} radius={5} />
           </div>
-          <div className="profile-card-body">
-            <div className="form-grid">
-              {[...Array(4)].map((_, j) => (
-                <div key={j} className="form-field">
-                  <SkeletonBlock w={100} h={11} />
-                  <SkeletonBlock w="100%" h={44} radius={10} />
-                </div>
-              ))}
-              <div className="form-field full-width">
-                <SkeletonBlock w={170} h={11} />
+          <div className="sk-card-bd">
+            <div className="sk-form">
+              <div className="sk-field">
+                <SkeletonBlock w={108} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field">
+                <SkeletonBlock w={124} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field">
+                <SkeletonBlock w={140} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field">
+                <SkeletonBlock w={64} h={11} radius={3} />
+                <SkeletonBlock w="100%" h={44} radius={10} />
+              </div>
+              <div className="sk-field full">
+                <SkeletonBlock w={184} h={11} radius={3} />
                 <SkeletonBlock w="100%" h={100} radius={10} />
               </div>
-              <div className="form-field full-width">
-                <SkeletonBlock w={130} h={11} />
+              <div className="sk-field full">
+                <SkeletonBlock w={144} h={11} radius={3} />
                 <SkeletonBlock w="100%" h={44} radius={10} />
               </div>
             </div>
           </div>
         </div>
 
-        <div className="profile-card" style={{ marginBottom: 20 }}>
-          <div className="profile-card-header">
+        <div className="sk-card">
+          <div className="sk-card-hd">
             <SkeletonBlock w={36} h={36} radius={10} />
-            <SkeletonBlock w={150} h={15} />
+            <SkeletonBlock w={160} h={15} radius={5} />
           </div>
-          <div className="profile-card-body">
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {[80, 110, 95, 130, 75].map((w, j) => (
-                <SkeletonBlock key={j} w={w} h={32} radius={8} />
+          <div className="sk-card-bd">
+            <div className="sk-tags">
+              {[96, 128, 80, 148, 112, 88].map((w, i) => (
+                <SkeletonBlock key={i} w={w} h={34} radius={8} />
               ))}
             </div>
           </div>
@@ -210,18 +335,18 @@ const ProfileSkeleton = () => (
       </div>
 
       <div>
-        <div className="photo-card" style={{ marginBottom: 20 }}>
-          <div className="photo-card-header">
+        <div className="sk-card">
+          <div className="sk-card-hd-sm">
             <SkeletonBlock w={36} h={36} radius={10} />
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <SkeletonBlock w={110} h={14} />
-              <SkeletonBlock w={180} h={12} />
+              <SkeletonBlock w={112} h={14} radius={4} />
+              <SkeletonBlock w={188} h={12} radius={3} />
             </div>
           </div>
-          <div className="photo-card-body">
-            <div className="photo-avatar-area">
+          <div className="sk-card-bd-sm">
+            <div className="sk-photo-area">
               <SkeletonBlock w={120} h={120} radius={20} />
-              <div style={{ display: "flex", gap: 8, width: "100%" }}>
+              <div className="sk-photo-btns">
                 <SkeletonBlock w="100%" h={42} radius={10} />
                 <SkeletonBlock w="100%" h={42} radius={10} />
               </div>
@@ -229,19 +354,19 @@ const ProfileSkeleton = () => (
           </div>
         </div>
 
-        <div className="photo-card">
-          <div className="photo-card-header">
+        <div className="sk-card">
+          <div className="sk-card-hd-sm">
             <SkeletonBlock w={36} h={36} radius={10} />
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <SkeletonBlock w={100} h={14} />
-              <SkeletonBlock w={160} h={12} />
+              <SkeletonBlock w={96} h={14} radius={4} />
+              <SkeletonBlock w={172} h={12} radius={3} />
             </div>
           </div>
-          <div className="photo-card-body" style={{ paddingTop: 16 }}>
+          <div style={{ padding: "16px 20px 20px" }}>
             <SkeletonBlock w="100%" h={42} radius={10} />
-            <div className="gallery-grid" style={{ marginTop: 16 }}>
-              {[...Array(3)].map((_, j) => (
-                <SkeletonBlock key={j} w="100%" h={100} radius={8} />
+            <div className="sk-gallery" style={{ marginTop: 12 }}>
+              {[0, 1, 2].map((i) => (
+                <SkeletonBlock key={i} w="100%" h={100} radius={8} />
               ))}
             </div>
           </div>
@@ -263,8 +388,18 @@ const ProviderProfile = () => {
   const [providerId, setProviderId] = useState<string | null>(null);
   const [newService, setNewService] = useState("");
   const [newServicePrice, setNewServicePrice] = useState("");
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [galleryError, setGalleryError] = useState("");
+
+  // ── Service suggestions state ────────────────────────────────────────────────
+  const [serviceSuggestions, setServiceSuggestions] = useState<string[]>([]);
+  const [showServiceSuggestions, setShowServiceSuggestions] = useState(false);
+  const [serviceActiveIndex, setServiceActiveIndex] = useState(-1);
+  const serviceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serviceInputWrapRef = useRef<HTMLDivElement>(null);
 
   const profileImageInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const emptyProfile: ProviderProfileData = {
     fullName: "",
@@ -296,6 +431,7 @@ const ProviderProfile = () => {
     fetchProfile();
   }, []);
 
+  // ── Real-time channel ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!providerId) return;
 
@@ -358,6 +494,67 @@ const ProviderProfile = () => {
       supabase.removeChannel(channel);
     };
   }, [providerId, isEditing]);
+
+  // ── Service suggestions fetch — filtered by provider category ───────────────
+  useEffect(() => {
+    if (serviceDebounceRef.current) clearTimeout(serviceDebounceRef.current);
+
+    const q = newService.trim().toLowerCase();
+    if (q.length < 2 || !profile.category) {
+      setServiceSuggestions([]);
+      setShowServiceSuggestions(false);
+      return;
+    }
+
+    serviceDebounceRef.current = setTimeout(async () => {
+      const { data: catData } = await supabase
+        .from("categories")
+        .select("id")
+        .ilike("name", profile.category)
+        .single();
+
+      if (!catData) return;
+
+      const { data, error } = await supabase
+        .from("services")
+        .select("name")
+        .eq("category_id", catData.id)
+        .eq("is_active", true)
+        .ilike("name", `%${q}%`)
+        .limit(3);
+
+      if (error || !data) return;
+
+      const existing = new Set(
+        editProfile.services.map((s) => s.name.toLowerCase()),
+      );
+      const names = data
+        .map((s) => s.name)
+        .filter((n) => !existing.has(n.toLowerCase()));
+
+      setServiceSuggestions(names);
+      setShowServiceSuggestions(names.length > 0);
+      setServiceActiveIndex(-1);
+    }, 250);
+
+    return () => {
+      if (serviceDebounceRef.current) clearTimeout(serviceDebounceRef.current);
+    };
+  }, [newService, profile.category, editProfile.services]);
+
+  // ── Outside click — close suggestions ───────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        serviceInputWrapRef.current &&
+        !serviceInputWrapRef.current.contains(e.target as Node)
+      ) {
+        setShowServiceSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const getPublicUrl = (filePath: string): string => {
     const { data } = supabase.storage
@@ -469,8 +666,6 @@ const ProviderProfile = () => {
         changedFields.years_experience = editProfile.yearsExperience
           ? parseInt(editProfile.yearsExperience, 10)
           : null;
-      if (editProfile.fullName !== profile.fullName)
-        changedFields.full_name = editProfile.fullName;
       if (editProfile.businessName !== profile.businessName)
         changedFields.business_name = editProfile.businessName;
       if (editProfile.phone !== profile.phone)
@@ -493,31 +688,18 @@ const ProviderProfile = () => {
           );
         });
 
+      // Route services through the trigger instead of direct DB mutation
+      if (servicesChanged) {
+        changedFields.services = editedServices.map((s) => ({
+          name: s.name,
+          price: s.price || null,
+        }));
+      }
+
       if (Object.keys(changedFields).length === 0 && !servicesChanged) {
         setIsEditing(false);
         setIsSaving(false);
         return;
-      }
-
-      if (servicesChanged) {
-        const { error: deleteError } = await supabase
-          .from("provider_services")
-          .delete()
-          .eq("provider_id", providerId);
-        if (deleteError) throw deleteError;
-
-        if (editedServices.length > 0) {
-          const { error: servicesError } = await supabase
-            .from("provider_services")
-            .insert(
-              editedServices.map((s) => ({
-                provider_id: providerId,
-                service_name: s.name,
-                price: s.price ? parseFloat(s.price) : null,
-              })),
-            );
-          if (servicesError) throw servicesError;
-        }
       }
 
       if (Object.keys(changedFields).length > 0) {
@@ -564,6 +746,7 @@ const ProviderProfile = () => {
     if (
       newService.trim() &&
       newServicePrice.trim() &&
+      editProfile.services.length < 8 &&
       !editProfile.services.some(
         (s) => s.name.toLowerCase() === newService.trim().toLowerCase(),
       )
@@ -577,6 +760,7 @@ const ProviderProfile = () => {
       }));
       setNewService("");
       setNewServicePrice("");
+      setShowServiceSuggestions(false);
     }
   };
 
@@ -592,21 +776,16 @@ const ProviderProfile = () => {
   ) => {
     const file = e.target.files?.[0];
     if (!file || !providerId) return;
-
     e.target.value = "";
-
     setIsUploadingPhoto(true);
     try {
       const ext = file.name.split(".").pop();
       const filePath = `${providerId}/profile/photo_${Date.now()}.${ext}`;
-
       const { error: uploadError } = await supabase.storage
         .from("provider-media")
         .upload(filePath, file, { upsert: true });
       if (uploadError) throw uploadError;
-
       const publicUrl = `${getPublicUrl(filePath)}?t=${Date.now()}`;
-
       await supabase.from("provider_media").upsert(
         {
           provider_id: providerId,
@@ -616,12 +795,10 @@ const ProviderProfile = () => {
         },
         { onConflict: "provider_id,media_type" },
       );
-
       await supabase
         .from("providers")
         .update({ profile_image_url: publicUrl })
         .eq("id", providerId);
-
       setProfile((prev) => ({ ...prev, profilePhotoUrl: publicUrl }));
       setEditProfile((prev) => ({ ...prev, profilePhotoUrl: publicUrl }));
     } catch (error) {
@@ -655,17 +832,39 @@ const ProviderProfile = () => {
   const handleGalleryUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
-    const files = e.target.files;
-    if (!files || !providerId) return;
+    const selectedFiles = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = "";
+    if (selectedFiles.length === 0 || !providerId) return;
+    setGalleryError("");
 
-    for (const file of Array.from(files)) {
+    const currentCount = profile.galleryImages.length;
+    const slots = 10 - currentCount;
+    if (slots <= 0) {
+      setGalleryError("Gallery is full (10/10). Remove a photo first.");
+      return;
+    }
+
+    const filesToUpload = selectedFiles.slice(0, slots);
+    if (selectedFiles.length > slots) {
+      setGalleryError(
+        `Only ${slots} slot(s) remaining — uploading first ${slots} photo(s).`,
+      );
+    }
+
+    setIsUploadingGallery(true);
+
+    for (const file of filesToUpload) {
       try {
-        const filePath = `${providerId}/portfolio/${Date.now()}-${file.name}`;
+        const ext = (file.name.split(".").pop() || "jpg")
+          .replace(/[^a-zA-Z0-9]/g, "")
+          .toLowerCase();
+        const filePath = `${providerId}/portfolio/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
         const { error: uploadError } = await supabase.storage
           .from("provider-media")
-          .upload(filePath, file);
-        if (uploadError) throw uploadError;
+          .upload(filePath, file, { upsert: true });
+
+        if (uploadError) throw new Error(uploadError.message);
 
         const { data: inserted, error: insertError } = await supabase
           .from("provider_media")
@@ -677,7 +876,8 @@ const ProviderProfile = () => {
           })
           .select("id")
           .single();
-        if (insertError) throw insertError;
+
+        if (insertError) throw new Error(insertError.message);
 
         const newImage: GalleryImage = {
           id: inserted.id,
@@ -685,18 +885,21 @@ const ProviderProfile = () => {
           publicUrl: getPublicUrl(filePath),
         };
 
-        setEditProfile((prev) => ({
-          ...prev,
-          galleryImages: [...prev.galleryImages, newImage],
-        }));
         setProfile((prev) => ({
           ...prev,
           galleryImages: [...prev.galleryImages, newImage],
         }));
-      } catch (error) {
-        console.error("Error uploading gallery image:", error);
+        setEditProfile((prev) => ({
+          ...prev,
+          galleryImages: [...prev.galleryImages, newImage],
+        }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setGalleryError(`Upload failed: ${msg}`);
       }
     }
+
+    setIsUploadingGallery(false);
   };
 
   const handleRemoveGalleryImage = async (image: GalleryImage) => {
@@ -714,6 +917,40 @@ const ProviderProfile = () => {
     }
   };
 
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const highlightServiceMatch = (text: string, query: string) => {
+    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    if (idx === -1) return <span>{text}</span>;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <strong style={{ color: "var(--orange-primary)", fontWeight: 700 }}>
+          {text.slice(idx, idx + query.length)}
+        </strong>
+        {text.slice(idx + query.length)}
+      </>
+    );
+  };
+
+  const handleServiceInputKeyDown = (e: React.KeyboardEvent) => {
+    if (!showServiceSuggestions || serviceSuggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setServiceActiveIndex((p) =>
+        Math.min(p + 1, serviceSuggestions.length - 1),
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setServiceActiveIndex((p) => Math.max(p - 1, -1));
+    } else if (e.key === "Enter" && serviceActiveIndex >= 0) {
+      e.preventDefault();
+      setNewService(serviceSuggestions[serviceActiveIndex]);
+      setShowServiceSuggestions(false);
+    } else if (e.key === "Escape") {
+      setShowServiceSuggestions(false);
+    }
+  };
+
   const displayProfile = isEditing ? editProfile : profile;
 
   if (loading) return <ProfileSkeleton />;
@@ -723,7 +960,6 @@ const ProviderProfile = () => {
       <style>{`
         *, *::before, *::after { box-sizing: border-box; }
 
-        /* ── CSS Variables (matching AdminLayout) ── */
         :root {
           --bg-primary: #f8f9fa;
           --text-primary: #111827;
@@ -764,7 +1000,6 @@ const ProviderProfile = () => {
           --sk-hi: #4b5563;
         }
 
-        /* ── Skeleton ── */
         @keyframes sk-shimmer {
           0%   { background-position: -600px 0; }
           100% { background-position:  600px 0; }
@@ -776,7 +1011,6 @@ const ProviderProfile = () => {
           display: block;
         }
 
-        /* ── Page ── */
         .provider-profile {
           padding: 24px 28px;
           max-width: 1400px;
@@ -785,7 +1019,6 @@ const ProviderProfile = () => {
           min-width: 0;
         }
 
-        /* ── Header Card ── */
         .profile-header-card {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
@@ -795,7 +1028,6 @@ const ProviderProfile = () => {
           box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
 
-        /* ── Hero ── */
         .profile-hero {
           padding: 28px 32px;
           display: flex;
@@ -807,7 +1039,6 @@ const ProviderProfile = () => {
           min-height: 120px;
         }
 
-        /* Avatar */
         .profile-avatar-wrap { position: relative; flex-shrink: 0; }
 
         .profile-avatar {
@@ -825,8 +1056,8 @@ const ProviderProfile = () => {
           border: 2px solid var(--border-color);
           overflow: hidden;
           box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+          cursor: pointer;
         }
-
         .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
         .upload-avatar-btn {
@@ -886,12 +1117,7 @@ const ProviderProfile = () => {
         .profile-status-badge.suspended { background: rgba(239,68,68,0.1); color: #ef4444; border-color: rgba(239,68,68,0.2); }
         .profile-status-badge.pending   { background: rgba(245,158,11,0.12); color: #d97706; border-color: rgba(245,158,11,0.2); }
 
-        /* Hero action buttons */
-        .profile-hero-actions {
-          display: flex;
-          gap: 10px;
-          flex-shrink: 0;
-        }
+        .profile-hero-actions { display: flex; gap: 10px; flex-shrink: 0; }
 
         .hero-btn {
           display: inline-flex;
@@ -907,56 +1133,30 @@ const ProviderProfile = () => {
           background: transparent;
           white-space: nowrap;
         }
-
-        .hero-btn.secondary {
-          border-color: var(--border-color);
-          color: var(--text-primary);
-          background: var(--card-bg);
-        }
+        .hero-btn.secondary { border-color: var(--border-color); color: var(--text-primary); background: var(--card-bg); }
         .hero-btn.secondary:hover { background: var(--hover-bg); border-color: var(--border-hover); }
-
-        .hero-btn.primary {
-          border-color: var(--orange-primary);
-          background: var(--orange-primary);
-          color: #fff;
-          box-shadow: 0 4px 14px var(--orange-shadow);
-        }
+        .hero-btn.primary { border-color: var(--orange-primary); background: var(--orange-primary); color: #fff; box-shadow: 0 4px 14px var(--orange-shadow); }
         .hero-btn.primary:hover { background: var(--orange-hover); border-color: var(--orange-hover); transform: translateY(-1px); }
         .hero-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
 
-        /* Stats Row */
         .profile-stats-row {
           display: grid;
           grid-template-columns: repeat(5, 1fr);
           padding: 20px 28px;
           gap: 20px;
         }
-
         .stat-box { text-align: center; }
-
-        .stat-number {
-          font-size: 22px;
-          font-weight: 800;
-          color: var(--text-primary);
-          letter-spacing: -0.5px;
-          margin-bottom: 4px;
-        }
-
+        .stat-number { font-size: 22px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; margin-bottom: 4px; }
         .stat-name { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
 
-        /* Content Grid */
-        .profile-content-grid {
-          display: grid;
-          grid-template-columns: 1fr 360px;
-          gap: 24px;
-        }
+        .profile-content-grid { display: grid; grid-template-columns: 1fr 360px; gap: 24px; }
 
-        /* Cards */
+        /* AFTER */
         .profile-card {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
           border-radius: 16px;
-          overflow: hidden;
+          overflow: visible;   /* ← allows dropdown to escape the card */
           margin-bottom: 20px;
           box-shadow: 0 2px 8px rgba(0,0,0,0.04);
           transition: border-color 0.2s;
@@ -969,344 +1169,185 @@ const ProviderProfile = () => {
           padding: 18px 24px;
           border-bottom: 1.5px solid var(--border-color);
         }
-
         .section-icon {
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
-          background: var(--orange-light);
-          color: var(--orange-primary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
+          width: 36px; height: 36px; border-radius: 10px;
+          background: var(--orange-light); color: var(--orange-primary);
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
-
         .section-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
-
         .profile-card-body { padding: 24px; }
-
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-
         .form-field { display: flex; flex-direction: column; gap: 6px; }
         .form-field.full-width { grid-column: 1 / -1; }
-
         .field-label {
-          font-size: 12px;
-          font-weight: 600;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          display: flex;
-          align-items: center;
-          gap: 6px;
+          font-size: 12px; font-weight: 600; color: var(--text-secondary);
+          text-transform: uppercase; letter-spacing: 0.5px;
+          display: flex; align-items: center; gap: 6px;
         }
-
         .field-input {
-          padding: 11px 14px;
-          border: 1.5px solid var(--input-border);
-          border-radius: 10px;
-          font-size: 14px;
-          font-family: inherit;
-          background: var(--input-bg);
-          color: var(--text-primary);
-          transition: all 0.2s ease;
-          outline: none;
-          width: 100%;
+          padding: 11px 14px; border: 1.5px solid var(--input-border);
+          border-radius: 10px; font-size: 14px; font-family: inherit;
+          background: var(--input-bg); color: var(--text-primary);
+          transition: all 0.2s ease; outline: none; width: 100%;
         }
         .field-input:focus { border-color: var(--orange-primary); box-shadow: 0 0 0 3px var(--orange-shadow); }
         .field-input:disabled { background: var(--disabled-bg); color: var(--text-secondary); cursor: default; border-color: var(--border-color); }
         .field-textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 
-        /* Services */
-        .services-display {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
+        .services-display { display: flex; flex-wrap: wrap; gap: 8px; }
         .service-tag {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 10px;
-          background: var(--orange-light);
-          color: var(--orange-primary);
-          border-radius: 8px;
-          font-size: 13px;
-          font-weight: 500;
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 6px 10px; background: var(--orange-light); color: var(--orange-primary);
+          border-radius: 8px; font-size: 13px; font-weight: 500;
           border: 1px solid rgba(255,107,53,0.2);
         }
-
         .service-price-pill {
-          font-size: 12px;
-          font-weight: 600;
-          padding: 2px 8px;
-          border-radius: 999px;
-          background: #ffffff;
-          color: var(--orange-primary);
-          border: 1px solid rgba(255,107,53,0.25);
-          white-space: nowrap;
+          font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+          background: #ffffff; color: var(--orange-primary);
+          border: 1px solid rgba(255,107,53,0.25); white-space: nowrap;
         }
-
-        .remove-service-btn {
-          background: none;
-          border: none;
-          cursor: pointer;
-          color: var(--orange-primary);
-          display: flex;
-          padding: 0;
-          opacity: 0.7;
-          transition: opacity 0.2s;
-        }
+        .remove-service-btn { background: none; border: none; cursor: pointer; color: var(--orange-primary); display: flex; padding: 0; opacity: 0.7; transition: opacity 0.2s; }
         .remove-service-btn:hover { opacity: 1; }
 
-        .add-service-row {
-          display: flex;
-          gap: 8px;
-          margin-top: 12px;
-        }
-
+        /* ── Add service row & suggestions ── */
+        .add-service-row { display: flex; gap: 8px; margin-top: 12px; align-items: flex-start; }
+        .service-input-wrap { position: relative; flex: 1; }
         .service-input {
-          flex: 1;
-          padding: 9px 12px;
-          border: 1.5px solid var(--input-border);
-          border-radius: 8px;
-          font-size: 13px;
-          background: var(--input-bg);
-          color: var(--text-primary);
-          font-family: inherit;
-          outline: none;
-          transition: all 0.2s;
+          width: 100%; padding: 9px 12px; border: 1.5px solid var(--input-border);
+          border-radius: 8px; font-size: 13px; background: var(--input-bg);
+          color: var(--text-primary); font-family: inherit; outline: none; transition: all 0.2s;
+          box-sizing: border-box;
         }
         .service-input:focus { border-color: var(--orange-primary); }
-
-        /* price input is narrower */
-        .service-price-input {
-          max-width: 140px;
-          flex: 0 0 auto;
-          text-align: right;
+        .service-input.has-suggestions {
+          border-bottom-left-radius: 0;
+          border-bottom-right-radius: 0;
+          border-bottom-color: transparent;
         }
-
-        .add-service-btn {
-          padding: 9px 16px;
-          background: var(--orange-primary);
-          color: #fff;
-          border: none;
-          border-radius: 8px;
+        .service-suggestions {
+          position: absolute;
+          top: 100%; left: 0; right: 0;
+          background: var(--card-bg);
+          border: 1.5px solid var(--orange-primary);
+          border-top: none;
+          border-bottom-left-radius: 8px;
+          border-bottom-right-radius: 8px;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+          z-index: 100;
+          overflow: hidden;
+        }
+        .service-suggestion-item {
+          padding: 9px 12px;
           font-size: 13px;
-          font-weight: 600;
+          font-weight: 500;
+          color: var(--text-primary);
           cursor: pointer;
-          transition: all 0.2s;
-          font-family: inherit;
-          white-space: nowrap;
+          border-bottom: 1px solid var(--border-color);
+          transition: background 0.15s;
+        }
+        .service-suggestion-item:last-child { border-bottom: none; }
+        .service-suggestion-item:hover,
+        .service-suggestion-item.active { background: var(--orange-light); }
+        .service-price-input { max-width: 140px; flex: 0 0 auto; }
+        .add-service-btn {
+          padding: 9px 16px; background: var(--orange-primary); color: #fff;
+          border: none; border-radius: 8px; font-size: 13px; font-weight: 600;
+          cursor: pointer; transition: all 0.2s; font-family: inherit; white-space: nowrap;
+          flex-shrink: 0;
         }
         .add-service-btn:hover { background: var(--orange-hover); }
         .add-service-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* ── Photo Card ── */
         .photo-card {
-          background: var(--card-bg);
-          border: 1.5px solid var(--border-color);
-          border-radius: 16px;
-          overflow: hidden;
-          margin-bottom: 20px;
+          background: var(--card-bg); border: 1.5px solid var(--border-color);
+          border-radius: 16px; overflow: hidden; margin-bottom: 20px;
           box-shadow: 0 2px 8px rgba(0,0,0,0.04);
         }
-
-        .photo-card-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 16px 20px;
-          border-bottom: 1.5px solid var(--border-color);
-        }
-
-        .photo-card-title   { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+        .photo-card-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1.5px solid var(--border-color); }
+        .photo-card-title { font-size: 14px; font-weight: 700; color: var(--text-primary); }
         .photo-card-subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-        .photo-card-body    { padding: 20px; }
-
-        .photo-avatar-area {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 16px;
-        }
-
+        .photo-card-body { padding: 20px; }
+        .photo-avatar-area { display: flex; flex-direction: column; align-items: center; gap: 16px; }
         .photo-avatar-frame {
-          width: 120px;
-          height: 120px;
-          border-radius: 20px;
-          overflow: hidden;
-          border: 2px solid var(--border-color);
-          background: var(--hover-bg);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          position: relative;
-          flex-shrink: 0;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-          transition: border-color 0.2s;
-          cursor: pointer;
+          width: 120px; height: 120px; border-radius: 20px; overflow: hidden;
+          border: 2px solid var(--border-color); background: var(--hover-bg);
+          display: flex; align-items: center; justify-content: center;
+          position: relative; flex-shrink: 0;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.06); transition: border-color 0.2s; cursor: pointer;
         }
         .photo-avatar-frame:hover { border-color: var(--orange-primary); }
-
         .photo-avatar-frame:hover .photo-upload-overlay { opacity: 1; }
         .photo-upload-overlay {
-          position: absolute;
-          inset: 0;
-          background: rgba(0,0,0,0.45);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          opacity: 0;
-          transition: opacity 0.2s;
-          color: #fff;
-          font-size: 11px;
-          font-weight: 600;
-          border-radius: 18px;
+          position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 6px; opacity: 0; transition: opacity 0.2s; color: #fff;
+          font-size: 11px; font-weight: 600; border-radius: 18px;
         }
-
         .photo-avatar-frame img { width: 100%; height: 100%; object-fit: cover; }
-
-        .photo-avatar-placeholder {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-          color: var(--text-tertiary);
-        }
+        .photo-avatar-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-tertiary); }
         .photo-avatar-placeholder span { font-size: 11px; font-weight: 500; }
-
         .photo-actions { display: flex; gap: 8px; width: 100%; }
-
         .photo-btn {
-          flex: 1;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 7px;
-          padding: 10px 12px;
-          border-radius: 10px;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-          font-family: inherit;
-          border: 1.5px solid transparent;
+          flex: 1; display: inline-flex; align-items: center; justify-content: center;
+          gap: 7px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 600;
+          cursor: pointer; transition: all 0.2s; font-family: inherit; border: 1.5px solid transparent;
         }
-
-        .photo-btn.change {
-          background: var(--orange-primary);
-          color: #fff;
-          border-color: var(--orange-primary);
-          box-shadow: 0 3px 10px var(--orange-shadow);
-        }
+        .photo-btn.change { background: var(--orange-primary); color: #fff; border-color: var(--orange-primary); box-shadow: 0 3px 10px var(--orange-shadow); }
         .photo-btn.change:hover { background: var(--orange-hover); border-color: var(--orange-hover); }
-
-        .photo-btn.remove {
-          background: var(--card-bg);
-          color: #ef4444;
-          border-color: #fca5a5;
-        }
+        .photo-btn.remove { background: var(--card-bg); color: #ef4444; border-color: #fca5a5; }
         .photo-btn.remove:hover { background: #fee2e2; border-color: #ef4444; }
         .photo-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-        /* Gallery */
         .upload-btn {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          padding: 10px;
-          border: 1.5px solid var(--border-color);
-          border-radius: 10px;
-          background: var(--card-bg);
-          color: var(--text-secondary);
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-          font-family: inherit;
+          width: 100%; display: flex; align-items: center; justify-content: center;
+          gap: 8px; padding: 10px; border: 1.5px solid var(--border-color);
+          border-radius: 10px; background: var(--card-bg); color: var(--text-secondary);
+          font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;
         }
         .upload-btn:hover { border-color: var(--orange-primary); color: var(--orange-primary); }
         .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-
-        .gallery-item {
-          aspect-ratio: 1;
-          border-radius: 8px;
-          overflow: hidden;
-          position: relative;
-          background: var(--hover-bg);
-          border: 1.5px solid var(--border-color);
-        }
+        .gallery-item { aspect-ratio: 1; border-radius: 8px; overflow: hidden; position: relative; background: var(--hover-bg); border: 1.5px solid var(--border-color); }
         .gallery-item img { width: 100%; height: 100%; object-fit: cover; }
         .gallery-item:hover .image-overlay { display: flex; }
-
-        .image-overlay {
-          position: absolute;
-          inset: 0;
-          background: rgba(0,0,0,0.52);
-          display: none;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .remove-image-btn {
-          background: rgba(255,255,255,0.92);
-          border: none;
-          border-radius: 8px;
-          padding: 8px;
-          cursor: pointer;
-          color: #dc2626;
+        .image-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.52); display: none; align-items: center; justify-content: center; }
+        .remove-image-btn { background: rgba(255,255,255,0.92); border: none; border-radius: 8px; padding: 8px; cursor: pointer; color: #dc2626; display: flex; align-items: center; transition: background 0.2s; }
+        .remove-image-btn:hover { background: #fff; }
+        .gallery-empty { grid-column: 1 / -1; padding: 24px; text-align: center; color: var(--text-tertiary); font-size: 13px; border: 1.5px dashed var(--border-color); border-radius: 10px; }
+        .gallery-count { margin-top: 8px; font-size: 12px; color: var(--text-secondary); text-align: center; }
+        .save-footer {
+          position: sticky;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: var(--card-bg);
+          border-top: 1.5px solid var(--border-color);
+          padding: 16px 24px;
           display: flex;
           align-items: center;
-          transition: background 0.2s;
-        }
-        .remove-image-btn:hover { background: #fff; }
-
-        .gallery-empty {
-          grid-column: 1 / -1;
-          padding: 24px;
-          text-align: center;
-          color: var(--text-tertiary);
-          font-size: 13px;
-          border: 1.5px dashed var(--border-color);
-          border-radius: 10px;
+          gap: 12px;
+          box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+          z-index: 50;
+          border-radius: 0 0 16px 16px;
+          margin-top: 8px;
         }
 
-        .gallery-count { margin-top: 8px; font-size: 12px; color: var(--text-secondary); text-align: center; }
-
-        /* Alerts */
-        .save-alert {
-          display: flex; align-items: center; gap: 10px;
-          padding: 12px 16px; border-radius: 10px;
-          font-size: 13px; font-weight: 500;
-          margin-bottom: 20px;
-          animation: fadeIn 0.2s ease;
-        }
+        .save-alert { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 10px; font-size: 13px; font-weight: 500; margin-bottom: 20px; animation: fadeIn 0.2s ease; }
         .save-alert.success { background: #dcfce7; color: #15803d; border: 1.5px solid #86efac; }
         .save-alert.error   { background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5; }
         .dark-mode .save-alert.success { background: rgba(74,222,128,0.15); color: #4ade80; border-color: rgba(74,222,128,0.3); }
-        .dark-mode .save-alert.error   { background: rgba(239,68,68,0.15);  color: #f87171; border-color: rgba(239,68,68,0.3); }
+        .dark-mode .save-alert.error   { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3); }
 
         @keyframes fadeIn { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform: translateY(0); } }
         @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 1s linear infinite; }
-
         .file-input-hidden { display: none; }
 
-        /* ── Responsive ── */
         @media (max-width: 1200px) {
           .profile-content-grid { grid-template-columns: 1fr; }
           .profile-stats-row    { grid-template-columns: repeat(5, 1fr); }
         }
-
         @media (max-width: 768px) {
           .provider-profile    { padding: 16px; }
           .profile-hero        { flex-direction: column; align-items: flex-start; padding: 20px; gap: 16px; }
@@ -1319,12 +1360,11 @@ const ProviderProfile = () => {
           .add-service-row     { flex-direction: column; align-items: stretch; }
           .service-price-input { max-width: 100%; }
         }
-
         @media (max-width: 480px) {
-          .provider-profile   { padding: 12px; }
-          .profile-name       { font-size: 20px; }
-          .profile-stats-row  { grid-template-columns: repeat(2, 1fr); }
-          .gallery-grid       { grid-template-columns: repeat(2, 1fr); }
+          .provider-profile  { padding: 12px; }
+          .profile-name      { font-size: 20px; }
+          .profile-stats-row { grid-template-columns: repeat(2, 1fr); }
+          .gallery-grid      { grid-template-columns: repeat(2, 1fr); }
         }
       `}</style>
 
@@ -1349,10 +1389,8 @@ const ProviderProfile = () => {
           </div>
         )}
 
-        {/* ── Header Card ── */}
         <div className="profile-header-card">
           <div className="profile-hero">
-            {/* Avatar with inline upload overlay */}
             <div className="profile-avatar-wrap">
               <div
                 className="profile-avatar"
@@ -1380,8 +1418,6 @@ const ProviderProfile = () => {
                   )}
                 </div>
               </div>
-
-              {/* Hidden input wired to ref */}
               <input
                 ref={profileImageInputRef}
                 type="file"
@@ -1389,7 +1425,6 @@ const ProviderProfile = () => {
                 accept="image/*"
                 onChange={handleProfileImageUpload}
               />
-
               <button
                 className="upload-avatar-btn"
                 onClick={() => profileImageInputRef.current?.click()}
@@ -1429,28 +1464,14 @@ const ProviderProfile = () => {
 
             <div className="profile-hero-actions">
               {isEditing ? (
-                <>
-                  <button
-                    className="hero-btn secondary"
-                    onClick={handleCancel}
-                    disabled={isSaving}
-                  >
-                    <X size={16} />
-                    Cancel
-                  </button>
-                  <button
-                    className="hero-btn primary"
-                    onClick={handleSave}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? (
-                      <Loader2 size={16} className="spin" />
-                    ) : (
-                      <Save size={16} />
-                    )}
-                    {isSaving ? "Saving..." : "Save Changes"}
-                  </button>
-                </>
+                <button
+                  className="hero-btn secondary"
+                  onClick={handleCancel}
+                  disabled={isSaving}
+                >
+                  <X size={16} />
+                  Cancel
+                </button>
               ) : (
                 <button
                   className="hero-btn secondary"
@@ -1492,16 +1513,38 @@ const ProviderProfile = () => {
         </div>
 
         <div className="profile-content-grid">
-          {/* ── Left Column ── */}
+          {/* LEFT */}
           <div>
-            {/* Personal Info */}
+            {/* Personal Information */}
             <div className="profile-card">
+              {/* Show count in section title */}
               <div className="profile-card-header">
                 <div className="section-icon">
-                  <User size={18} />
+                  <Star size={18} />
                 </div>
-                <div className="section-title">Personal Information</div>
+                <div className="section-title">Services Offered</div>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color:
+                      displayProfile.services.length >= 8
+                        ? "#ef4444"
+                        : "var(--text-secondary)",
+                    background:
+                      displayProfile.services.length >= 8
+                        ? "rgba(239,68,68,0.1)"
+                        : "var(--hover-bg)",
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    border: `1px solid ${displayProfile.services.length >= 8 ? "rgba(239,68,68,0.2)" : "var(--border-color)"}`,
+                  }}
+                >
+                  {displayProfile.services.length}/8
+                </span>
               </div>
+
               <div className="profile-card-body">
                 <div className="form-grid">
                   {(
@@ -1511,6 +1554,7 @@ const ProviderProfile = () => {
                         field: "fullName" as const,
                         icon: <User size={12} />,
                         type: "text",
+                        disabled: true,
                       },
                       {
                         label: "Email Address",
@@ -1561,7 +1605,7 @@ const ProviderProfile = () => {
               </div>
             </div>
 
-            {/* Business Info */}
+            {/* Business Information */}
             <div className="profile-card">
               <div className="profile-card-header">
                 <div className="section-icon">
@@ -1610,9 +1654,8 @@ const ProviderProfile = () => {
                       value={displayProfile.yearsExperience}
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (val === "" || /^\d+$/.test(val)) {
+                        if (val === "" || /^\d+$/.test(val))
                           handleChange("yearsExperience", val);
-                        }
                       }}
                       disabled={!isEditing}
                       min="0"
@@ -1663,7 +1706,7 @@ const ProviderProfile = () => {
               </div>
             </div>
 
-            {/* Services WITH PRICE */}
+            {/* Services Offered */}
             <div className="profile-card">
               <div className="profile-card-header">
                 <div className="section-icon">
@@ -1672,7 +1715,6 @@ const ProviderProfile = () => {
                 <div className="section-title">Services Offered</div>
               </div>
               <div className="profile-card-body">
-                {/* Display services */}
                 <div className="services-display">
                   {displayProfile.services.length === 0 && !isEditing && (
                     <p style={{ color: "var(--text-tertiary)", fontSize: 13 }}>
@@ -1699,49 +1741,101 @@ const ProviderProfile = () => {
                   ))}
                 </div>
 
-                {/* Add service + price when editing */}
-                {isEditing && (
-                  <div className="add-service-row">
-                    <input
-                      type="text"
-                      className="service-input"
-                      placeholder="Add a service (e.g. Door Installation)"
-                      value={newService}
-                      onChange={(e) => setNewService(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" &&
-                        (e.preventDefault(), handleAddService())
-                      }
-                    />
-                    <input
-                      type="number"
-                      className="service-input service-price-input"
-                      placeholder="Price (e.g. 50.00)"
-                      step="0.01"
-                      min="0"
-                      value={newServicePrice}
-                      onChange={(e) => setNewServicePrice(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" &&
-                        (e.preventDefault(), handleAddService())
-                      }
-                    />
-                    <button
-                      className="add-service-btn"
-                      onClick={handleAddService}
-                      disabled={!newService.trim() || !newServicePrice.trim()}
+                {isEditing &&
+                  (editProfile.services.length >= 8 ? (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        padding: "10px 14px",
+                        background: "rgba(239,68,68,0.08)",
+                        border: "1.5px solid rgba(239,68,68,0.2)",
+                        borderRadius: 8,
+                        fontSize: 13,
+                        color: "#dc2626",
+                        fontWeight: 500,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
                     >
-                      Add
-                    </button>
-                  </div>
-                )}
+                      <AlertCircle size={14} strokeWidth={2.5} />
+                      Maximum of 8 services reached. Remove one to add another.
+                    </div>
+                  ) : (
+                    <div className="add-service-row">
+                      {/* Service name input with category-filtered suggestions */}
+                      <div
+                        className="service-input-wrap"
+                        ref={serviceInputWrapRef}
+                      >
+                        <input
+                          type="text"
+                          className={`service-input ${showServiceSuggestions ? "has-suggestions" : ""}`}
+                          placeholder="Add a service (e.g. Door Installation)"
+                          value={newService}
+                          onChange={(e) => setNewService(e.target.value)}
+                          onKeyDown={(e) => {
+                            handleServiceInputKeyDown(e);
+                            if (e.key === "Enter" && serviceActiveIndex < 0) {
+                              e.preventDefault();
+                              handleAddService();
+                            }
+                          }}
+                          onFocus={() =>
+                            serviceSuggestions.length > 0 &&
+                            setShowServiceSuggestions(true)
+                          }
+                          autoComplete="off"
+                        />
+                        {showServiceSuggestions && (
+                          <div className="service-suggestions">
+                            {serviceSuggestions.map((name, i) => (
+                              <div
+                                key={name}
+                                className={`service-suggestion-item ${i === serviceActiveIndex ? "active" : ""}`}
+                                onMouseDown={() => {
+                                  setNewService(name);
+                                  setShowServiceSuggestions(false);
+                                }}
+                                onMouseEnter={() => setServiceActiveIndex(i)}
+                              >
+                                {highlightServiceMatch(name, newService.trim())}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Price input */}
+                      <input
+                        type="number"
+                        className="service-input service-price-input"
+                        placeholder="Price (e.g. 50.00)"
+                        step="0.01"
+                        min="0"
+                        value={newServicePrice}
+                        onChange={(e) => setNewServicePrice(e.target.value)}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" &&
+                          (e.preventDefault(), handleAddService())
+                        }
+                      />
+
+                      <button
+                        className="add-service-btn"
+                        onClick={handleAddService}
+                        disabled={!newService.trim() || !newServicePrice.trim()}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ))}
               </div>
             </div>
           </div>
 
-          {/* ── Right Column ── */}
+          {/* RIGHT */}
           <div>
-            {/* Profile Photo Card */}
             <div className="photo-card">
               <div className="photo-card-header">
                 <div className="section-icon">
@@ -1782,7 +1876,6 @@ const ProviderProfile = () => {
                       )}
                     </div>
                   </div>
-
                   <div className="photo-actions">
                     <button
                       className="photo-btn change"
@@ -1818,7 +1911,6 @@ const ProviderProfile = () => {
               </div>
             </div>
 
-            {/* Gallery */}
             <div className="photo-card">
               <div className="photo-card-header">
                 <div className="section-icon">
@@ -1834,23 +1926,47 @@ const ProviderProfile = () => {
               </div>
               <div className="photo-card-body" style={{ paddingTop: 16 }}>
                 <input
+                  ref={galleryInputRef}
                   type="file"
-                  id="galleryImages"
                   className="file-input-hidden"
                   accept="image/*"
                   multiple
                   onChange={handleGalleryUpload}
                 />
+
+                {galleryError && (
+                  <div
+                    className="save-alert error"
+                    style={{ marginBottom: 12 }}
+                  >
+                    <AlertCircle size={15} strokeWidth={2.5} />
+                    {galleryError}
+                  </div>
+                )}
+
                 <button
                   className="upload-btn"
-                  onClick={() =>
-                    document.getElementById("galleryImages")?.click()
+                  onClick={() => {
+                    setGalleryError("");
+                    galleryInputRef.current?.click();
+                  }}
+                  disabled={
+                    displayProfile.galleryImages.length >= 10 ||
+                    isUploadingGallery
                   }
-                  disabled={displayProfile.galleryImages.length >= 10}
                   style={{ marginBottom: 16 }}
                 >
-                  <Upload size={15} />
-                  Add Photos ({displayProfile.galleryImages.length}/10)
+                  {isUploadingGallery ? (
+                    <>
+                      <Loader2 size={15} className="spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={15} />
+                      Add Photos ({displayProfile.galleryImages.length}/10)
+                    </>
+                  )}
                 </button>
 
                 <div className="gallery-grid">
@@ -1875,7 +1991,6 @@ const ProviderProfile = () => {
                     ))
                   )}
                 </div>
-
                 {displayProfile.galleryImages.length > 0 && (
                   <p className="gallery-count">
                     {displayProfile.galleryImages.length} of 10 photos uploaded
@@ -1885,6 +2000,47 @@ const ProviderProfile = () => {
             </div>
           </div>
         </div>
+        {isEditing && (
+          <div className="save-footer">
+            {saveError && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 13,
+                  color: "#dc2626",
+                  fontWeight: 500,
+                }}
+              >
+                <AlertCircle size={15} strokeWidth={2.5} />
+                {saveError}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, marginLeft: "auto" }}>
+              <button
+                className="hero-btn secondary"
+                onClick={handleCancel}
+                disabled={isSaving}
+              >
+                <X size={16} />
+                Cancel
+              </button>
+              <button
+                className="hero-btn primary"
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <Loader2 size={16} className="spin" />
+                ) : (
+                  <Save size={16} />
+                )}
+                {isSaving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

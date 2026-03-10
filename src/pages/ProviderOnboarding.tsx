@@ -2,7 +2,7 @@
 // Provider onboarding flow for approved providers to complete their profile
 
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import SEO from "../components/SEO";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import OnboardingSteps from "../components/Onboarding/OnboardingSteps";
@@ -49,7 +49,7 @@ export interface OnboardingData {
   // Step 5: Portfolio
   portfolioFiles: File[];
   licenseFiles: File[];
-  idFile: File | null; // ← NEW: ID document
+  idFile: File | null;
 }
 
 // ── Step persistence key ─────────────────────────────────────────────────────
@@ -63,12 +63,12 @@ const generateSlug = (businessName: string, fullName: string): string => {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 };
-
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ProviderOnboarding = () => {
   const [searchParams] = useSearchParams();
   const applicationId = searchParams.get("application_id");
+  const navigate = useNavigate();
   const { showSuccess, showError, showInfo } = useToast();
 
   const getInitialStep = () => {
@@ -116,7 +116,7 @@ const ProviderOnboarding = () => {
     // Step 5
     portfolioFiles: [],
     licenseFiles: [],
-    idFile: null, // ← NEW
+    idFile: null,
   });
 
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -192,7 +192,7 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── On mount: if session exists, resume from step ≥ 2 ───────────────────
+  // ── On mount: check session and decide starting step ────────────────────
   useEffect(() => {
     const checkExistingSession = async () => {
       try {
@@ -202,20 +202,26 @@ const ProviderOnboarding = () => {
 
         if (session?.user) {
           const userEmail = session.user.email ?? "";
+          const passwordSet = session.user.user_metadata?.password_set === true;
 
-          const stored = getInitialStep();
-          if (stored <= 1) {
-            setStep(2);
+          if (!passwordSet) {
+            // Fresh invite — stay on Step 1, no toast
+            setStep(1);
+          } else {
+            // Returning mid-onboarding user — resume from saved step
+            const stored = getInitialStep();
+            if (stored <= 1) {
+              setStep(2);
+            }
+            showInfo?.(
+              "Session restored",
+              "We detected an active session and resumed your onboarding.",
+            );
           }
 
           if (applicationId && userEmail) {
             await preloadFromApplication(applicationId, userEmail);
           }
-
-          showInfo?.(
-            "Session restored",
-            "We detected an active session and resumed your onboarding.",
-          );
         }
       } catch (err) {
         console.error("Error checking session on mount:", err);
@@ -225,6 +231,14 @@ const ProviderOnboarding = () => {
     };
 
     checkExistingSession();
+  }, []);
+
+  useEffect(() => {
+    const handleUnload = () => {
+      sessionStorage.removeItem(STEP_KEY);
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
   }, []);
 
   // ── Step 1: Account submit ───────────────────────────────────────────────
@@ -257,12 +271,14 @@ const ProviderOnboarding = () => {
 
       const { error: updateError } = await supabase.auth.updateUser({
         password,
+        data: { password_set: true },
       });
 
       if (updateError) {
         const msg = String(updateError.message || "").toLowerCase();
 
         if (msg.includes("different from the old")) {
+          await supabase.auth.updateUser({ data: { password_set: true } });
           showSuccess(
             "Account secured",
             "Your password was already set. Continuing to your profile.",
@@ -306,8 +322,6 @@ const ProviderOnboarding = () => {
   };
 
   // ── File upload helper ───────────────────────────────────────────────────
-  // Uploads `file` into the `provider-media` bucket at `folder/<uuid>.<ext>`
-  // Returns the bare storage key (e.g. "providers/<id>/profile/<uuid>.png")
   const uploadFile = async (
     file: File,
     _providerId: string,
@@ -325,10 +339,26 @@ const ProviderOnboarding = () => {
         return null;
       }
 
-      return fileName; // bare key, e.g. "providers/<uuid>/profile/<uuid>.png"
+      return fileName;
     } catch (err) {
       console.error("Unexpected error during file upload:", err);
       return null;
+    }
+  };
+
+  // ── Send "profile received" email via edge function ──────────────────────
+  const sendProfileReceivedEmail = async (email: string, fullName: string) => {
+    try {
+      const { error } = await supabase.functions.invoke(
+        "send-profile-received-email",
+        { body: { email, fullName } },
+      );
+      if (error) {
+        // Non-fatal — profile is saved, just log the failure
+        console.error("Failed to send profile received email:", error);
+      }
+    } catch (err) {
+      console.error("Unexpected error sending profile received email:", err);
     }
   };
 
@@ -395,12 +425,13 @@ const ProviderOnboarding = () => {
           providerError?.code === "23505" &&
           providerError.message.includes("slug")
         ) {
-          console.warn("[handleSubmitProfile] slug collision — retrying...");
-
-          const retrySlug = generateSlug(
-            profileData.businessName,
-            profileData.fullName,
+          console.warn(
+            "[handleSubmitProfile] slug collision — retrying with suffix...",
           );
+
+          const suffix = Math.random().toString(36).slice(2, 6);
+          const retrySlug = `${generateSlug(profileData.businessName, profileData.fullName)}-${suffix}`;
+
           const { data: retryInsert, error: retryError } = await supabase
             .from("providers")
             .insert({ ...providerPayload, slug: retrySlug })
@@ -417,11 +448,16 @@ const ProviderOnboarding = () => {
           }
 
           await insertRelatedData(profileData, retryInsert.id as string);
+          await sendProfileReceivedEmail(
+            profileData.email,
+            profileData.fullName,
+          );
           showSuccess(
-            "Profile submitted",
-            "Your profile is now live on ZimServ!",
+            "Profile submitted!",
+            "Check your email for instructions on how to access your dashboard.",
           );
           sessionStorage.removeItem(STEP_KEY);
+          navigate("/provider/login");
           return;
         }
 
@@ -445,8 +481,13 @@ const ProviderOnboarding = () => {
 
       const providerId = providerInsert.id as string;
       await insertRelatedData(profileData, providerId);
-      showSuccess("Profile submitted", "Your profile is now live on ZimServ!");
+      await sendProfileReceivedEmail(profileData.email, profileData.fullName);
+      showSuccess(
+        "Profile submitted!",
+        "Check your email for instructions on how to access your dashboard.",
+      );
       sessionStorage.removeItem(STEP_KEY);
+      navigate("/provider/login");
     } catch (err) {
       console.error("Error submitting provider profile:", err);
       showError(
@@ -461,7 +502,7 @@ const ProviderOnboarding = () => {
     profileData: OnboardingData,
     providerId: string,
   ) => {
-    // ── Services ────────────────────────────────────────────────────────────
+    // ── Services ─────────────────────────────────────────────────────────────
     if (profileData.selectedServices.length > 0) {
       const servicesPayload = profileData.selectedServices.map((svc) => ({
         provider_id: providerId,
@@ -487,7 +528,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── Service areas ────────────────────────────────────────────────────────
+    // ── Service areas ─────────────────────────────────────────────────────────
     if (profileData.areas.length > 0) {
       const areasPayload = profileData.areas.map((suburb) => ({
         provider_id: providerId,
@@ -508,8 +549,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── Profile photo ────────────────────────────────────────────────────────
-    // Upload → insert into provider_media → update providers.profile_image_url
+    // ── Profile photo ─────────────────────────────────────────────────────────
     if (profileData.profilePhoto) {
       const path = await uploadFile(
         profileData.profilePhoto,
@@ -518,25 +558,22 @@ const ProviderOnboarding = () => {
       );
 
       if (path) {
-        // Resolve bare key → public URL
         const { data: urlData } = supabase.storage
           .from("provider-media")
           .getPublicUrl(path);
         const publicUrl = urlData.publicUrl;
 
-        // 1) Insert into provider_media
         const { error: mediaError } = await supabase
           .from("provider_media")
           .insert({
             provider_id: providerId,
             media_type: "profile_photo",
-            file_path: path, // bare key stored
+            file_path: path,
           });
         if (mediaError) {
           console.error("Error inserting profile_photo media:", mediaError);
         }
 
-        // 2) Save public URL to providers.profile_image_url
         const { error: profileImgError } = await supabase
           .from("providers")
           .update({ profile_image_url: publicUrl })
@@ -551,7 +588,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── Portfolio images ─────────────────────────────────────────────────────
+    // ── Portfolio images ──────────────────────────────────────────────────────
     if (profileData.portfolioFiles.length > 0) {
       const portfolioPayload: {
         provider_id: string;
@@ -588,7 +625,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── License files ────────────────────────────────────────────────────────
+    // ── License files ─────────────────────────────────────────────────────────
     if (profileData.licenseFiles.length > 0) {
       const licensePayload: {
         provider_id: string;
@@ -625,10 +662,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── ID document ──────────────────────────────────────────────────────────
-    // Uploaded to: providers/<providerId>/ID/<uuid>.<ext>
-    // Stored in:   provider_media as media_type = "id_document"
-    // ID document
+    // ── ID document ───────────────────────────────────────────────────────────
     if (profileData.idFile) {
       const path = await uploadFile(
         profileData.idFile,

@@ -16,6 +16,7 @@ import PageHeader from "../../components/Admin/PageHeader";
 import StatCard from "../../components/Admin/StatCard";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
+import { useToast } from "../../contexts/ToastContext";
 
 export type Application = {
   id: string;
@@ -115,6 +116,7 @@ const SkeletonCard = () => (
 
 const AdminApplications = () => {
   const navigate = useNavigate();
+  const { showSuccess, showError } = useToast();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFilter, setShowFilter] = useState(false);
@@ -196,7 +198,7 @@ const AdminApplications = () => {
         .single();
 
       if (error) {
-        alert("Failed to update application status");
+        showError("Update failed", "Failed to update application status.");
         return;
       }
 
@@ -212,16 +214,21 @@ const AdminApplications = () => {
           },
         );
         if (functionError) {
-          alert(
+          showError(
+            "Invite failed",
             "Application approved but failed to send invitation email. Please send manually.",
           );
         } else {
-          alert(
-            `Application approved! Invitation email sent to ${selectedApplication.email}`,
+          showSuccess(
+            "Application approved",
+            `Invitation email sent to ${selectedApplication.email}.`,
           );
         }
       } else {
-        alert("Application rejected successfully.");
+        showSuccess(
+          "Application rejected",
+          "The application has been rejected.",
+        );
       }
 
       setApplications((prev) =>
@@ -234,7 +241,7 @@ const AdminApplications = () => {
       setShowStatusModal(false);
       setSelectedApplication(null);
     } catch (err) {
-      alert("An unexpected error occurred");
+      showError("Unexpected error", "An unexpected error occurred.");
     } finally {
       setIsUpdating(false);
     }
@@ -528,35 +535,17 @@ const AdminApplications = () => {
           gap: 8px;
         }
 
-        .app-card-stat {
-          flex: 1;
-          text-align: center;
-        }
-
+        .app-card-stat { flex: 1; text-align: center; }
         .app-card-stat-label {
-          font-size: 11px;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 4px;
+          font-size: 11px; color: var(--text-secondary);
+          text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
         }
+        .app-card-stat-value { font-size: 13px; font-weight: 700; color: var(--text-primary); }
 
-        .app-card-stat-value {
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-
-        .app-card-actions {
-          display: flex;
-          gap: 8px;
-        }
-
+        .app-card-actions { display: flex; gap: 8px; }
         .app-card-actions .action-btn {
-          flex: 1;
-          justify-content: center;
-          padding: 10px 8px;
-          font-size: 13px;
+          flex: 1; justify-content: center;
+          padding: 10px 8px; font-size: 13px;
         }
 
         /* ── Empty State ── */
@@ -640,11 +629,8 @@ const AdminApplications = () => {
           .toolbar-left { flex-direction: column; }
           .search-container { max-width: 100%; }
           .filter-btn { width: 100%; justify-content: center; }
-
-          /* Hide table, show cards */
           .table-card { display: none; }
           .mobile-cards { display: flex; }
-
           .modal-actions { flex-direction: column-reverse; }
           .btn-modal { width: 100%; }
         }
@@ -890,7 +876,6 @@ const AdminApplications = () => {
           ) : (
             filteredApplications.map((app) => (
               <div key={app.id} className="app-card">
-                {/* Name + email + status */}
                 <div className="app-card-header">
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <h3 className="app-card-name">{app.full_name}</h3>
@@ -910,7 +895,6 @@ const AdminApplications = () => {
                   </div>
                 </div>
 
-                {/* Category + city */}
                 <div className="app-card-meta">
                   <div className="app-card-meta-item">
                     <Briefcase size={13} strokeWidth={2} />
@@ -922,7 +906,6 @@ const AdminApplications = () => {
                   </div>
                 </div>
 
-                {/* Stats row */}
                 <div className="app-card-stats">
                   <div className="app-card-stat">
                     <div className="app-card-stat-label">Experience</div>
@@ -947,7 +930,6 @@ const AdminApplications = () => {
                   </div>
                 </div>
 
-                {/* Actions */}
                 <div className="app-card-actions">
                   <button
                     className="action-btn view"

@@ -47,25 +47,51 @@ interface PendingEdit {
   auto_applied_at?: string;
 }
 
-// ── File helpers (same idea as AdminApplicationDetails) ──────────────────────
+// ── File helpers ─────────────────────────────────────────────────────────────
 
 const PROVIDER_BUCKET = "provider-media";
+const APPLICATION_BUCKET = "verification-documents"; // ← ADD
 
-function getStoragePath(rawUrl: string): string {
-  const marker = `/${PROVIDER_BUCKET}/`;
+function getStoragePath(bucket: string, rawUrl: string): string {
+  const marker = `/${bucket}/`;
   const idx = rawUrl.indexOf(marker);
   if (idx !== -1) return rawUrl.slice(idx + marker.length).split("?")[0];
   return rawUrl.split("?")[0];
 }
 
 function getPublicUrl(rawUrl: string): string {
-  const path = getStoragePath(rawUrl);
+  const path = getStoragePath(PROVIDER_BUCKET, rawUrl);
   const { data } = supabase.storage.from(PROVIDER_BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }
 
-function getFileName(rawUrl: string): string {
-  return getStoragePath(rawUrl).split("/").pop() || "document";
+function getApplicationPublicUrl(rawUrl: string): string {
+  // Strip any existing full URL — extract just the bare filename/path
+  // e.g. "https://.../verification-documents/abc.png" → "abc.png"
+  // e.g. "abc.png" → "abc.png"
+  const marker = `/${APPLICATION_BUCKET}/`;
+  const idx = rawUrl.indexOf(marker);
+  const path =
+    idx !== -1
+      ? rawUrl.slice(idx + marker.length).split("?")[0]
+      : rawUrl.split("?")[0]; // bare path, use as-is
+
+  const { data } = supabase.storage.from(APPLICATION_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function getApplicationFileName(rawUrl: string): string {
+  const marker = `/${APPLICATION_BUCKET}/`;
+  const idx = rawUrl.indexOf(marker);
+  const path =
+    idx !== -1
+      ? rawUrl.slice(idx + marker.length).split("?")[0]
+      : rawUrl.split("?")[0];
+  return path.split("/").pop() || "document";
+}
+
+function getFileName(bucket: string, rawUrl: string): string {
+  return getStoragePath(bucket, rawUrl).split("/").pop() || "document";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,7 +141,7 @@ const AdminProviderDetails = () => {
       const profileImageUrl: string | undefined =
         providerData.profile_image_url || undefined;
 
-      // 3) Pending edits — single fetch, single setState
+      // 3) Pending edits
       const { data: editsData } = await supabase
         .from("provider_edit_requests")
         .select("*")
@@ -124,7 +150,7 @@ const AdminProviderDetails = () => {
         .order("requested_at", { ascending: false });
       setPendingEdits(editsData || []);
 
-      // 4) Parallel fetch: services, areas, portfolio photos, verification docs in provider_media
+      // 4) Parallel fetch
       const [
         { data: servicesData },
         { data: areasData },
@@ -151,7 +177,7 @@ const AdminProviderDetails = () => {
           .in("media_type", ["certificate", "license", "id_document"]),
       ]);
 
-      // 4b) Application row to get verification_file_url
+      // 4b) Application row
       const { data: applicationData } = await supabase
         .from("provider_applications")
         .select("*")
@@ -160,25 +186,21 @@ const AdminProviderDetails = () => {
         .limit(1)
         .single();
 
-      // 5) Build provider view-model
+      // 5) Build view-model
       const name = providerData.business_name || providerData.full_name;
 
-      // Provider media docs (normalize path→public URL)
+      // Provider media docs → provider-media bucket
       const mediaDocuments =
-        documentsData?.map((d: any) => {
-          const url = getPublicUrl(d.file_path);
+        documentsData?.map((d: any) => ({
+          source: "provider_media",
+          name: formatMediaType(d.media_type),
+          status: d.is_verified ? "Verified" : "Pending",
+          uploadedAt: d.uploaded_at ? new Date(d.uploaded_at) : new Date(),
+          url: getPublicUrl(d.file_path),
+          fileName: getFileName(PROVIDER_BUCKET, d.file_path),
+        })) ?? [];
 
-          return {
-            source: "provider_media",
-            name: formatMediaType(d.media_type),
-            status: d.is_verified ? "Verified" : "Pending",
-            uploadedAt: d.uploaded_at ? new Date(d.uploaded_at) : new Date(),
-            url,
-            fileName: getFileName(d.file_path),
-          };
-        }) ?? [];
-
-      // Application verification document (normalize like AdminApplicationDetails)
+      // Application doc → verification-documents bucket ← FIXED
       const applicationDocuments = applicationData?.verification_file_url
         ? [
             {
@@ -193,8 +215,12 @@ const AdminProviderDetails = () => {
               uploadedAt: applicationData.created_at
                 ? new Date(applicationData.created_at)
                 : new Date(),
-              url: getPublicUrl(applicationData.verification_file_url),
-              fileName: getFileName(applicationData.verification_file_url),
+              url: getApplicationPublicUrl(
+                applicationData.verification_file_url,
+              ),
+              fileName: getApplicationFileName(
+                applicationData.verification_file_url,
+              ),
             },
           ]
         : [];
@@ -229,11 +255,7 @@ const AdminProviderDetails = () => {
           ? new Date(providerData.last_active_at)
           : new Date(providerData.created_at),
         profileImage: profileImageUrl || getDefaultAvatar(name),
-        photos:
-          photosData?.map((p: any) => {
-            const url = getPublicUrl(p.file_path);
-            return url;
-          }) ?? [],
+        photos: photosData?.map((p: any) => getPublicUrl(p.file_path)) ?? [],
         documents: [...mediaDocuments, ...applicationDocuments],
         analytics: {
           profileViews: providerData.profile_views ?? 0,
@@ -273,16 +295,73 @@ const AdminProviderDetails = () => {
         data: { user },
       } = await supabase.auth.getUser();
 
+      // AFTER — strips services before updating providers
+      const { services: _services, ...scalarFields } =
+        editRequest.pending_review_fields;
+
       const { error: updateError } = await supabase
         .from("providers")
         .update({
-          ...editRequest.pending_review_fields,
+          ...scalarFields,
           updated_at: new Date().toISOString(),
           reviewed_by: user?.id,
         })
         .eq("id", provider.id);
       if (updateError) throw updateError;
 
+      // 2. Handle reviewed services
+      const reviewedServices = editRequest.pending_review_fields?.services;
+      if (reviewedServices && reviewedServices.length > 0) {
+        // 2a. Find which services are NEW (not already in provider's subcategories)
+        const existing = new Set(
+          (provider.subcategories ?? []).map((s: string) =>
+            s.toLowerCase().trim(),
+          ),
+        );
+        const newServices = reviewedServices.filter(
+          (s: any) => !existing.has((s.name ?? "").toLowerCase().trim()),
+        );
+
+        // 2b. Insert new services into master services table
+        if (newServices.length > 0) {
+          const { data: categoryData } = await supabase
+            .from("categories")
+            .select("id")
+            .ilike("name", provider.category)
+            .single();
+
+          if (categoryData?.id) {
+            const { error: masterServiceError } = await supabase
+              .from("services")
+              .upsert(
+                newServices.map((s: any) => ({
+                  name: s.name,
+                  category_id: categoryData.id,
+                  is_active: true,
+                  is_custom: true,
+                  display_order: 0,
+                })),
+                { onConflict: "category_id,name" },
+              );
+            if (masterServiceError) throw masterServiceError;
+          }
+        }
+
+        // 2c. Upsert ALL reviewed services into provider_services
+        const { error: servicesError } = await supabase
+          .from("provider_services")
+          .upsert(
+            reviewedServices.map((s: any) => ({
+              provider_id: provider.id,
+              service_name: s.name,
+              price: s.price ? parseFloat(s.price) : null,
+            })),
+            { onConflict: "provider_id,service_name" },
+          );
+        if (servicesError) throw servicesError;
+      }
+
+      // 3. Mark edit request as approved
       const { error: approveError } = await supabase
         .from("provider_edit_requests")
         .update({
@@ -361,9 +440,55 @@ const AdminProviderDetails = () => {
           status: newStatus,
           reviewed_at: new Date().toISOString(),
           reviewed_by: user?.id,
+          ...(newStatus === "active" && {
+            activated_at: new Date().toISOString(),
+          }),
         })
         .eq("id", provider.id);
       if (error) throw error;
+
+      // ── Seed services into master table when activating a new provider ──
+      if (newStatus === "active" && provider.subcategories?.length > 0) {
+        // Get category_id for this provider's category
+        const { data: categoryData } = await supabase
+          .from("categories")
+          .select("id")
+          .ilike("name", provider.category)
+          .single();
+
+        if (categoryData?.id) {
+          // Check which services don't exist yet in the master services table
+          const { data: existingServices } = await supabase
+            .from("services")
+            .select("name")
+            .eq("category_id", categoryData.id)
+            .in("name", provider.subcategories);
+
+          const existingNames = new Set(
+            (existingServices ?? []).map((s: any) =>
+              s.name.toLowerCase().trim(),
+            ),
+          );
+
+          const newServices = provider.subcategories.filter(
+            (name: string) => !existingNames.has(name.toLowerCase().trim()),
+          );
+
+          if (newServices.length > 0) {
+            await supabase.from("services").upsert(
+              newServices.map((name: string) => ({
+                name,
+                category_id: categoryData.id,
+                is_active: true,
+                is_custom: true,
+                display_order: 0,
+              })),
+              { onConflict: "category_id,name" },
+            );
+          }
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
 
       setProvider({
         ...provider,
@@ -372,12 +497,37 @@ const AdminProviderDetails = () => {
         _rawData: { ...provider._rawData, status: newStatus },
       });
 
-      showSuccess(
-        "Success",
-        `Provider ${
-          newStatus === "active" ? "activated" : "suspended"
-        } successfully`,
-      );
+      // ── Send "profile live" email when activating ──────────────
+      if (newStatus === "active") {
+        const slug = provider._rawData.slug || provider.id;
+        const { error: fnError } = await supabase.functions.invoke(
+          "send-profile-live-email",
+          {
+            body: {
+              email: provider.email,
+              fullName: provider.name,
+              slug,
+            },
+          },
+        );
+        if (fnError) {
+          showError(
+            "Email failed",
+            "Provider activated but failed to send notification email.",
+          );
+        } else {
+          showSuccess(
+            "Provider activated",
+            `Profile is now live. Notification sent to ${provider.email}.`,
+          );
+        }
+      } else {
+        showSuccess(
+          "Provider suspended",
+          "Provider has been suspended successfully.",
+        );
+      }
+
       setShowSuspendModal(false);
     } catch (error: any) {
       showError("Error", error.message || "Failed to update provider status");
@@ -452,7 +602,7 @@ const AdminProviderDetails = () => {
             <div className="card">
               <h2 className="card-title">
                 <MapPin size={20} strokeWidth={2.5} />
-                Services & Coverage
+                Services &amp; Coverage
               </h2>
               <div style={{ marginBottom: "20px" }}>
                 <div className="info-label" style={{ marginBottom: "12px" }}>
@@ -552,7 +702,7 @@ const AdminProviderDetails = () => {
               <div className="info-row">
                 <span className="info-label">End Date</span>
                 <span className="info-value">
-                  {provider.subscription.startDate.toLocaleDateString("en-GB", {
+                  {provider.subscription.endDate.toLocaleDateString("en-GB", {
                     day: "2-digit",
                     month: "2-digit",
                     year: "numeric",
@@ -627,10 +777,7 @@ const AdminProviderDetails = () => {
                     <FileText size={18} strokeWidth={2.5} />
                   </div>
                   <div className="document-info">
-                    <h4>
-                      {doc.name}
-                      {doc.source === "application" && " (from application)"}
-                    </h4>
+                    <h4>{doc.name}</h4>
                     <div className="document-date">
                       Uploaded {doc.uploadedAt.toLocaleDateString()}
                     </div>

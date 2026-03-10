@@ -121,7 +121,7 @@ const HowItWorks = () => {
 
         .hiw-title {
           font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-          font-size: 40px;
+          font-size: 25px;
           font-weight: 800;
           color: var(--color-primary);
           margin-bottom: 14px;
@@ -130,7 +130,7 @@ const HowItWorks = () => {
         }
 
         .hiw-subtitle {
-          font-size: 16px;
+          font-size: 15px;
           color: var(--color-text-secondary);
           max-width: 560px;
           margin: 0 auto;
@@ -260,7 +260,7 @@ const HowItWorks = () => {
         @media (max-width: 1200px) {
           .hiw-section { padding: 72px 0; }
           .hiw-steps   { gap: 20px; }
-          .hiw-title   { font-size: 36px; }
+          .hiw-title   { font-size: 25px; }
         }
 
         @media (max-width: 1024px) {
@@ -274,7 +274,7 @@ const HowItWorks = () => {
           .hiw-container { padding: 0 24px; }
           .hiw-steps     { grid-template-columns: repeat(2, 1fr); gap: 40px 20px; }
           .hiw-line      { display: none; }
-          .hiw-title     { font-size: 32px; }
+          .hiw-title     { font-size: 22px; }
           .hiw-subtitle  { font-size: 15px; }
           .hiw-header    { margin-bottom: 48px; }
         }
@@ -282,7 +282,7 @@ const HowItWorks = () => {
         @media (max-width: 640px) {
           .hiw-section { padding: 52px 0; }
           .hiw-container { padding: 0 20px; }
-          .hiw-title { font-size: 28px; letter-spacing: -0.5px; }
+          .hiw-title { font-size: 22px; letter-spacing: -0.5px; }
           .hiw-subtitle { font-size: 14px; }
           .hiw-header { margin-bottom: 40px; }
 
@@ -296,7 +296,7 @@ const HowItWorks = () => {
           .hiw-section   { padding: 44px 0; }
           .hiw-container { padding: 0 16px; }
           .hiw-steps     { grid-template-columns: 1fr; gap: 36px; }
-          .hiw-title     { font-size: 26px; }
+          .hiw-title     { font-size: 20px; }
 
           .hiw-card      { padding: 36px 20px 28px; }
           .hiw-icon-wrap { width: 64px; height: 64px; margin-bottom: 16px; }

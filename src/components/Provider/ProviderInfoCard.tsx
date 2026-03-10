@@ -1,23 +1,16 @@
 // src/components/Provider/ProviderInfoCard.tsx
-import {
-  Phone,
-  MessageCircle,
-  MapPin,
-  Star,
-  CheckCircle,
-  Briefcase,
-} from "lucide-react";
+import { Phone, MessageCircle, MapPin, Star, CheckCircle } from "lucide-react";
 import type { ProviderPublic } from "../../types/provider";
 
 interface ProviderInfoCardProps {
   provider: ProviderPublic;
-  currentUser: any; // ✅ added
-  onContactClick: (action: () => void) => void; // ✅ added
+  currentUser: any;
+  onContactClick: (action: () => void) => void;
 }
 
 const ProviderInfoCard = ({
   provider,
-  onContactClick, // ✅ added
+  onContactClick,
 }: ProviderInfoCardProps) => {
   const handleCall = () => {
     if (!provider.contact.phone) return;
@@ -40,22 +33,27 @@ const ProviderInfoCard = ({
     <>
       <style>{`
         /* ══════════════════════════════════════════
-           PROVIDER INFO CARD
+           PROVIDER INFO CARD — PREMIUM REDESIGN
         ══════════════════════════════════════════ */
         .pic {
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-xl);
+          border-radius: 24px;
           overflow: hidden;
-          box-shadow: var(--shadow-md);
+          box-shadow: 0 4px 24px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
+          transition: box-shadow 0.3s ease;
+        }
+
+        .pic:hover {
+          box-shadow: 0 8px 40px rgba(0,0,0,0.11), 0 2px 8px rgba(0,0,0,0.06);
         }
 
         /* ── HERO IMAGE ── */
         .pic-hero {
           position: relative;
-          height: 300px;
+          height: 340px;
           overflow: hidden;
-          background: var(--color-bg-soft);
+          background: #f5f4f2;
         }
 
         .pic-hero-img {
@@ -64,30 +62,25 @@ const ProviderInfoCard = ({
           object-fit: cover;
           object-position: center top;
           display: block;
-          transition: transform 0.5s ease;
+          transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
 
         .pic:hover .pic-hero-img {
-          transform: scale(1.03);
+          transform: scale(1.04);
         }
 
-        .pic-hero::after {
-          content: '';
+        .pic-hero-gradient {
           position: absolute;
           inset: 0;
-          background: linear-gradient(
-            to bottom,
-            transparent 30%,
-            rgba(15, 12, 9, 0.55) 100%
-          );
+          background: linear-gradient(to bottom, rgba(0,0,0,0) 60%, rgba(0,0,0,0.18) 100%);
           pointer-events: none;
         }
 
-        .pic-hero-badges {
+        .pic-hero-top {
           position: absolute;
-          top: 12px;
-          left: 12px;
-          right: 12px;
+          top: 14px;
+          left: 14px;
+          right: 14px;
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
@@ -95,28 +88,31 @@ const ProviderInfoCard = ({
         }
 
         .pic-cat-badge {
-          padding: 5px 12px;
+          padding: 6px 14px;
           background: var(--color-accent);
           color: #fff;
-          border-radius: var(--radius-full);
-          font-size: 10.5px;
-          font-weight: 700;
-          letter-spacing: 0.6px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 800;
+          letter-spacing: 1px;
           text-transform: uppercase;
+          box-shadow: 0 2px 12px rgba(236,111,22,0.4);
         }
 
         .pic-verified-pill {
           display: flex;
           align-items: center;
           gap: 5px;
-          padding: 5px 10px;
-          background: rgba(15, 12, 9, 0.5);
-          backdrop-filter: blur(8px);
+          padding: 6px 12px;
+          background: rgba(10,10,10,0.45);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
           color: #fff;
-          border-radius: var(--radius-full);
+          border-radius: 999px;
           font-size: 10.5px;
-          font-weight: 600;
-          border: 1px solid rgba(255,255,255,0.15);
+          font-weight: 700;
+          border: 1px solid rgba(255,255,255,0.18);
+          letter-spacing: 0.3px;
         }
 
         .pic-verified-pill svg { color: #4ade80; }
@@ -129,290 +125,316 @@ const ProviderInfoCard = ({
           display: flex;
           align-items: center;
           gap: 5px;
-          padding: 6px 12px;
-          background: rgba(15, 12, 9, 0.5);
-          backdrop-filter: blur(8px);
+          padding: 7px 13px;
+          background: rgba(10,10,10,0.45);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
           color: #fff;
-          border-radius: var(--radius-full);
+          border-radius: 999px;
           font-size: 13px;
-          font-weight: 700;
-          border: 1px solid rgba(255,255,255,0.15);
+          font-weight: 800;
+          border: 1px solid rgba(255,255,255,0.18);
         }
 
         .pic-hero-rating-ct {
           font-size: 11px;
           font-weight: 400;
-          opacity: 0.75;
+          opacity: 0.72;
         }
 
-        /* ── IDENTITY ── */
+        /* ── IDENTITY (below hero) ── */
         .pic-identity {
           padding: 18px 20px 16px;
-          border-bottom: 1px solid var(--color-border);
-        }
-
-        .pic-name-row {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 4px;
+          border-bottom: 1.5px solid var(--color-border);
         }
 
         .pic-name {
           font-family: var(--font-primary);
-          font-size: 20px;
+          font-size: 21px;
           font-weight: 800;
           color: var(--color-primary);
-          line-height: 1.2;
           letter-spacing: -0.4px;
-          flex: 1;
-        }
-
-        .pic-price-block {
-          text-align: right;
-          flex-shrink: 0;
-        }
-
-        .pic-price-from {
-          display: block;
-          font-size: 9.5px;
-          font-weight: 600;
-          color: var(--color-text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          line-height: 1;
-        }
-
-        .pic-price-val {
-          display: block;
-          font-size: 20px;
-          font-weight: 800;
-          color: var(--color-accent);
-          letter-spacing: -0.5px;
           line-height: 1.2;
-          margin-top: 1px;
+          margin-bottom: 4px;
         }
 
         .pic-tagline {
           font-size: 13px;
           color: var(--color-text-secondary);
-          line-height: 1.45;
-          margin-bottom: 12px;
+          font-weight: 500;
+          margin-bottom: 0;
         }
 
-        .pic-stars-row {
+        /* ── STATS ROW ── */
+        .pic-stats-strip {
           display: flex;
-          align-items: center;
-          gap: 7px;
-          margin-bottom: 12px;
+          align-items: stretch;
+          border-bottom: 1.5px solid var(--color-border);
         }
 
-        .pic-stars { display: flex; gap: 2px; }
+        .pic-stat-cell {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 13px 10px;
+          gap: 2px;
+          position: relative;
+        }
 
-        .pic-rating-num {
-          font-size: 14px;
-          font-weight: 700;
+        .pic-stat-cell + .pic-stat-cell::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 20%;
+          height: 60%;
+          width: 1px;
+          background: var(--color-border);
+        }
+
+        .pic-stat-val {
+          font-size: 15px;
+          font-weight: 800;
           color: var(--color-primary);
+          letter-spacing: -0.3px;
+          line-height: 1;
         }
 
-        .pic-rating-ct {
-          font-size: 12px;
-          color: var(--color-text-secondary);
-        }
-
-        .pic-stats {
-          display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
-        }
-
-        .pic-stat-chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-          padding: 5px 10px;
-          background: var(--color-bg-section);
-          border: 1px solid var(--color-border);
-          border-radius: var(--radius-sm);
-          font-size: 12px;
+        .pic-stat-label {
+          font-size: 10px;
           font-weight: 600;
           color: var(--color-text-secondary);
-          transition: border-color 0.2s, background 0.2s;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-top: 3px;
         }
 
-        .pic-stat-chip svg { color: var(--color-accent); }
+        .pic-stat-cell svg {
+          color: var(--color-accent);
+          margin-bottom: 1px;
+        }
 
         /* ── CONTACT BUTTONS ── */
         .pic-contact {
-          padding: 14px 20px;
-          border-bottom: 1px solid var(--color-border);
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
-        }
-
-        .pic-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 7px;
-          padding: 12px 14px;
-          border-radius: var(--radius-md);
-          font-family: var(--font-primary);
-          font-size: 13px;
-          font-weight: 700;
-          cursor: pointer;
-          border: none;
-          transition:
-            background var(--transition-fast),
-            transform var(--transition-fast),
-            box-shadow var(--transition-fast),
-            border-color var(--transition-fast),
-            color var(--transition-fast);
-          white-space: nowrap;
-        }
-
-        .pic-btn:disabled {
-          opacity: 0.45;
-          cursor: default;
-          transform: none !important;
-          box-shadow: none !important;
+          padding: 16px 18px;
+          border-bottom: 1.5px solid var(--color-border);
+          display: flex;
+          flex-direction: column;
+          gap: 9px;
         }
 
         .pic-btn-call {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 9px;
+          width: 100%;
+          padding: 14px 20px;
+          border-radius: 12px;
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 800;
+          cursor: pointer;
+          border: none;
           background: var(--color-accent);
           color: #fff;
-          box-shadow: 0 3px 12px rgba(236,111,22,0.32);
+          letter-spacing: 0.2px;
+          box-shadow: 0 4px 16px rgba(236,111,22,0.36), 0 1px 4px rgba(236,111,22,0.2);
+          transition: all 0.2s ease;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .pic-btn-call::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 60%);
+          pointer-events: none;
         }
 
         .pic-btn-call:hover:not(:disabled) {
-          background: var(--color-accent-hover);
+          background: var(--color-accent-hover, #d4610e);
           transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(236,111,22,0.44);
+          box-shadow: 0 8px 24px rgba(236,111,22,0.46), 0 2px 8px rgba(236,111,22,0.24);
         }
 
-        .pic-btn-call:active:not(:disabled) { transform: scale(0.97); }
+        .pic-btn-call:active:not(:disabled) {
+          transform: scale(0.98);
+        }
+
+        .pic-btn-call:disabled {
+          opacity: 0.45;
+          cursor: default;
+          transform: none;
+          box-shadow: none;
+        }
 
         .pic-btn-wa {
-          background: var(--color-bg-section);
-          color: var(--color-primary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 9px;
+          width: 100%;
+          padding: 13px 20px;
+          border-radius: 12px;
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+          background: transparent;
           border: 1.5px solid var(--color-border);
+          color: var(--color-primary);
+          transition: all 0.2s ease;
+          letter-spacing: 0.1px;
         }
 
         .pic-btn-wa:hover:not(:disabled) {
           background: #f0fdf4;
           border-color: #16a34a;
           color: #16a34a;
-          transform: translateY(-2px);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(22,163,74,0.15);
+        }
+
+        .pic-btn-wa:active:not(:disabled) { transform: scale(0.98); }
+
+        .pic-btn-wa:disabled {
+          opacity: 0.45;
+          cursor: default;
+        }
+
+        .pic-wa-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #16a34a;
+          box-shadow: 0 0 0 0 rgba(22,163,74,0.4);
+          animation: wa-pulse 2s ease-in-out infinite;
+          flex-shrink: 0;
+        }
+
+        @keyframes wa-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0.4); }
+          50%       { box-shadow: 0 0 0 5px rgba(22,163,74,0); }
         }
 
         /* ── DETAILS BODY ── */
         .pic-body {
-          padding: 18px 20px 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
+          padding: 18px 18px 22px;
         }
 
-        .pic-section-label {
-          font-size: 10.5px;
+        .pic-location-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 10px;
+        }
+
+        .pic-location-label {
+          font-size: 10px;
           font-weight: 700;
           color: var(--color-text-secondary);
           text-transform: uppercase;
-          letter-spacing: 0.8px;
-          margin-bottom: 8px;
-          display: flex;
-          align-items: center;
-          gap: 7px;
+          letter-spacing: 0.9px;
         }
 
-        .pic-section-label::after {
-          content: '';
+        .pic-location-line {
           flex: 1;
           height: 1px;
           background: var(--color-border);
         }
 
-        .pic-detail-row {
+        .pic-city-row {
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           gap: 10px;
-          padding: 10px 12px;
+          padding: 11px 14px;
           background: var(--color-bg-section);
           border: 1px solid var(--color-border);
-          border-radius: var(--radius-md);
-          margin-bottom: 6px;
+          border-radius: 12px;
+          margin-bottom: 10px;
           transition: border-color 0.2s, background 0.2s;
         }
 
-        .pic-detail-row:last-child { margin-bottom: 0; }
-
-        .pic-detail-row:hover {
+        .pic-city-row:hover {
           border-color: rgba(236,111,22,0.3);
           background: var(--color-accent-soft);
         }
 
-        .pic-detail-row svg {
-          color: var(--color-accent);
-          flex-shrink: 0;
-          margin-top: 1px;
-        }
-
-        .pic-detail-label {
-          font-size: 10.5px;
-          font-weight: 600;
-          color: var(--color-text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-          margin-bottom: 2px;
-        }
-
-        .pic-detail-value {
-          font-size: 13.5px;
-          color: var(--color-primary);
-          font-weight: 500;
-          line-height: 1.4;
-        }
-
-        /* Service areas block */
-        .pic-areas-wrap {
-          margin-top: 10px;
-        }
-
-        .pic-areas-label-row {
+        .pic-city-icon {
+          width: 30px;
+          height: 30px;
+          border-radius: 8px;
+          background: var(--color-accent-soft);
           display: flex;
           align-items: center;
-          gap: 6px;
-          margin-bottom: 6px;
+          justify-content: center;
+          color: var(--color-accent);
+          flex-shrink: 0;
+        }
+
+        .pic-city-meta {
+          flex: 1;
+        }
+
+        .pic-city-lbl {
+          font-size: 10px;
+          font-weight: 700;
+          color: var(--color-text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          margin-bottom: 1px;
+        }
+
+        .pic-city-val {
+          font-size: 13.5px;
+          color: var(--color-primary);
+          font-weight: 600;
         }
 
         .pic-areas-label {
-          font-size: 10.5px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 10px;
+          font-weight: 700;
           color: var(--color-text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.6px;
+          margin-bottom: 8px;
+          margin-top: 14px;
+        }
+
+        .pic-areas-label svg {
+          color: var(--color-accent);
         }
 
         .pic-areas {
           display: flex;
           flex-wrap: wrap;
-          gap: 8px;
+          gap: 7px;
         }
 
         .pic-area-tag {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          padding: 5px 10px;
+          padding: 5px 11px;
           background: var(--color-bg);
           border-radius: 999px;
           border: 1px solid var(--color-border);
-          font-size: 11.5px;
+          font-size: 12px;
           font-weight: 600;
           color: var(--color-text-secondary);
-          max-width: 100%;
+          transition: border-color 0.2s, background 0.2s, color 0.2s;
+        }
+
+        .pic-area-tag:hover {
+          border-color: var(--color-accent);
+          background: var(--color-accent-soft);
+          color: var(--color-accent);
         }
 
         .pic-area-dot {
@@ -430,22 +452,24 @@ const ProviderInfoCard = ({
         }
 
         @media (max-width: 640px) {
-          .pic-hero { height: 200px; }
-          .pic-contact { grid-template-columns: 1fr; }
+          .pic-hero { height: 220px; }
           .pic-name { font-size: 18px; }
-          .pic-name-row { flex-wrap: wrap; }
+          .pic-btn-call, .pic-btn-wa { font-size: 13px; padding: 12px 16px; }
+          .pic-stats-strip { gap: 0; }
         }
       `}</style>
 
       <div className="pic">
-        {/* Hero image — unchanged */}
+        {/* Hero */}
         <div className="pic-hero">
           <img
-            src={provider.gallery[0]?.url}
+            src={provider.heroImageUrl || provider.gallery[0]?.url}
             alt={provider.name}
             className="pic-hero-img"
           />
-          <div className="pic-hero-badges">
+          <div className="pic-hero-gradient" />
+
+          <div className="pic-hero-top">
             <span className="pic-cat-badge">{provider.category}</span>
             {provider.verified && (
               <span className="pic-verified-pill">
@@ -454,6 +478,7 @@ const ProviderInfoCard = ({
               </span>
             )}
           </div>
+
           <div className="pic-hero-rating">
             <Star size={13} fill="#F59E0B" strokeWidth={0} />
             {provider.rating.toFixed(1)}
@@ -461,94 +486,97 @@ const ProviderInfoCard = ({
           </div>
         </div>
 
-        {/* Identity — unchanged */}
+        {/* Identity — name & tagline below the image */}
         <div className="pic-identity">
-          <div className="pic-name-row">
-            <h2 className="pic-name">{provider.name}</h2>
-            {provider.pricing && <div className="pic-price-block" />}
-          </div>
+          <div className="pic-name">{provider.name}</div>
           {provider.tagline && (
-            <p className="pic-tagline">{provider.tagline}</p>
+            <div className="pic-tagline">{provider.tagline}</div>
           )}
-          <div className="pic-stars-row">
-            <div className="pic-stars">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Star
-                  key={s}
-                  size={13}
-                  fill={s <= Math.floor(provider.rating) ? "#F59E0B" : "none"}
-                  stroke="#F59E0B"
-                  strokeWidth={1.5}
-                />
-              ))}
-            </div>
-            <span className="pic-rating-num">{provider.rating.toFixed(1)}</span>
-            <span className="pic-rating-ct">
-              ({provider.reviewCount} reviews)
-            </span>
+        </div>
+
+        {/* Stats strip */}
+        <div className="pic-stats-strip">
+          <div className="pic-stat-cell">
+            <Star size={13} strokeWidth={0} fill="#F59E0B" />
+            <div className="pic-stat-val">{provider.rating.toFixed(1)}</div>
+            <div className="pic-stat-label">Rating</div>
           </div>
-          <div className="pic-stats">
-            <span className="pic-stat-chip">
-              <Briefcase size={12} strokeWidth={2} />
-              {provider.yearsExperience}yr exp
-            </span>
-            {provider.stats?.jobsCompleted > 0 && (
-              <span className="pic-stat-chip">
-                <CheckCircle size={12} strokeWidth={2} />
-                {provider.stats.jobsCompleted} jobs
-              </span>
-            )}
+          <div className="pic-stat-cell">
+            <MessageCircle
+              size={13}
+              strokeWidth={2}
+              style={{ color: "var(--color-accent)" }}
+            />
+            <div className="pic-stat-val">{provider.reviewCount}</div>
+            <div className="pic-stat-label">Reviews</div>
+          </div>
+          <div className="pic-stat-cell">
+            <CheckCircle
+              size={13}
+              strokeWidth={2}
+              style={{ color: "var(--color-accent)" }}
+            />
+            <div className="pic-stat-val">
+              {provider.stats?.jobsCompleted || 0}
+            </div>
+            <div className="pic-stat-label">Jobs Done</div>
           </div>
         </div>
 
-        {/* ✅ Contact buttons — now gated by auth */}
+        {/* CTA buttons */}
         <div className="pic-contact">
           <button
-            className="pic-btn pic-btn-call"
+            className="pic-btn-call"
             onClick={() => onContactClick(handleCall)}
             disabled={!hasPhone}
           >
-            <Phone size={15} strokeWidth={2.5} />
-            {hasPhone ? "Call Now" : "No Phone"}
+            <Phone size={16} strokeWidth={2.5} />
+            {hasPhone ? "Call Now" : "No Phone Listed"}
           </button>
           <button
-            className="pic-btn pic-btn-wa"
+            className="pic-btn-wa"
             onClick={() => onContactClick(handleWhatsApp)}
             disabled={!hasWhatsapp}
           >
+            {hasWhatsapp}
             <MessageCircle size={15} strokeWidth={2.5} />
             WhatsApp
           </button>
         </div>
 
-        {/* Details body — unchanged */}
+        {/* Location */}
         <div className="pic-body">
-          <div>
-            <div className="pic-section-label">Location</div>
-            <div className="pic-detail-row">
-              <MapPin size={15} strokeWidth={2} />
-              <div>
-                <div className="pic-detail-label">Based in</div>
-                <div className="pic-detail-value">{provider.city}</div>
-              </div>
-            </div>
-            {provider.areas.length > 0 && (
-              <div className="pic-areas-wrap">
-                <div className="pic-areas-label-row">
-                  <MapPin size={12} strokeWidth={2} />
-                  <span className="pic-areas-label">Service areas</span>
-                </div>
-                <div className="pic-areas">
-                  {provider.areas.map((area, i) => (
-                    <span key={i} className="pic-area-tag">
-                      <span className="pic-area-dot" />
-                      <span className="pic-area-name">{area}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="pic-location-header">
+            <span className="pic-location-label">Location</span>
+            <div className="pic-location-line" />
           </div>
+
+          <div className="pic-city-row">
+            <div className="pic-city-icon">
+              <MapPin size={14} strokeWidth={2} />
+            </div>
+            <div className="pic-city-meta">
+              <div className="pic-city-lbl">Based in</div>
+              <div className="pic-city-val">{provider.city}</div>
+            </div>
+          </div>
+
+          {provider.areas.length > 0 && (
+            <>
+              <div className="pic-areas-label">
+                <MapPin size={11} strokeWidth={2} />
+                Service Areas
+              </div>
+              <div className="pic-areas">
+                {provider.areas.map((area, i) => (
+                  <span key={i} className="pic-area-tag">
+                    <span className="pic-area-dot" />
+                    <span className="pic-area-name">{area}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </>

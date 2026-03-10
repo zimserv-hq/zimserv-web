@@ -123,7 +123,7 @@ const ProviderCTA = () => {
 
         .pcta-headline {
           font-family: var(--font-primary);
-          font-size: 48px;
+          font-size: 30px;
           font-weight: 800;
           color: var(--color-primary);
           line-height: 1.1;
@@ -132,7 +132,7 @@ const ProviderCTA = () => {
         }
 
         .pcta-subtext {
-          font-size: 18px;
+          font-size: 16px;
           color: var(--color-text-secondary);
           line-height: 1.65;
           margin-bottom: 36px;
@@ -149,7 +149,7 @@ const ProviderCTA = () => {
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          padding: 16px 32px;
+          padding: 14px 32px;
           border: none;
           border-radius: var(--radius-full);
           font-family: var(--font-primary);
@@ -272,7 +272,7 @@ const ProviderCTA = () => {
 
         .pcta-stat-number {
           font-family: var(--font-primary);
-          font-size: 32px;
+          font-size: 20px;
           font-weight: 800;
           color: var(--color-primary);
           line-height: 1;
@@ -294,7 +294,7 @@ const ProviderCTA = () => {
         @media (max-width: 1200px) {
           .pcta-section { padding: 72px 0; }
           .pcta-inner { gap: 60px; }
-          .pcta-headline { font-size: 42px; }
+          .pcta-headline { font-size: 30px; }
         }
 
         @media (max-width: 1024px) {
@@ -312,7 +312,7 @@ const ProviderCTA = () => {
           }
 
           .pcta-eyebrow { margin: 0 auto 20px; }
-          .pcta-headline { font-size: 38px; }
+          .pcta-headline { font-size: 28px; }
           .pcta-buttons { justify-content: center; }
           .pcta-stats { justify-content: center; }
         }
@@ -320,8 +320,8 @@ const ProviderCTA = () => {
         @media (max-width: 640px) {
           .pcta-section { padding: 52px 0; }
           .pcta-container { padding: 0 20px; }
-          .pcta-headline { font-size: 32px; letter-spacing: -1px; }
-          .pcta-subtext { font-size: 16px; margin-bottom: 28px; }
+          .pcta-headline { font-size: 26px; letter-spacing: -1px; }
+          .pcta-subtext { font-size: 14px; margin-bottom: 28px; }
 
           .pcta-buttons {
             flex-direction: column;
@@ -357,7 +357,7 @@ const ProviderCTA = () => {
         @media (max-width: 480px) {
           .pcta-section { padding: 44px 0; }
           .pcta-container { padding: 0 16px; }
-          .pcta-headline { font-size: 28px; }
+          .pcta-headline { font-size: 25px; }
         }
 
         @media (prefers-reduced-motion: reduce) {

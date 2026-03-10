@@ -3,6 +3,7 @@
    ───────────────────────────────────────────── */
 
 
+
 /* ── Page Layout ───────────────────────────── */
 .onboarding-page {
   width: 100%;
@@ -112,8 +113,6 @@
   color: #fff;
 }
 
-/* ✅ removed ::before checkmark — now rendered via JSX {isCompleted ? "✓" : step.number} */
-
 .step-circle.inactive {
   background: #fff;
   border-color: var(--color-border);
@@ -198,7 +197,6 @@
   box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
-/* Disabled fields — read-only from application */
 .form-input:disabled,
 .form-select:disabled,
 .form-textarea:disabled {
@@ -237,7 +235,7 @@
 }
 
 
-/* ── Tags inline (read-only language pills) ─── */
+/* ── Tags inline ────────────────────────────── */
 .tags-inline {
   display: flex;
   flex-wrap: wrap;
@@ -345,6 +343,183 @@
 .file-input       { display: none; }
 
 
+/* ── Profile Photo Preview ──────────────────── */
+.photo-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-section);
+}
+
+.photo-thumbnail-wrap {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: 2px solid var(--color-border);
+  transition: border-color var(--transition-fast);
+}
+
+.photo-thumbnail-wrap:hover {
+  border-color: var(--color-accent);
+}
+
+.photo-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-thumbnail-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.photo-thumbnail-wrap:hover .photo-thumbnail-overlay {
+  opacity: 1;
+}
+
+.photo-preview-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.photo-file-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photo-file-size {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.photo-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.photo-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1.5px solid var(--color-border);
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: all 0.2s ease;
+}
+
+.photo-remove-btn:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+
+/* ── Photo Preview Modal ────────────────────── */
+.photo-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(6px);
+  animation: fadeIn 0.2s ease;
+}
+
+.photo-modal-content {
+  position: relative;
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+  animation: slideUp 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.photo-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: var(--color-bg-section);
+  border: 1.5px solid var(--color-border);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: all 0.2s ease;
+}
+
+.photo-modal-close:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.photo-modal-img {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--color-border);
+}
+
+.photo-modal-name {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  text-align: center;
+  word-break: break-all;
+  margin: 0;
+}
+
+
 /* ── Services Grid ──────────────────────────── */
 .services-grid {
   display: grid;
@@ -354,8 +529,9 @@
 
 .service-checkbox-item {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   padding: 12px;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -381,25 +557,6 @@
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
-}
-
-.services-count {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  margin-top: 8px;
-  font-weight: 600;
-}
-.services-count span {
-  color: var(--color-accent);
-  font-weight: 700;
-}
-
-
-/* ── Service price input ────────────────────── */
-.service-checkbox-item {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
 }
 
 .service-checkbox-row {
@@ -443,7 +600,20 @@
   border-color: var(--color-accent);
 }
 
-/* ── Custom services ────────────────────────── */
+.services-count {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.services-count span {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+
+/* ── Custom Services ────────────────────────── */
 .custom-services-header {
   display: flex;
   align-items: baseline;
@@ -550,7 +720,6 @@
   border-color: var(--color-accent);
   color: var(--color-accent);
   background: var(--color-accent-soft);
-
 }
 
 @media (max-width: 640px) {
@@ -666,21 +835,85 @@
   font-weight: 700;
 }
 
-
-/* ── License Files ──────────────────────────── */
-.license-files-list { margin-top: 12px; }
-
-.license-file-item {
-  padding: 10px 12px;
-  background: var(--color-bg-section);
-  border-radius: var(--radius-md);
-  margin-bottom: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-primary);
+.portfolio-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 
+/* ── License Files ──────────────────────────── */
+.license-files-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.license-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-bg-section);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--color-primary);
+  max-width: 100%;
+  word-break: break-all;
+}
+
+.license-file-item span {
+  flex: 1;
+  margin-right: 8px;
+}
+
+.license-file-item .custom-service-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: var(--color-text-secondary);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.license-file-item .custom-service-remove:hover {
+  background: var(--color-primary);
+}
+
+
+/* ── ID File Placeholder ────────────────────── */
+.id-file-placeholder {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: var(--color-bg-section);
+  border: 1.5px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+}
 
 
 /* ── Form Actions / Buttons ─────────────────── */
@@ -733,7 +966,6 @@
   box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
 }
 
-/* ✅ Disabled state for submit button */
 .btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -744,74 +976,12 @@
 .btn-sm {
   padding: 8px 16px;
   font-size: 13px;
-  flex: unset;               /* override flex:1 from .btn-primary */
+  flex: unset;
   box-shadow: none;
 }
 
 .btn-sm:hover:not(:disabled) {
-  transform: none;           /* no lift on small buttons */
-}
-
-
-.portfolio-remove-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: rgba(0,0,0,0.6);
-  color: #fff;
-  border: none;
-  border-radius: 999px;
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.license-files-list {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.license-file-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--color-bg-muted, #f5f5f5);
-  border: 1px solid var(--color-border, #e0e0e0);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 13px;
-  color: var(--color-text, #222);
-  max-width: 100%;
-  word-break: break-all;
-}
-
-.license-file-item span {
-  flex: 1;
-  margin-right: 8px;
-}
-
-/* Reuse look of small “x” buttons (if you want a specific tweak for this list) */
-.license-file-item .custom-service-remove {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  border: none;
-  background: var(--color-text-muted, #999);
-  color: #fff;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.license-file-item .custom-service-remove:hover {
-  background: var(--color-text, #333);
+  transform: none;
 }
 
 
@@ -831,6 +1001,16 @@
   .form-title           { font-size: 22px; }
   .form-grid-2          { grid-template-columns: 1fr; }
   .services-grid        { grid-template-columns: 1fr; }
+
+  .photo-preview-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .photo-preview-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 
   .draft-resume-banner {
     flex-direction: column;

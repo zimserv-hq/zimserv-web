@@ -355,6 +355,14 @@ export default function BecomeProviderPage(): JSX.Element {
       // Success!
       console.log("✅ Application submitted successfully!");
       console.log("Application ID:", data?.id);
+
+      // Notify admin — fire and forget, won't block the user
+      supabase.functions
+        .invoke("notify-new-application", {
+          body: { fullName: formData.fullName },
+        })
+        .catch((err) => console.warn("Admin email notification failed:", err));
+
       setSubmitSuccess(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
@@ -474,9 +482,9 @@ export default function BecomeProviderPage(): JSX.Element {
             <h1 className="success-title">Application Submitted!</h1>
             <p className="success-message">
               Thank you for applying to become a provider on ZimServ. We've
-              received your application and will review it within 2–3 business
-              days. You'll receive an email at <strong>{formData.email}</strong>{" "}
-              with next steps if approved.
+              received your application and will review it within 24 hours.
+              You'll receive an email at <strong>{formData.email}</strong> with
+              next steps if approved.
             </p>
             <div className="success-actions">
               <button className="btn-primary" onClick={() => navigate("/")}>

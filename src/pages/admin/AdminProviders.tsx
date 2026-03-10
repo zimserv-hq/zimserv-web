@@ -222,10 +222,60 @@ const AdminProviders = () => {
         ),
       );
 
-      showSuccess(
-        "Success",
-        `Provider ${newStatus === "Active" ? "activated" : "suspended"} successfully`,
-      );
+      // ── Send "profile live" email when activating ─────────────
+      if (newStatus === "Active") {
+        const { data: providerRow } = await supabase
+          .from("providers")
+          .select("slug, email")
+          .eq("id", selectedProvider.id)
+          .single();
+
+        const emailToSend = providerRow?.email || selectedProvider.email;
+        const slugToSend = providerRow?.slug || selectedProvider.id;
+
+        console.log("Sending profile live email:", {
+          email: emailToSend,
+          fullName: selectedProvider.name,
+          slug: slugToSend,
+        });
+
+        if (!emailToSend || !slugToSend) {
+          showError(
+            "Email failed",
+            "Provider activated but email or slug is missing — notification not sent.",
+          );
+        } else {
+          const { error: fnError } = await supabase.functions.invoke(
+            "send-profile-live-email",
+            {
+              body: {
+                email: emailToSend,
+                fullName: selectedProvider.name,
+                slug: slugToSend,
+              },
+            },
+          );
+          if (fnError) {
+            showError(
+              "Email failed",
+              "Provider activated but failed to send notification email.",
+            );
+          } else {
+            showSuccess(
+              "Provider activated",
+              `Profile is now live. Notification sent to ${emailToSend}.`,
+            );
+          }
+        }
+      } else {
+        showSuccess(
+          "Provider suspended",
+          "Provider has been suspended successfully.",
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────
+
       setShowStatusModal(false);
       setSelectedProvider(null);
     } catch (error: any) {

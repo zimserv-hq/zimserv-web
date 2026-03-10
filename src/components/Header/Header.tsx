@@ -25,17 +25,28 @@ const Header = () => {
   const navigate = useNavigate();
 
   // ── Auth state ───────────────────────────────────────
+  // ── Auth state ───────────────────────────────────────
   useEffect(() => {
-    // Get initial session
+    const isCustomer = (u: any) => {
+      const appRole = u?.app_metadata?.role;
+      const metaRole = u?.user_metadata?.role;
+      // If they have an admin role or an application_id (provider), hide them
+      if (appRole === "admin" || appRole === "super_admin") return false;
+      if (u?.user_metadata?.application_id) return false;
+      if (metaRole === "admin" || metaRole === "super_admin") return false;
+      return true;
+    };
+
     supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ?? null);
+      const u = data.session?.user ?? null;
+      setUser(u && isCustomer(u) ? u : null);
     });
 
-    // Listen for changes (sign in / sign out)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      const u = session?.user ?? null;
+      setUser(u && isCustomer(u) ? u : null);
     });
 
     return () => subscription.unsubscribe();

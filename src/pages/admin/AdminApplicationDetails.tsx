@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
 import ConfirmationModal from "../../components/Admin/ConfirmationModal";
+import { useToast } from "../../contexts/ToastContext";
 
 type Application = {
   id: string;
@@ -46,17 +47,6 @@ type Application = {
 
 const BUCKET = "verification-documents";
 
-/**
- * Extracts the bare storage path from whatever is stored in verification_file_url.
- *
- * The DB may store:
- *   (A) An old signed URL: https://…/object/sign/verification-documents/filename.jpg?token=…
- *   (B) A public URL:      https://…/object/public/verification-documents/filename.jpg
- *   (C) A bare path:       filename.jpg  or  folder/filename.jpg
- *
- * In all cases we extract the path after the bucket name, strip any query string,
- * then call getPublicUrl() — works now that the bucket is set to public.
- */
 function getStoragePath(rawUrl: string): string {
   const marker = `/${BUCKET}/`;
   const idx = rawUrl.indexOf(marker);
@@ -263,6 +253,7 @@ const SkeletonPage = () => (
 const AdminApplicationDetails = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { showSuccess, showError } = useToast();
   const [application, setApplication] = useState<Application | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"details" | "timeline">("details");
@@ -280,20 +271,13 @@ const AdminApplicationDetails = () => {
     try {
       const { data, error } = await supabase
         .from("provider_applications")
-        .select(
-          `
-          *,
-          categories (
-            name
-          )
-        `,
-        )
+        .select(`*, categories ( name )`)
         .eq("id", id)
         .single();
 
       if (error) {
         console.error("❌ Error fetching application:", error);
-        alert("Failed to load application");
+        showError("Load failed", "Failed to load application.");
         navigate("/admin/applications");
         return;
       }
@@ -301,7 +285,7 @@ const AdminApplicationDetails = () => {
       setApplication(data);
     } catch (err) {
       console.error("❌ Unexpected error:", err);
-      alert("An unexpected error occurred");
+      showError("Unexpected error", "An unexpected error occurred.");
       navigate("/admin/applications");
     } finally {
       setLoading(false);
@@ -320,7 +304,7 @@ const AdminApplicationDetails = () => {
         .single();
 
       if (error) {
-        alert("Failed to approve application");
+        showError("Update failed", "Failed to approve application.");
         return;
       }
 
@@ -337,13 +321,20 @@ const AdminApplicationDetails = () => {
           },
         },
       );
-      alert(
-        fnError
-          ? "Application approved but failed to send invitation email. Please send manually."
-          : `Application approved! Invitation email sent to ${application.email}`,
-      );
+
+      if (fnError) {
+        showError(
+          "Invite failed",
+          "Application approved but failed to send invitation email. Please send manually.",
+        );
+      } else {
+        showSuccess(
+          "Application approved",
+          `Invitation email sent to ${application.email}.`,
+        );
+      }
     } catch (err) {
-      alert("An unexpected error occurred");
+      showError("Unexpected error", "An unexpected error occurred.");
     } finally {
       setIsProcessing(false);
     }
@@ -361,27 +352,28 @@ const AdminApplicationDetails = () => {
         .single();
 
       if (error) {
-        alert("Failed to reject application");
+        showError("Update failed", "Failed to reject application.");
         return;
       }
 
       setApplication(data);
       setShowRejectModal(false);
+      showSuccess("Application rejected", "The application has been rejected.");
     } catch (err) {
-      alert("An unexpected error occurred");
+      showError("Unexpected error", "An unexpected error occurred.");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // ── View: resolve public URL → open in new tab (no loading state needed) ──
+  // ── View: resolve public URL → open in new tab ────────────────────────────
   const handleViewFile = () => {
     if (!application?.verification_file_url) return;
     const url = getPublicUrl(application.verification_file_url);
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  // ── Download: fetch public URL as blob → Save As dialog ───────────────────
+  // ── Download: fetch public URL as blob → Save As dialog ──────────────────
   const handleDownloadFile = async () => {
     if (!application?.verification_file_url) return;
     setFileLoading("download");
@@ -404,7 +396,7 @@ const AdminApplicationDetails = () => {
       URL.revokeObjectURL(blobUrl);
     } catch (err: any) {
       console.error("❌ Download error:", err);
-      alert(`Download failed: ${err?.message || "unknown error"}`);
+      showError("Download failed", err?.message || "Unknown error.");
     } finally {
       setFileLoading(null);
     }

@@ -1,5 +1,5 @@
 // src/pages/ProvidersPage.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import {
   Star,
@@ -14,6 +14,7 @@ import {
   Briefcase,
 } from "lucide-react";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
+import ProvidersPageSkeleton from "../components/Providers/ProvidersPageSkeleton";
 import { supabase } from "../lib/supabaseClient";
 
 type DbProvider = {
@@ -116,10 +117,17 @@ const ProvidersPage = () => {
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>(["All Categories"]);
 
+  // ── SUGGESTIONS ──────────────────────────────────────────────────────────────
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchWrapRef = useRef<HTMLDivElement>(null);
+
   // ── AUTH STATE ───────────────────────────────────────────────────────────────
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [signingIn, setSigningIn] = useState(false); // ✅ NEW
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -133,6 +141,51 @@ const ProvidersPage = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── SUGGESTIONS FETCH ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    const q = searchQuery.trim().toLowerCase();
+    if (q.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      const { data, error } = await supabase
+        .from("services")
+        .select("name")
+        .eq("is_active", true)
+        .ilike("name", `%${q}%`)
+        .limit(3);
+
+      if (error || !data) return;
+      const names = data.map((s) => s.name);
+      setSuggestions(names);
+      setShowSuggestions(names.length > 0);
+      setActiveIndex(-1);
+    }, 250);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchQuery]);
+
+  // ── OUTSIDE CLICK ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        searchWrapRef.current &&
+        !searchWrapRef.current.contains(e.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   // ── CONTACT HANDLER ──────────────────────────────────────────────────────────
   const handleContactClick = (e: React.MouseEvent, action: () => void) => {
     e.stopPropagation();
@@ -143,7 +196,6 @@ const ProvidersPage = () => {
     }
   };
 
-  // ✅ UPDATED: triggers Google OAuth directly from modal — no redirect to /signin
   const handleSignInRedirect = async () => {
     setSigningIn(true);
     sessionStorage.setItem("returnTo", location.pathname + location.search);
@@ -154,7 +206,7 @@ const ProvidersPage = () => {
         queryParams: { access_type: "offline", prompt: "consent" },
       },
     });
-    setSigningIn(false); // only reached if OAuth fails to redirect
+    setSigningIn(false);
   };
 
   // ── DATA FETCHING ─────────────────────────────────────────────────────────────
@@ -180,25 +232,21 @@ const ProvidersPage = () => {
             .from("provider_services")
             .select("id, provider_id, service_name, price");
 
-          if (servicesError) {
+          if (servicesError)
             console.error("Error loading provider services:", servicesError);
-          }
 
           const { data: areasData, error: areasError } = await supabase
             .from("provider_service_areas")
             .select("provider_id, city, suburb");
 
-          if (areasError) {
+          if (areasError)
             console.error("Error loading service areas:", areasError);
-          }
 
           const dbServices: DbService[] = servicesData || [];
           const dbAreas: DbServiceArea[] = areasData || [];
 
           const ui: UiProvider[] = dbProviders.map((p) => {
             const displayName = p.business_name ?? "ZimServ Provider";
-
-            // Use stored slug; fall back to generated slug or id if null
             const slug =
               p.slug ??
               displayName
@@ -250,8 +298,7 @@ const ProvidersPage = () => {
           console.error("Error loading categories:", categoriesError);
         } else {
           const dbCategories: DbCategory[] = categoriesData || [];
-          const catNames = dbCategories.map((c) => c.name);
-          setCategories(["All Categories", ...catNames]);
+          setCategories(["All Categories", ...dbCategories.map((c) => c.name)]);
         }
       } catch (err) {
         console.error("Unexpected error:", err);
@@ -264,6 +311,7 @@ const ProvidersPage = () => {
     fetchData();
   }, []);
 
+  // ── FILTERING ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     let results: UiProvider[] = providers.map((p) => ({
       ...p,
@@ -302,10 +350,7 @@ const ProvidersPage = () => {
             return {
               ...p,
               matchedService: best,
-              tagline:
-                best.price != null
-                  ? `${best.name} • $${best.price.toFixed(2)}`
-                  : best.name,
+              tagline: best.name,
             };
           }
           return {
@@ -317,12 +362,10 @@ const ProvidersPage = () => {
         .filter((p: any) => !p._exclude);
     }
 
-    if (selectedCategory !== "All Categories") {
+    if (selectedCategory !== "All Categories")
       results = results.filter((p) => p.category === selectedCategory);
-    }
-    if (selectedCity !== "All Cities") {
+    if (selectedCity !== "All Cities")
       results = results.filter((p) => p.city === selectedCity);
-    }
 
     results.sort((a, b) => {
       switch (sortBy) {
@@ -379,6 +422,59 @@ const ProvidersPage = () => {
 
   const handleViewProfile = (slug: string) => navigate(`/providers/${slug}`);
 
+  // ── HELPERS ───────────────────────────────────────────────────────────────────
+  const highlightMatch = (text: string, query: string) => {
+    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    if (idx === -1) return <span>{text}</span>;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <strong>{text.slice(idx, idx + query.length)}</strong>
+        {text.slice(idx + query.length)}
+      </>
+    );
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((p) => Math.min(p + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((p) => Math.max(p - 1, -1));
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      setSearchQuery(suggestions[activeIndex]);
+      setShowSuggestions(false);
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+    }
+  };
+
+  // ── PRICE DISPLAY HELPER ──────────────────────────────────────────────────────
+  const getPriceDisplay = (provider: UiProvider) => {
+    if (provider.matchedService) {
+      if (provider.matchedService.price != null) {
+        return {
+          label: provider.matchedService.name,
+          amount: `$${provider.matchedService.price.toFixed(2)}`,
+          isPrice: true,
+        };
+      }
+      return {
+        label: provider.matchedService.name,
+        amount: "Quote-based",
+        isPrice: false,
+      };
+    }
+    return {
+      label: null,
+      amount: provider.pricingLabel,
+      isPrice: false,
+    };
+  };
+
   return (
     <>
       <style>{`
@@ -400,7 +496,7 @@ const ProvidersPage = () => {
 
         .pp-title {
           font-family: var(--font-primary);
-          font-size: 32px;
+          font-size: 25px;
           font-weight: 800;
           color: var(--color-primary);
           margin-bottom: 6px;
@@ -427,7 +523,6 @@ const ProvidersPage = () => {
           display: grid;
           grid-template-columns: 1fr auto auto auto;
           gap: 12px;
-          margin-bottom: 16px;
         }
 
         .pp-search-wrap { position: relative; }
@@ -439,6 +534,7 @@ const ProvidersPage = () => {
           transform: translateY(-50%);
           color: var(--color-text-secondary);
           pointer-events: none;
+          z-index: 1;
         }
 
         .pp-search-input {
@@ -452,6 +548,7 @@ const ProvidersPage = () => {
           color: var(--color-primary);
           background: var(--color-bg);
           transition: all var(--transition-fast);
+          box-sizing: border-box;
         }
 
         .pp-search-input:focus {
@@ -460,7 +557,50 @@ const ProvidersPage = () => {
           box-shadow: 0 0 0 3px var(--color-accent-soft);
         }
 
+        .pp-search-input.has-suggestions {
+          border-bottom-left-radius: 0;
+          border-bottom-right-radius: 0;
+          border-bottom-color: transparent;
+        }
+
         .pp-search-input::placeholder { color: var(--color-text-secondary); }
+
+        /* ── SUGGESTIONS ──────────────────────────────────── */
+        .pp-suggestions {
+          position: absolute;
+          top: 100%;
+          left: 0; right: 0;
+          background: var(--color-bg);
+          border: 1.5px solid var(--color-accent);
+          border-top: none;
+          border-bottom-left-radius: var(--radius-md);
+          border-bottom-right-radius: var(--radius-md);
+          box-shadow: var(--shadow-md);
+          z-index: 100;
+          overflow: hidden;
+        }
+
+        .pp-suggestion-item {
+          padding: 11px 16px 11px 46px;
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--color-primary);
+          cursor: pointer;
+          border-bottom: 1px solid var(--color-border);
+          transition: background var(--transition-fast);
+        }
+
+        .pp-suggestion-item:last-child { border-bottom: none; }
+
+        .pp-suggestion-item:hover,
+        .pp-suggestion-item.active {
+          background: var(--color-accent-soft);
+        }
+
+        .pp-suggestion-item strong {
+          color: var(--color-accent);
+          font-weight: 700;
+        }
 
         .pp-select {
           padding: 13px 36px 13px 14px;
@@ -531,36 +671,6 @@ const ProvidersPage = () => {
           color: #fff;
         }
 
-        .pp-quick-cats {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .pp-cat-pill {
-          padding: 7px 15px;
-          background: var(--color-bg-section);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-full);
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--color-text-secondary);
-          cursor: pointer;
-          transition: all var(--transition-fast);
-        }
-
-        .pp-cat-pill:hover {
-          border-color: var(--color-accent);
-          color: var(--color-accent);
-          background: var(--color-accent-soft);
-        }
-
-        .pp-cat-pill.active {
-          background: var(--color-accent);
-          color: #fff;
-          border-color: var(--color-accent);
-        }
-
         .pp-advanced {
           max-height: 0;
           overflow: hidden;
@@ -597,10 +707,7 @@ const ProvidersPage = () => {
           white-space: nowrap;
         }
 
-        .pp-clear-btn:hover {
-          background: #EF4444;
-          color: #fff;
-        }
+        .pp-clear-btn:hover { background: #EF4444; color: #fff; }
 
         .pp-results-bar {
           display: flex;
@@ -616,16 +723,9 @@ const ProvidersPage = () => {
           font-weight: 500;
         }
 
-        .pp-results-count strong {
-          color: var(--color-accent);
-          font-weight: 700;
-        }
+        .pp-results-count strong { color: var(--color-accent); font-weight: 700; }
 
-        .pp-sort-wrap {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
+        .pp-sort-wrap { display: flex; align-items: center; gap: 8px; }
 
         .pp-sort-label {
           font-size: 14px;
@@ -651,10 +751,7 @@ const ProvidersPage = () => {
           transition: all var(--transition-fast);
         }
 
-        .pp-sort-select:focus {
-          outline: none;
-          border-color: var(--color-accent);
-        }
+        .pp-sort-select:focus { outline: none; border-color: var(--color-accent); }
 
         .pp-grid {
           display: grid;
@@ -672,10 +769,7 @@ const ProvidersPage = () => {
           position: relative;
           display: flex;
           flex-direction: column;
-          transition:
-            transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-            box-shadow 0.3s ease,
-            border-color 0.25s ease;
+          transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease, border-color 0.25s ease;
         }
 
         .pp-card:hover {
@@ -700,7 +794,7 @@ const ProvidersPage = () => {
 
         .pp-img-wrap {
           position: relative;
-          height: 240px;
+          aspect-ratio: 4 / 3;
           overflow: hidden;
           flex-shrink: 0;
         }
@@ -709,7 +803,7 @@ const ProvidersPage = () => {
           width: 100%;
           height: 100%;
           object-fit: cover;
-          object-position: center;
+          object-position: center top;
           display: block;
           transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
         }
@@ -719,12 +813,7 @@ const ProvidersPage = () => {
         .pp-img-scrim {
           position: absolute;
           inset: 0;
-          background: linear-gradient(
-            to bottom,
-            rgba(28,25,23,0.08) 0%,
-            transparent 40%,
-            rgba(28,25,23,0.52) 100%
-          );
+          background: linear-gradient(to bottom, rgba(28,25,23,0.08) 0%, transparent 40%, rgba(28,25,23,0.52) 100%);
         }
 
         .pp-img-top {
@@ -789,20 +878,11 @@ const ProvidersPage = () => {
 
         .pp-card:hover .pp-name { color: var(--color-accent); }
 
+        /* ── PRICE BLOCK ──────────────────────────────────── */
         .pp-price {
           display: flex;
-          flex-direction: column;
-          align-items: flex-end;
+          align-items: center;
           flex-shrink: 0;
-        }
-
-        .pp-price-label {
-          font-size: 10px;
-          font-weight: 600;
-          color: var(--color-text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          line-height: 1;
         }
 
         .pp-price-amount {
@@ -811,14 +891,12 @@ const ProvidersPage = () => {
           color: var(--color-accent);
           letter-spacing: -0.5px;
           line-height: 1.2;
-          margin-top: 2px;
         }
 
         .pp-price-quote {
           font-size: 13px;
           font-weight: 700;
           color: var(--color-text-secondary);
-          margin-top: 4px;
         }
 
         .pp-tagline {
@@ -828,12 +906,7 @@ const ProvidersPage = () => {
           margin-bottom: 14px;
         }
 
-        .pp-chips {
-          display: flex;
-          gap: 7px;
-          flex-wrap: wrap;
-          margin-bottom: 10px;
-        }
+        .pp-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
 
         .pp-chip {
           display: inline-flex;
@@ -890,13 +963,7 @@ const ProvidersPage = () => {
           white-space: nowrap;
         }
 
-        .pp-rating-row {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 14px;
-        }
-
+        .pp-rating-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
         .pp-stars { display: flex; gap: 2px; }
 
         .pp-rating-num {
@@ -906,10 +973,7 @@ const ProvidersPage = () => {
           letter-spacing: -0.2px;
         }
 
-        .pp-rating-ct {
-          font-size: 12.5px;
-          color: var(--color-text-secondary);
-        }
+        .pp-rating-ct { font-size: 12.5px; color: var(--color-text-secondary); }
 
         .pp-desc {
           font-size: 12px;
@@ -918,11 +982,7 @@ const ProvidersPage = () => {
           margin-bottom: 16px;
         }
 
-        .pp-divider {
-          height: 1px;
-          background: var(--color-border);
-          margin-bottom: 14px;
-        }
+        .pp-divider { height: 1px; background: var(--color-border); margin-bottom: 14px; }
 
         .pp-actions {
           display: grid;
@@ -943,12 +1003,7 @@ const ProvidersPage = () => {
           font-weight: 700;
           cursor: pointer;
           border: none;
-          transition:
-            background 0.2s ease,
-            transform 0.15s ease,
-            box-shadow 0.2s ease,
-            border-color 0.2s ease,
-            color 0.2s ease;
+          transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
           white-space: nowrap;
         }
 
@@ -980,8 +1035,7 @@ const ProvidersPage = () => {
         }
 
         .pp-btn-profile {
-          width: 42px;
-          height: 42px;
+          width: 42px; height: 42px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1032,18 +1086,11 @@ const ProvidersPage = () => {
           margin-bottom: 20px;
         }
 
-        .pp-loading {
-          font-size: 14px;
-          color: var(--color-text-secondary);
-          padding: 40px 0;
-          text-align: center;
-        }
-
         /* ── LOGIN PROMPT MODAL ───────────────────────────── */
         .pp-modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0, 0, 0, 0.5);
+          background: rgba(0,0,0,0.5);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1052,10 +1099,7 @@ const ProvidersPage = () => {
           animation: pp-fade-in 0.2s ease;
         }
 
-        @keyframes pp-fade-in {
-          from { opacity: 0; }
-          to   { opacity: 1; }
-        }
+        @keyframes pp-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
         .pp-modal {
           background: var(--color-bg);
@@ -1090,10 +1134,7 @@ const ProvidersPage = () => {
           transition: color var(--transition-fast), background var(--transition-fast);
         }
 
-        .pp-modal-close:hover {
-          color: var(--color-primary);
-          background: var(--color-bg-section);
-        }
+        .pp-modal-close:hover { color: var(--color-primary); background: var(--color-bg-section); }
 
         .pp-modal-icon { font-size: 44px; margin-bottom: 14px; }
 
@@ -1112,16 +1153,8 @@ const ProvidersPage = () => {
           line-height: 1.6;
         }
 
-       .pp-modal-actions {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          width: 100%;
-        }
+        .pp-modal-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 
-
-
-        /* ── MODAL GOOGLE BUTTON ──────────────────────────────── */
         .pp-modal-google-btn {
           display: flex;
           align-items: center;
@@ -1138,10 +1171,7 @@ const ProvidersPage = () => {
           border: 1.5px solid var(--color-border);
           color: var(--color-primary);
           box-shadow: var(--shadow-sm);
-          transition:
-            border-color var(--transition-fast),
-            box-shadow var(--transition-fast),
-            transform var(--transition-fast);
+          transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
           letter-spacing: 0.1px;
         }
 
@@ -1152,18 +1182,9 @@ const ProvidersPage = () => {
         }
 
         .pp-modal-google-btn:active { transform: scale(0.98); }
+        .pp-modal-google-btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
 
-        .pp-modal-google-btn:disabled {
-          opacity: 0.65;
-          cursor: not-allowed;
-          transform: none;
-        }
-
-        .pp-modal-google-icon {
-          width: 20px;
-          height: 20px;
-          flex-shrink: 0;
-        }
+        .pp-modal-google-icon { width: 20px; height: 20px; flex-shrink: 0; }
 
         .pp-modal-cancel-btn {
           width: 100%;
@@ -1186,7 +1207,6 @@ const ProvidersPage = () => {
           color: var(--color-primary);
         }
 
-
         /* ── RESPONSIVE ───────────────────────────────────── */
         @media (max-width: 1200px) {
           .pp-container { padding: 0 32px; }
@@ -1196,7 +1216,7 @@ const ProvidersPage = () => {
         @media (max-width: 900px) {
           .pp-page { padding: 32px 0 60px; }
           .pp-container { padding: 0 24px; }
-          .pp-title { font-size: 28px; }
+          .pp-title { font-size: 24px; }
           .pp-search-row { grid-template-columns: 1fr; }
           .pp-select { width: 100%; }
           .pp-results-bar { flex-direction: column; align-items: flex-start; }
@@ -1204,15 +1224,12 @@ const ProvidersPage = () => {
           .pp-sort-select { flex: 1; }
         }
 
-        @media (max-width: 768px) {
-          .pp-grid { grid-template-columns: 1fr; }
-        }
+        @media (max-width: 768px) { .pp-grid { grid-template-columns: 1fr; } }
 
         @media (max-width: 640px) {
           .pp-page { padding: 24px 0 48px; }
           .pp-container { padding: 0 16px; }
-          .pp-title { font-size: 24px; letter-spacing: -0.8px; }
-          .pp-img-wrap { height: 200px; }
+          .pp-title { font-size: 22px; letter-spacing: -0.8px; }
           .pp-price-amount { font-size: 18px; }
           .pp-actions { grid-template-columns: 1fr 1fr; }
           .pp-btn-profile {
@@ -1221,20 +1238,13 @@ const ProvidersPage = () => {
             border-radius: var(--radius-md);
             gap: 6px;
           }
-          .pp-btn-profile::after {
-            content: 'View Profile';
-            font-size: 13px;
-            font-weight: 700;
-          }
+          .pp-btn-profile::after { content: 'View Profile'; font-size: 13px; font-weight: 700; }
           .pp-modal { padding: 36px 20px 28px; }
           .pp-modal-actions { grid-template-columns: 1fr; }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          *, *::before, *::after {
-            animation: none !important;
-            transition: none !important;
-          }
+          *, *::before, *::after { animation: none !important; transition: none !important; }
         }
       `}</style>
 
@@ -1251,7 +1261,8 @@ const ProvidersPage = () => {
 
           <div className="pp-search-section">
             <div className="pp-search-row">
-              <div className="pp-search-wrap">
+              {/* Search input with suggestions */}
+              <div className="pp-search-wrap" ref={searchWrapRef}>
                 <SearchIcon
                   size={18}
                   className="pp-search-icon"
@@ -1260,11 +1271,34 @@ const ProvidersPage = () => {
                 <input
                   type="text"
                   placeholder="Search by name, service, or category..."
-                  className="pp-search-input"
+                  className={`pp-search-input ${showSuggestions ? "has-suggestions" : ""}`}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  onFocus={() =>
+                    suggestions.length > 0 && setShowSuggestions(true)
+                  }
+                  autoComplete="off"
                 />
+                {showSuggestions && (
+                  <div className="pp-suggestions">
+                    {suggestions.map((name, i) => (
+                      <div
+                        key={name}
+                        className={`pp-suggestion-item ${i === activeIndex ? "active" : ""}`}
+                        onMouseDown={() => {
+                          setSearchQuery(name);
+                          setShowSuggestions(false);
+                        }}
+                        onMouseEnter={() => setActiveIndex(i)}
+                      >
+                        {highlightMatch(name, searchQuery.trim())}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
               <select
                 className="pp-select"
                 value={selectedCategory}
@@ -1276,6 +1310,7 @@ const ProvidersPage = () => {
                   </option>
                 ))}
               </select>
+
               <select
                 className="pp-select"
                 value={selectedCity}
@@ -1287,6 +1322,7 @@ const ProvidersPage = () => {
                   </option>
                 ))}
               </select>
+
               <button
                 className={`pp-filter-btn ${showAdvancedFilters ? "active" : ""}`}
                 onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
@@ -1297,24 +1333,6 @@ const ProvidersPage = () => {
                   <span className="pp-filter-badge">{activeFilterCount}</span>
                 )}
               </button>
-            </div>
-
-            <div className="pp-quick-cats">
-              {categories
-                .filter((cat) => cat !== "All Categories")
-                .map((cat) => (
-                  <button
-                    key={cat}
-                    className={`pp-cat-pill ${selectedCategory === cat ? "active" : ""}`}
-                    onClick={() =>
-                      setSelectedCategory(
-                        selectedCategory === cat ? "All Categories" : cat,
-                      )
-                    }
-                  >
-                    {cat}
-                  </button>
-                ))}
             </div>
 
             <div
@@ -1340,307 +1358,265 @@ const ProvidersPage = () => {
             </div>
           </div>
 
-          <div className="pp-results-bar">
-            <p className="pp-results-count">
-              Found <strong>{filteredProviders.length}</strong> provider
-              {filteredProviders.length !== 1 ? "s" : ""}
-              {selectedCity !== "All Cities" ? ` in ${selectedCity}` : ""}
-            </p>
-            <div className="pp-sort-wrap">
-              <span className="pp-sort-label">Sort by</span>
-              <select
-                className="pp-sort-select"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                {SORT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
           {loading ? (
-            <p className="pp-loading">Loading providers...</p>
-          ) : filteredProviders.length === 0 ? (
-            <div className="pp-empty">
-              <div className="pp-empty-icon">
-                <SearchIcon size={36} strokeWidth={2} />
-              </div>
-              <h3 className="pp-empty-title">No providers found</h3>
-              <p className="pp-empty-text">
-                Try adjusting your search or filters to find what you're looking
-                for.
-              </p>
-              {activeFilterCount > 0 && (
-                <button
-                  className="pp-clear-btn"
-                  onClick={clearFilters}
-                  style={{ margin: "0 auto" }}
-                >
-                  <X size={15} strokeWidth={2.5} />
-                  Clear All Filters
-                </button>
-              )}
-            </div>
+            <ProvidersPageSkeleton />
           ) : (
-            <div className="pp-grid">
-              {filteredProviders.map((provider) => {
-                const hasPrice =
-                  provider.matchedService &&
-                  provider.matchedService.price != null;
-                const displayAreas = provider.areas.slice(0, 2);
-                const extraAreas = provider.areas.length - 2;
-
-                return (
-                  <div
-                    key={provider.id}
-                    className="pp-card"
-                    onClick={() => handleViewProfile(provider.slug)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`View ${provider.name} profile`}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" && handleViewProfile(provider.slug)
-                    }
+            <>
+              <div className="pp-results-bar">
+                <p className="pp-results-count">
+                  <strong>{filteredProviders.length}</strong>{" "}
+                  {filteredProviders.length === 1 ? "provider" : "providers"}{" "}
+                  found
+                </p>
+                <div className="pp-sort-wrap">
+                  <span className="pp-sort-label">Sort by:</span>
+                  <select
+                    className="pp-sort-select"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
                   >
-                    <div className="pp-img-wrap">
-                      <img
-                        src={provider.image}
-                        alt={provider.name}
-                        className="pp-img"
-                        loading="lazy"
-                      />
-                      <div className="pp-img-scrim" />
-                      <div className="pp-img-top">
-                        {provider.verified && (
-                          <span className="pp-verified-pill">
-                            <CheckCircle size={11} strokeWidth={2.5} />
-                            Verified
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    {SORT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-                    <div className="pp-body">
-                      <div className="pp-name-row">
-                        <h3 className="pp-name">{provider.name}</h3>
-                        {hasPrice ? (
-                          <div className="pp-price">
-                            <span className="pp-price-label">From</span>
-                            <span className="pp-price-amount">
-                              $
-                              {Number.isInteger(provider.matchedService!.price)
-                                ? provider.matchedService!.price
-                                : provider.matchedService!.price!.toFixed(2)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="pp-price-quote">
-                            {provider.pricingLabel}
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="pp-tagline">
-                        {provider.matchedService
-                          ? provider.matchedService.name
-                          : `${provider.category} specialist`}
-                      </p>
-
-                      <div className="pp-chips">
-                        <span className="pp-chip">
-                          <MapPin size={12} strokeWidth={2} />
-                          {provider.city}
-                        </span>
-                        {provider.yearsExperience > 0 && (
-                          <span className="pp-chip">
-                            <Briefcase size={12} strokeWidth={2} />
-                            {provider.yearsExperience}yr exp
-                          </span>
-                        )}
-                      </div>
-
-                      {provider.areas.length > 0 && (
-                        <div className="pp-areas">
-                          <span className="pp-areas-label">Serves:</span>
-                          {displayAreas.map((area) => (
-                            <span key={area} className="pp-area-tag">
-                              {area}
-                            </span>
-                          ))}
-                          {extraAreas > 0 && (
-                            <span className="pp-area-more">
-                              +{extraAreas} more
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="pp-rating-row">
-                        <div className="pp-stars">
-                          {[1, 2, 3, 4, 5].map((s) => (
-                            <Star
-                              key={s}
-                              size={13}
-                              fill={
-                                s <= Math.floor(provider.rating)
-                                  ? "#F59E0B"
-                                  : "none"
-                              }
-                              stroke="#F59E0B"
-                              strokeWidth={1.5}
-                            />
-                          ))}
-                        </div>
-                        <span className="pp-rating-num">
-                          {provider.rating.toFixed(1)}
-                        </span>
-                        <span className="pp-rating-ct">
-                          ({provider.reviewCount})
-                        </span>
-                      </div>
-
-                      <p className="pp-desc">{provider.description}</p>
-
-                      <div className="pp-divider" />
-
-                      {/* ── Actions ── */}
-                      <div className="pp-actions">
-                        <button
-                          className="pp-btn pp-btn-whatsapp"
-                          onClick={(e) =>
-                            handleContactClick(e, () =>
-                              window.open(
-                                `https://wa.me/${provider.id}`,
-                                "_blank",
-                              ),
-                            )
-                          }
-                        >
-                          <MessageCircle size={14} strokeWidth={2.5} />
-                          WhatsApp
-                        </button>
-                        <button
-                          className="pp-btn pp-btn-call"
-                          onClick={(e) =>
-                            handleContactClick(e, () => {
-                              window.location.href = `tel:${provider.id}`;
-                            })
-                          }
-                        >
-                          <Phone size={14} strokeWidth={2.5} />
-                          Call
-                        </button>
-                        <button
-                          className="pp-btn-profile"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewProfile(provider.slug);
-                          }}
-                          aria-label="View full profile"
-                        >
-                          <ChevronRight size={16} strokeWidth={2.5} />
-                        </button>
-                      </div>
-                    </div>
+              {filteredProviders.length === 0 ? (
+                <div className="pp-empty">
+                  <div className="pp-empty-icon">
+                    <SearchIcon size={36} strokeWidth={1.5} />
                   </div>
-                );
-              })}
-            </div>
+                  <h3 className="pp-empty-title">No providers found</h3>
+                  <p className="pp-empty-text">
+                    Try adjusting your search or filters to find what you need.
+                  </p>
+                  <button
+                    className="pp-clear-btn"
+                    onClick={clearFilters}
+                    style={{ margin: "0 auto" }}
+                  >
+                    <X size={15} strokeWidth={2.5} />
+                    Clear Filters
+                  </button>
+                </div>
+              ) : (
+                <div className="pp-grid">
+                  {filteredProviders.map((provider) => {
+                    const stars = Math.round(provider.rating);
+                    const priceDisplay = getPriceDisplay(provider);
+                    return (
+                      <div
+                        key={provider.id}
+                        className="pp-card"
+                        onClick={() => handleViewProfile(provider.slug)}
+                      >
+                        <div className="pp-img-wrap">
+                          <img
+                            src={provider.image}
+                            alt={provider.name}
+                            className="pp-img"
+                          />
+                          <div className="pp-img-scrim" />
+                          <div className="pp-img-top">
+                            <span className="pp-cat-badge">
+                              {provider.category}
+                            </span>
+                            {provider.verified && (
+                              <span className="pp-verified-pill">
+                                <CheckCircle size={11} strokeWidth={2.5} />
+                                Verified
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="pp-body">
+                          <div className="pp-name-row">
+                            <span className="pp-name">{provider.name}</span>
+
+                            {/* ── PRICE DISPLAY ── */}
+                            <div className="pp-price">
+                              {priceDisplay.isPrice ? (
+                                <span className="pp-price-amount">
+                                  {priceDisplay.amount}
+                                </span>
+                              ) : (
+                                <span className="pp-price-quote">
+                                  {priceDisplay.amount}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className="pp-tagline">{provider.tagline}</p>
+
+                          <div className="pp-chips">
+                            <span className="pp-chip">
+                              <MapPin size={12} strokeWidth={2} />
+                              {provider.city}
+                            </span>
+                            {provider.yearsExperience > 0 && (
+                              <span className="pp-chip">
+                                <Briefcase size={12} strokeWidth={2} />
+                                {provider.yearsExperience}yr
+                                {provider.yearsExperience !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
+
+                          {provider.areas.length > 0 && (
+                            <div className="pp-areas">
+                              <span className="pp-areas-label">Areas:</span>
+                              {provider.areas.slice(0, 3).map((a) => (
+                                <span key={a} className="pp-area-tag">
+                                  {a}
+                                </span>
+                              ))}
+                              {provider.areas.length > 3 && (
+                                <span className="pp-area-more">
+                                  +{provider.areas.length - 3} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="pp-rating-row">
+                            <div className="pp-stars">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <Star
+                                  key={s}
+                                  size={14}
+                                  strokeWidth={1.5}
+                                  fill={
+                                    s <= stars ? "var(--color-accent)" : "none"
+                                  }
+                                  color={
+                                    s <= stars
+                                      ? "var(--color-accent)"
+                                      : "var(--color-border)"
+                                  }
+                                />
+                              ))}
+                            </div>
+                            <span className="pp-rating-num">
+                              {provider.rating > 0
+                                ? provider.rating.toFixed(1)
+                                : "New"}
+                            </span>
+                            {provider.reviewCount > 0 && (
+                              <span className="pp-rating-ct">
+                                ({provider.reviewCount} reviews)
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="pp-divider" />
+
+                          <div className="pp-actions">
+                            <button
+                              className="pp-btn pp-btn-whatsapp"
+                              onClick={(e) =>
+                                handleContactClick(e, () =>
+                                  window.open(
+                                    `https://wa.me/263${provider.id}`,
+                                    "_blank",
+                                  ),
+                                )
+                              }
+                            >
+                              <MessageCircle size={15} strokeWidth={2} />
+                              WhatsApp
+                            </button>
+                            <button
+                              className="pp-btn pp-btn-call"
+                              onClick={(e) =>
+                                handleContactClick(e, () =>
+                                  window.open(
+                                    `tel:+263${provider.id}`,
+                                    "_self",
+                                  ),
+                                )
+                              }
+                            >
+                              <Phone size={15} strokeWidth={2} />
+                              Call
+                            </button>
+                            <button
+                              className="pp-btn-profile"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewProfile(provider.slug);
+                              }}
+                            >
+                              <ChevronRight size={18} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* ── Login Prompt Modal ── */}
+      {/* ── LOGIN PROMPT MODAL ─────────────────────────────── */}
       {showLoginPrompt && (
         <div
           className="pp-modal-overlay"
-          onClick={() => !signingIn && setShowLoginPrompt(false)}
+          onClick={() => setShowLoginPrompt(false)}
         >
           <div className="pp-modal" onClick={(e) => e.stopPropagation()}>
             <button
               className="pp-modal-close"
               onClick={() => setShowLoginPrompt(false)}
-              aria-label="Close"
-              disabled={signingIn}
             >
-              <X size={18} strokeWidth={2.5} />
+              <X size={20} strokeWidth={2} />
             </button>
-
-            {signingIn ? (
-              <>
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    border: "3px solid var(--color-border)",
-                    borderTopColor: "var(--color-accent)",
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                    margin: "14px auto 20px",
-                  }}
-                />
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                <p
-                  style={{
-                    color: "var(--color-text-secondary)",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    textAlign: "center",
-                  }}
-                >
-                  Redirecting to Google...
-                </p>
-              </>
-            ) : (
-              <>
-                <div className="pp-modal-icon">🔒</div>
-                <h3 className="pp-modal-title">Sign in to Contact</h3>
-                <p className="pp-modal-text">
-                  Sign in with your Google account to contact service providers
-                  via WhatsApp or phone call.
-                </p>
-
-                <div className="pp-modal-actions">
-                  {/* ✅ Full Google button matching SignInPage style */}
-                  <button
-                    className="pp-modal-google-btn"
-                    onClick={handleSignInRedirect}
-                    disabled={signingIn}
-                  >
-                    <svg className="pp-modal-google-icon" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                      />
-                    </svg>
-                    Continue with Google
-                  </button>
-
-                  <button
-                    className="pp-modal-cancel-btn"
-                    onClick={() => setShowLoginPrompt(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="pp-modal-icon">🔒</div>
+            <h2 className="pp-modal-title">Sign in to Contact</h2>
+            <p className="pp-modal-text">
+              You need to be signed in to contact service providers. It only
+              takes a second.
+            </p>
+            <div className="pp-modal-actions">
+              <button
+                className="pp-modal-google-btn"
+                onClick={handleSignInRedirect}
+                disabled={signingIn}
+              >
+                <svg className="pp-modal-google-icon" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  />
+                </svg>
+                {signingIn ? "Redirecting..." : "Continue with Google"}
+              </button>
+              <button
+                className="pp-modal-cancel-btn"
+                onClick={() => setShowLoginPrompt(false)}
+              >
+                Maybe later
+              </button>
+            </div>
           </div>
         </div>
       )}

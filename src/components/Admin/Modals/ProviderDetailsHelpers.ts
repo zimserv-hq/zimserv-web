@@ -33,6 +33,7 @@ export function getFieldLabel(fieldName: string): string {
     languages: "Languages",
     pricing_model: "Pricing Model",
     business_name: "Business Name",
+    full_name: "Full Name",
     phone_number: "Phone Number",
     whatsapp_number: "WhatsApp Number",
     email: "Email",
@@ -40,16 +41,36 @@ export function getFieldLabel(fieldName: string): string {
     call_available: "Call Availability",
     whatsapp_available: "WhatsApp Availability",
     profile_image_url: "Profile Image",
+    services: "Services",
   };
-  return labels[fieldName] || fieldName;
+  return (
+    labels[fieldName] ||
+    fieldName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }
 
-export function formatValue(value: any): string {
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "boolean") return value ? "Yes" : "No";
+export function formatValue(field: string, value: any): string {
   if (value === null || value === undefined) return "Not provided";
+
+  // Services array — array of { name, price } objects
+if (field === "services") {
+  if (!Array.isArray(value) || value.length === 0) return "None";
+  return value.map((s: any) => s.name ?? s).join(", "); // ← no price
+}
+
+
+  // Generic arrays (e.g. languages)
+  if (Array.isArray(value)) return value.join(", ");
+
+  // Booleans
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+
+  // Numbers
+  if (typeof value === "number") return String(value);
+
   return String(value);
 }
+
 
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────

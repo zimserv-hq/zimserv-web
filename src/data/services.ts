@@ -1,118 +1,60 @@
-// Location: src/data/services.ts
-// Predefined services by category for clean search data
+// src/data/services.ts
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
+// Static fallback (used if DB fetch fails or returns nothing)
 export const SERVICES_BY_CATEGORY: { [key: string]: string[] } = {
-  Plumbing: [
-    "Pipe installation",
-    "Pipe repair",
-    "Leak repair",
-    "Drain cleaning",
-    "Toilet installation/repair",
-    "Tap installation/repair",
-    "Water heater installation",
-    "Geyser installation/repair",
-    "Borehole connection",
-    "Pump installation/repair",
-    "Bathroom renovations",
-    "Kitchen plumbing",
-  ],
-  Electrical: [
-    "House wiring",
-    "Rewiring",
-    "DB board installation",
-    "Circuit breaker repair",
-    "Light installation",
-    "Plug installation",
-    "Fault finding",
-    "Solar panel installation",
-    "Inverter installation",
-    "Generator connection",
-    "CCTV installation",
-    "Alarm system installation",
-  ],
-  Cleaning: [
-    "Residential cleaning",
-    "Office cleaning",
-    "Deep cleaning",
-    "Carpet cleaning",
-    "Upholstery cleaning",
-    "Window cleaning",
-    "Move in/out cleaning",
-    "Post-construction cleaning",
-    "Pressure washing",
-    "Fumigation",
-  ],
-  Carpentry: [
-    "Kitchen cabinets",
-    "Bedroom wardrobes",
-    "TV units",
-    "Shelving",
-    "Door installation",
-    "Window frames",
-    "Deck construction",
-    "Furniture repair",
-    "Custom furniture",
-    "Roofing carpentry",
-  ],
-  Painting: [
-    "Interior painting",
-    "Exterior painting",
-    "Roof painting",
-    "Wall texturing",
-    "Damp proofing",
-    "Waterproofing",
-    "Wallpaper installation",
-    "Wood staining",
-    "Color consultation",
-  ],
-  HVAC: [
-    "Air conditioner installation",
-    "Air conditioner repair",
-    "Air conditioner servicing",
-    "Heating system installation",
-    "Ventilation installation",
-    "Duct cleaning",
-    "Refrigeration repair",
-  ],
-  Landscaping: [
-    "Garden design",
-    "Lawn mowing",
-    "Tree trimming",
-    "Hedge trimming",
-    "Irrigation installation",
-    "Paving",
-    "Deck building",
-    "Fence installation",
-    "Garden maintenance",
-  ],
-  "Pest Control": [
-    "Termite treatment",
-    "Rodent control",
-    "Cockroach treatment",
-    "Bed bug treatment",
-    "Fumigation",
-    "Ant control",
-    "Mosquito control",
-    "Snake removal",
-  ],
-  "Appliance Repair": [
-    "Washing machine repair",
-    "Refrigerator repair",
-    "Stove/Oven repair",
-    "Microwave repair",
-    "Dishwasher repair",
-    "Dryer repair",
-    "Small appliance repair",
-  ],
-  "Auto Mechanic": [
-    "Engine repair",
-    "Brake repair",
-    "Oil change",
-    "Tire replacement",
-    "Battery replacement",
-    "Air conditioning repair",
-    "Transmission repair",
-    "Electrical diagnostics",
-    "General servicing",
-  ],
+  Plumbing: ["Pipe installation", "Pipe repair", "Leak repair", "Drain cleaning", "Geyser installation"],
+  Electrical: ["Wiring", "Switch installation", "Fault finding", "DB board installation", "Lighting"],
+  Carpentry: ["Furniture assembly", "Door fitting", "Cabinet making", "Flooring", "Repairs"],
+  Painting: ["Interior painting", "Exterior painting", "Plastering", "Waterproofing", "Texture coating"],
+  Cleaning: ["Domestic cleaning", "Office cleaning", "Carpet cleaning", "Post-construction cleaning", "Window cleaning"],
+  Gardening: ["Lawn mowing", "Tree trimming", "Garden design", "Irrigation", "Weeding"],
 };
+
+export function useServicesByCategory(categoryName: string | undefined) {
+  const [services, setServices] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!categoryName) {
+      setServices([]);
+      return;
+    }
+
+    const fetchServices = async () => {
+      setLoading(true);
+      try {
+        // Single query with join — avoids two round trips
+        const { data: rows, error } = await supabase
+          .from("services")
+          .select("name, categories!inner(name)")
+          .ilike("categories.name", categoryName)
+          .eq("is_active", true)
+          .order("name", { ascending: true });
+
+        if (error) {
+          console.error("Error fetching services:", error);
+          setServices(SERVICES_BY_CATEGORY[categoryName] ?? []);
+          return;
+        }
+
+        if (rows && rows.length > 0) {
+          setServices(rows.map((r) => r.name));
+        } else {
+          // Fallback to static data if DB returns nothing
+          setServices(SERVICES_BY_CATEGORY[categoryName] ?? []);
+        }
+      } catch (err) {
+        console.error("Unexpected error fetching services:", err);
+        setServices(SERVICES_BY_CATEGORY[categoryName] ?? []);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchServices();
+  }, [categoryName]);
+
+  return { services, loading };
+}

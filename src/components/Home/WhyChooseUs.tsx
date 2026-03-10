@@ -119,7 +119,7 @@ const WhyChooseUs = () => {
 
         .wcu-title {
           font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-          font-size: 40px;
+          font-size: 25px;
           font-weight: 800;
           color: var(--color-primary);
           margin-bottom: 14px;
@@ -128,7 +128,7 @@ const WhyChooseUs = () => {
         }
 
         .wcu-subtitle {
-          font-size: 16px;
+          font-size: 15px;
           color: var(--color-text-secondary);
           max-width: 580px;
           margin: 0 auto;
@@ -238,7 +238,7 @@ const WhyChooseUs = () => {
           .wcu-section   { padding: 60px 0; }
           .wcu-container { padding: 0 24px; }
           .wcu-grid      { grid-template-columns: repeat(2, 1fr); gap: 18px; }
-          .wcu-title     { font-size: 32px; }
+          .wcu-title     { font-size: 22px; }
           .wcu-subtitle  { font-size: 15px; }
           .wcu-header    { margin-bottom: 44px; }
           .wcu-card      { padding: 28px 24px; }
@@ -247,7 +247,7 @@ const WhyChooseUs = () => {
         @media (max-width: 640px) {
           .wcu-section { padding: 52px 0; }
           .wcu-container { padding: 0 20px; }
-          .wcu-title { font-size: 28px; letter-spacing: -0.5px; }
+          .wcu-title { font-size: 22px; letter-spacing: -0.5px; }
           .wcu-subtitle { font-size: 14px; }
           .wcu-header { margin-bottom: 36px; }
 
@@ -262,7 +262,7 @@ const WhyChooseUs = () => {
           .wcu-section   { padding: 44px 0; }
           .wcu-container { padding: 0 16px; }
           .wcu-grid      { grid-template-columns: 1fr; gap: 16px; }
-          .wcu-title     { font-size: 26px; }
+          .wcu-title     { font-size: 20px; }
           .wcu-card      { padding: 24px 18px; }
         }
 

@@ -24,12 +24,35 @@ type UiCategory = {
 const DEFAULT_IMAGE =
   "https://via.placeholder.com/800x600?text=Service+Category";
 
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+const CategorySkeleton = ({ count = 8 }: { count?: number }) => (
+  <>
+    {Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="cat-sk-card">
+        <div className="cat-shimmer cat-sk-img" />
+        <div className="cat-sk-body">
+          <div className="cat-shimmer" style={{ height: 15, width: "60%" }} />
+          <div
+            className="cat-shimmer"
+            style={{ height: 12, width: "85%", marginTop: 6 }}
+          />
+          <div
+            className="cat-shimmer"
+            style={{ height: 12, width: "55%", marginTop: 4 }}
+          />
+          <div
+            className="cat-shimmer"
+            style={{ height: 11, width: "30%", marginTop: 10 }}
+          />
+        </div>
+      </div>
+    ))}
+  </>
+);
+
 const CategorySection = () => {
   const navigate = useNavigate();
   const { elementRef: headerRef, isVisible: headerVisible } = useScrollReveal();
-  const { elementRef: gridRef, isVisible: gridVisible } = useScrollReveal({
-    threshold: 0.05,
-  });
 
   const [categories, setCategories] = useState<UiCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +83,6 @@ const CategorySection = () => {
           image: cat.icon_url || DEFAULT_IMAGE,
         }));
 
-        // only first 8
         setCategories(uiCats.slice(0, 8));
       } catch (err) {
         console.error("Unexpected error loading home categories:", err);
@@ -73,7 +95,6 @@ const CategorySection = () => {
     fetchCategories();
   }, []);
 
-  // click should behave like CategoriesPage (filter ProvidersPage by category name)
   const handleCategoryClick = (categoryName: string) => {
     navigate(`/providers?category=${encodeURIComponent(categoryName)}`);
   };
@@ -81,6 +102,40 @@ const CategorySection = () => {
   return (
     <>
       <style>{`
+        /* ── SHIMMER ──────────────────────────────────────── */
+        @keyframes cat-shimmer {
+          0%   { background-position: -600px 0; }
+          100% { background-position:  600px 0; }
+        }
+        .cat-shimmer {
+          background: linear-gradient(
+            90deg,
+            var(--color-border) 25%,
+            var(--color-bg) 50%,
+            var(--color-border) 75%
+          );
+          background-size: 600px 100%;
+          animation: cat-shimmer 1.4s ease-in-out infinite;
+          border-radius: 6px;
+        }
+        .cat-sk-card {
+          border-radius: 18px;
+          overflow: hidden;
+          background: var(--color-bg);
+          border: 1.5px solid var(--color-border);
+        }
+        .cat-sk-img {
+          width: 100%;
+          aspect-ratio: 4 / 3;
+          border-radius: 0;
+        }
+        .cat-sk-body {
+          padding: 16px 18px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+        }
+
         /* ── SECTION ──────────────────────────────────────── */
         .cat-section {
           width: 100%;
@@ -136,7 +191,7 @@ const CategorySection = () => {
 
         .cat-title {
           font-family: var(--font-primary);
-          font-size: 40px;
+          font-size: 25px;
           font-weight: 800;
           color: var(--color-primary);
           margin-bottom: 12px;
@@ -145,7 +200,7 @@ const CategorySection = () => {
         }
 
         .cat-subtitle {
-          font-size: 16px;
+          font-size: 15px;
           color: var(--color-text-secondary);
           max-width: 520px;
           margin: 0 auto;
@@ -181,9 +236,7 @@ const CategorySection = () => {
           border-color: var(--color-accent-light);
         }
 
-        .cat-card:active {
-          transform: translateY(-2px);
-        }
+        .cat-card:active { transform: translateY(-2px); }
 
         /* ── IMAGE AREA ───────────────────────────────────── */
         .cat-img-wrap {
@@ -204,28 +257,19 @@ const CategorySection = () => {
           transition: transform 0.5s ease;
         }
 
-        .cat-card:hover .cat-img {
-          transform: scale(1.07);
-        }
+        .cat-card:hover .cat-img { transform: scale(1.07); }
 
-        /* subtle overlay on hover for depth */
         .cat-img-wrap::after {
           content: '';
           position: absolute;
           inset: 0;
-          background: linear-gradient(
-            180deg,
-            transparent 40%,
-            rgba(15, 23, 42, 0.15) 100%
-          );
+          background: linear-gradient(180deg, transparent 40%, rgba(15,23,42,0.15) 100%);
           opacity: 0;
           transition: opacity var(--transition-base);
           pointer-events: none;
         }
 
-        .cat-card:hover .cat-img-wrap::after {
-          opacity: 1;
-        }
+        .cat-card:hover .cat-img-wrap::after { opacity: 1; }
 
         /* ── TEXT AREA ────────────────────────────────────── */
         .cat-text {
@@ -253,7 +297,6 @@ const CategorySection = () => {
           flex: 1;
         }
 
-        /* "Explore →" row - ALWAYS VISIBLE */
         .cat-explore {
           display: flex;
           align-items: center;
@@ -262,29 +305,17 @@ const CategorySection = () => {
           font-size: 12px;
           font-weight: 700;
           color: var(--color-accent);
-          opacity: 1;
-          transform: translateY(0);
           transition:
             transform var(--transition-fast),
             color var(--transition-fast);
         }
 
-        .cat-card:hover .cat-explore {
-          transform: translateX(2px);
-        }
-
-        .cat-explore svg {
-          transition: transform var(--transition-fast);
-        }
-
-        .cat-card:hover .cat-explore svg {
-          transform: translateX(2px);
-        }
+        .cat-card:hover .cat-explore { transform: translateX(2px); }
+        .cat-explore svg { transition: transform var(--transition-fast); }
+        .cat-card:hover .cat-explore svg { transform: translateX(2px); }
 
         /* ── FOOTER ───────────────────────────────────────── */
-        .cat-footer {
-          text-align: center;
-        }
+        .cat-footer { text-align: center; }
 
         .cat-view-all {
           display: inline-flex;
@@ -328,42 +359,32 @@ const CategorySection = () => {
         }
 
         .cat-view-all:active { transform: scale(0.98); }
-
-        .cat-view-all svg {
-          transition: transform var(--transition-fast);
-        }
-        .cat-view-all:hover svg {
-          transform: translateX(3px);
-        }
+        .cat-view-all svg { transition: transform var(--transition-fast); }
+        .cat-view-all:hover svg { transform: translateX(3px); }
 
         /* ── RESPONSIVE ───────────────────────────────────── */
-
-        /* 4 columns — comfortable on large screens */
         @media (max-width: 1280px) {
           .cat-section { padding: 72px 0; }
           .cat-grid    { gap: 16px; }
         }
 
-        /* 4 → 4, just tighter padding */
         @media (max-width: 1100px) {
           .cat-container { padding: 0 32px; }
-          .cat-title     { font-size: 36px; }
+          .cat-title     { font-size: 22px; }
         }
 
-        /* tablet: drop to 4 narrow, or 2x4 rows */
         @media (max-width: 900px) {
           .cat-section   { padding: 60px 0; }
           .cat-container { padding: 0 24px; }
           .cat-grid      { grid-template-columns: repeat(4, 1fr); gap: 14px; }
-          .cat-title     { font-size: 32px; }
-          .cat-subtitle  { font-size: 15px; }
+          .cat-title     { font-size: 22px; }
+          .cat-subtitle  { font-size: 14px; }
           .cat-header    { margin-bottom: 36px; }
           .cat-text      { padding: 12px 14px 14px; }
           .cat-name      { font-size: 13.5px; }
           .cat-desc      { font-size: 12px; }
         }
 
-        /* mobile: strictly 2 per row */
         @media (max-width: 640px) {
           .cat-section   { padding: 48px 0; }
           .cat-container { padding: 0 16px; }
@@ -372,11 +393,11 @@ const CategorySection = () => {
             gap: 12px;
             margin-bottom: 36px;
           }
-          .cat-title    { font-size: 26px; letter-spacing: -0.5px; }
+          .cat-title    { font-size: 20px; letter-spacing: -0.5px; }
           .cat-subtitle { font-size: 14px; }
           .cat-header   { margin-bottom: 28px; }
-
           .cat-card     { border-radius: 14px; }
+          .cat-sk-card  { border-radius: 14px; }
           .cat-text     { padding: 12px 12px 14px; }
           .cat-name     { font-size: 13px; }
           .cat-desc     { font-size: 11.5px; }
@@ -402,9 +423,7 @@ const CategorySection = () => {
           {/* Header */}
           <div
             ref={headerRef as any}
-            className={`cat-header scroll-reveal ${
-              headerVisible ? "visible" : ""
-            }`}
+            className={`cat-header scroll-reveal ${headerVisible ? "visible" : ""}`}
           >
             <div className="cat-eyebrow">
               <svg
@@ -430,38 +449,37 @@ const CategorySection = () => {
             </p>
           </div>
 
-          {/* Grid */}
-          <div ref={gridRef as any} className="cat-grid">
-            {loading
-              ? null
-              : categories.map((cat) => (
-                  <div
-                    key={cat.id}
-                    className={`cat-card scroll-reveal-stagger ${
-                      gridVisible ? "visible" : ""
-                    }`}
-                    onClick={() => handleCategoryClick(cat.name)}
-                    role="button"
-                    aria-label={`Browse ${cat.name} services`}
-                  >
-                    <div className="cat-img-wrap">
-                      <img
-                        src={cat.image}
-                        alt={cat.name}
-                        className="cat-img"
-                        loading="lazy"
-                      />
-                    </div>
-
-                    <div className="cat-text">
-                      <h3 className="cat-name">{cat.name}</h3>
-                      <p className="cat-desc">{cat.description}</p>
-                      <span className="cat-explore">
-                        Explore <ArrowRight size={11} strokeWidth={2.5} />
-                      </span>
-                    </div>
+          {/* Grid — skeleton while loading, real cards after */}
+          <div className="cat-grid">
+            {loading ? (
+              <CategorySkeleton count={8} />
+            ) : (
+              categories.map((cat) => (
+                <div
+                  key={cat.id}
+                  className="cat-card"
+                  onClick={() => handleCategoryClick(cat.name)}
+                  role="button"
+                  aria-label={`Browse ${cat.name} services`}
+                >
+                  <div className="cat-img-wrap">
+                    <img
+                      src={cat.image}
+                      alt={cat.name}
+                      className="cat-img"
+                      loading="lazy"
+                    />
                   </div>
-                ))}
+                  <div className="cat-text">
+                    <h3 className="cat-name">{cat.name}</h3>
+                    <p className="cat-desc">{cat.description}</p>
+                    <span className="cat-explore">
+                      Explore <ArrowRight size={11} strokeWidth={2.5} />
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           {/* Footer */}
