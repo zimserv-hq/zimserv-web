@@ -18,13 +18,6 @@
       "destination": "/404.html"
     },
     {
-      "source": "/provider/:path*",
-      "has": [
-        { "type": "host", "value": "www.zimserv.co.zw" }
-      ],
-      "destination": "/404.html"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
