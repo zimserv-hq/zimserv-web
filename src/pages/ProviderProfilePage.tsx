@@ -70,10 +70,8 @@ const ProviderProfilePage = () => {
     }
   }, [slug]);
 
-  // Fade in content once loading is complete
   useEffect(() => {
     if (!loading && provider) {
-      // Small delay so skeleton fade-out is visible before content appears
       const t = setTimeout(() => setContentVisible(true), 60);
       return () => clearTimeout(t);
     }
@@ -152,13 +150,11 @@ const ProviderProfilePage = () => {
       const portfolioMedia =
         media?.filter((m: any) => m.media_type === "portfolio") ?? [];
 
-      // Gallery: only real portfolio images (shown in the gallery tab)
       const gallery: ProviderGalleryImage[] = portfolioMedia.map((m: any) => ({
         id: m.id,
         url: getMediaUrl(m.file_path),
       }));
 
-      // Hero image: profile pic, or a category placeholder if none
       const heroImageUrl =
         providerData.profile_image_url ||
         getDefaultImage(providerData.primary_category);
@@ -309,18 +305,23 @@ const ProviderProfilePage = () => {
   return (
     <>
       <style>{`
+        /* ── PAGE SHELL ── */
         .profile-page {
           width: 100%;
-          min-height: 100vh;
+          max-width: 100vw;
+          overflow-x: hidden;
           background: var(--color-bg-section);
           padding: 40px 0 80px;
           font-family: var(--font-primary);
+          box-sizing: border-box;
         }
 
         .profile-container {
           max-width: var(--container-max-width);
           margin: 0 auto;
           padding: 0 40px;
+          overflow-x: hidden;
+          box-sizing: border-box;
         }
 
         .back-btn {
@@ -346,45 +347,93 @@ const ProviderProfilePage = () => {
           transform: translateX(-4px);
         }
 
-        .profile-grid {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-          gap: 28px;
-          align-items: start;
-        }
-
-        .profile-grid-sticky {
-          position: sticky;
-          top: 24px;
-        }
-
-        .profile-grid-scroll {
-          position: sticky;
-          top: 24px;
-        }
-
-        /* Skeleton / content transitions */
-        .sk-wrapper {
-          transition: opacity 0.35s ease;
-        }
-
-        .sk-wrapper.hidden {
-          opacity: 0;
-          pointer-events: none;
-          position: absolute;
-          width: 100%;
-        }
-
+        /* ── CONTENT WRAPPER / GRID ── */
         .content-wrapper {
           opacity: 0;
           transition: opacity 0.4s ease;
+          width: 100%;
+          box-sizing: border-box;
         }
 
         .content-wrapper.visible {
           opacity: 1;
         }
 
-        /* ── LOGIN PROMPT MODAL ───────────────────────────── */
+        /* Desktop two-column layout */
+        .profile-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 28px;
+          align-items: start;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        /* Sticky only on desktop */
+        .profile-grid-sticky {
+          position: sticky;
+          top: 24px;
+          isolation: isolate;
+          min-width: 0;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .profile-grid-scroll {
+          position: static;
+          isolation: isolate;
+          min-width: 0;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        /* ── RESPONSIVE BREAKPOINTS ── */
+
+        @media (max-width: 1200px) {
+          .profile-container { padding: 0 32px; }
+          .profile-grid { gap: 24px; }
+        }
+
+        @media (max-width: 1024px) {
+          .profile-grid {
+            grid-template-columns: 1fr;
+            gap: 20px;
+            align-items: stretch;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
+          }
+
+          .profile-grid-sticky {
+            position: static !important;
+            top: auto !important;
+            isolation: auto;
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .profile-grid-scroll {
+            position: static;
+            isolation: auto;
+            width: 100%;
+            max-width: 100%;
+          }
+        }
+
+        @media (max-width: 920px) {
+          .profile-page { padding: 32px 0 60px; }
+          .profile-container { padding: 0 24px; }
+        }
+
+        @media (max-width: 640px) {
+          .profile-page { padding: 20px 0 60px; }
+          .profile-container { padding: 0 16px; }
+          .profile-grid { gap: 16px; }
+          .back-btn { margin-bottom: 20px; }
+          .pp-modal { padding: 36px 20px 28px; }
+        }
+
+        /* ── LOGIN PROMPT MODAL ── */
         .pp-modal-overlay {
           position: fixed;
           inset: 0;
@@ -413,6 +462,7 @@ const ProviderProfilePage = () => {
           border: 1.5px solid var(--color-border);
           box-shadow: var(--shadow-lg);
           animation: pp-slide-up 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+          box-sizing: border-box;
         }
 
         @keyframes pp-slide-up {
@@ -492,6 +542,7 @@ const ProviderProfilePage = () => {
             border-color var(--transition-fast),
             box-shadow var(--transition-fast),
             transform var(--transition-fast);
+          box-sizing: border-box;
         }
 
         .pp-modal-google-btn:hover {
@@ -526,6 +577,7 @@ const ProviderProfilePage = () => {
           border: 1.5px solid var(--color-border);
           color: var(--color-text-secondary);
           transition: all var(--transition-fast);
+          box-sizing: border-box;
         }
 
         .pp-modal-cancel-btn:hover {
@@ -537,29 +589,6 @@ const ProviderProfilePage = () => {
         @keyframes spin {
           0%  { transform: rotate(0deg); }
           100%{ transform: rotate(360deg); }
-        }
-
-        @media (max-width: 1200px) {
-          .profile-container { padding: 0 32px; }
-          .profile-grid { gap: 24px; }
-        }
-
-        @media (max-width: 1024px) {
-          .profile-grid { grid-template-columns: 1fr; gap: 24px; }
-          .profile-grid-sticky,
-          .profile-grid-scroll { position: static; top: auto; }
-        }
-
-        @media (max-width: 920px) {
-          .profile-page { padding: 32px 0 60px; }
-          .profile-container { padding: 0 24px; }
-        }
-
-        @media (max-width: 640px) {
-          .profile-page { padding: 24px 0 48px; }
-          .profile-container { padding: 0 16px; }
-          .profile-grid { gap: 20px; }
-          .pp-modal { padding: 36px 20px 28px; }
         }
       `}</style>
 
@@ -584,16 +613,13 @@ const ProviderProfilePage = () => {
             Back to Results
           </button>
 
-          {/* Skeleton — shown while loading */}
-          <div className={`sk-wrapper${!loading ? " hidden" : ""}`}>
-            <ProviderSkeleton />
-          </div>
+          {loading && <ProviderSkeleton />}
 
-          {/* Real content — fades in after data loads */}
           {provider && (
             <div
               className={`content-wrapper profile-grid${contentVisible ? " visible" : ""}`}
             >
+              {/* ✅ profile-grid-sticky is now fully static on mobile via CSS */}
               <div className="profile-grid-sticky">
                 <ProviderInfoCard
                   provider={provider}

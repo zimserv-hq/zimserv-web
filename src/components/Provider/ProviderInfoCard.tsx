@@ -32,16 +32,19 @@ const ProviderInfoCard = ({
   return (
     <>
       <style>{`
-        /* ══════════════════════════════════════════
-           PROVIDER INFO CARD — PREMIUM REDESIGN
-        ══════════════════════════════════════════ */
         .pic {
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
           border-radius: 24px;
+          /* ✅ FIX: overflow:hidden on the card clips the hero image correctly
+             and prevents the card from ever bleeding outside grid bounds */
           overflow: hidden;
           box-shadow: 0 4px 24px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
           transition: box-shadow 0.3s ease;
+          /* ✅ FIX: ensure the card respects its grid column width on all sizes */
+          min-width: 0;
+          width: 100%;
+          box-sizing: border-box;
         }
 
         .pic:hover {
@@ -51,9 +54,12 @@ const ProviderInfoCard = ({
         /* ── HERO IMAGE ── */
         .pic-hero {
           position: relative;
-          height: 340px;
+          /* ✅ FIX: Use aspect-ratio instead of fixed height so it scales
+             proportionally on every screen size without overflow */
+          aspect-ratio: 16 / 9;
           overflow: hidden;
           background: #f5f4f2;
+          /* Remove the old fixed heights entirely — aspect-ratio handles it */
         }
 
         .pic-hero-img {
@@ -142,7 +148,7 @@ const ProviderInfoCard = ({
           opacity: 0.72;
         }
 
-        /* ── IDENTITY (below hero) ── */
+        /* ── IDENTITY ── */
         .pic-identity {
           padding: 18px 20px 16px;
           border-bottom: 1.5px solid var(--color-border);
@@ -156,13 +162,15 @@ const ProviderInfoCard = ({
           letter-spacing: -0.4px;
           line-height: 1.2;
           margin-bottom: 4px;
+          /* ✅ FIX: prevent long business names from overflowing the card */
+          overflow-wrap: break-word;
+          word-break: break-word;
         }
 
         .pic-tagline {
           font-size: 13px;
           color: var(--color-text-secondary);
           font-weight: 500;
-          margin-bottom: 0;
         }
 
         /* ── STATS ROW ── */
@@ -181,6 +189,8 @@ const ProviderInfoCard = ({
           padding: 13px 10px;
           gap: 2px;
           position: relative;
+          /* ✅ FIX: prevent stat cells from overflowing their flex container */
+          min-width: 0;
         }
 
         .pic-stat-cell + .pic-stat-cell::before {
@@ -244,6 +254,7 @@ const ProviderInfoCard = ({
           transition: all 0.2s ease;
           position: relative;
           overflow: hidden;
+          box-sizing: border-box;
         }
 
         .pic-btn-call::after {
@@ -260,9 +271,7 @@ const ProviderInfoCard = ({
           box-shadow: 0 8px 24px rgba(236,111,22,0.46), 0 2px 8px rgba(236,111,22,0.24);
         }
 
-        .pic-btn-call:active:not(:disabled) {
-          transform: scale(0.98);
-        }
+        .pic-btn-call:active:not(:disabled) { transform: scale(0.98); }
 
         .pic-btn-call:disabled {
           opacity: 0.45;
@@ -288,6 +297,7 @@ const ProviderInfoCard = ({
           color: var(--color-primary);
           transition: all 0.2s ease;
           letter-spacing: 0.1px;
+          box-sizing: border-box;
         }
 
         .pic-btn-wa:hover:not(:disabled) {
@@ -310,7 +320,6 @@ const ProviderInfoCard = ({
           height: 8px;
           border-radius: 50%;
           background: #16a34a;
-          box-shadow: 0 0 0 0 rgba(22,163,74,0.4);
           animation: wa-pulse 2s ease-in-out infinite;
           flex-shrink: 0;
         }
@@ -375,9 +384,7 @@ const ProviderInfoCard = ({
           flex-shrink: 0;
         }
 
-        .pic-city-meta {
-          flex: 1;
-        }
+        .pic-city-meta { flex: 1; }
 
         .pic-city-lbl {
           font-size: 10px;
@@ -407,9 +414,7 @@ const ProviderInfoCard = ({
           margin-top: 14px;
         }
 
-        .pic-areas-label svg {
-          color: var(--color-accent);
-        }
+        .pic-areas-label svg { color: var(--color-accent); }
 
         .pic-areas {
           display: flex;
@@ -451,11 +456,15 @@ const ProviderInfoCard = ({
           white-space: nowrap;
         }
 
+        /* ✅ FIX: Removed fixed pixel heights entirely.
+           aspect-ratio on .pic-hero handles proportional sizing on all screens. */
         @media (max-width: 640px) {
-          .pic-hero { height: 220px; }
           .pic-name { font-size: 18px; }
           .pic-btn-call, .pic-btn-wa { font-size: 13px; padding: 12px 16px; }
           .pic-stats-strip { gap: 0; }
+          .pic-identity { padding: 14px 16px 12px; }
+          .pic-contact { padding: 12px 14px; }
+          .pic-body { padding: 14px 14px 18px; }
         }
       `}</style>
 
@@ -486,7 +495,7 @@ const ProviderInfoCard = ({
           </div>
         </div>
 
-        {/* Identity — name & tagline below the image */}
+        {/* Identity */}
         <div className="pic-identity">
           <div className="pic-name">{provider.name}</div>
           {provider.tagline && (
@@ -533,12 +542,13 @@ const ProviderInfoCard = ({
             <Phone size={16} strokeWidth={2.5} />
             {hasPhone ? "Call Now" : "No Phone Listed"}
           </button>
+          {/* ✅ FIX: removed stray {hasWhatsapp} boolean render */}
           <button
             className="pic-btn-wa"
             onClick={() => onContactClick(handleWhatsApp)}
             disabled={!hasWhatsapp}
           >
-            {hasWhatsapp}
+            <span className="pic-wa-dot" />
             <MessageCircle size={15} strokeWidth={2.5} />
             WhatsApp
           </button>
