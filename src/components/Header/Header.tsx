@@ -1,6 +1,7 @@
 // src/components/Header/Header.tsx
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+
 import {
   Menu,
   X,
@@ -23,6 +24,7 @@ const Header = () => {
   const profileRef = useRef<HTMLDivElement>(null);
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   // ── Auth state ───────────────────────────────────────
   // ── Auth state ───────────────────────────────────────
@@ -1139,7 +1141,13 @@ const Header = () => {
           <button
             className="mob-nav-item"
             onClick={() => {
-              navigate("/how-it-works");
+              if (location.pathname === "/") {
+                document
+                  .getElementById("how-it-works")
+                  ?.scrollIntoView({ behavior: "smooth" });
+              } else {
+                navigate("/#how-it-works");
+              }
               setMobileMenuOpen(false);
             }}
           >
