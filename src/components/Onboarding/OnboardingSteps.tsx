@@ -179,6 +179,7 @@ const OnboardingSteps = ({
   const QUICK_LANGUAGES = ["English", "Shona", "Ndebele"];
   const MAX_LANGUAGES = 3;
   const MAX_SERVICES = 8;
+  const MAX_AREAS = 8;
   const [languages, setLanguages] = useState<string[]>(
     formData.languages?.length > 0 ? formData.languages : ["English"],
   );
@@ -276,8 +277,6 @@ const OnboardingSteps = ({
         const place = areaAutocompleteRef.current?.getPlace();
         if (!place) return;
 
-        // ✅ Use place.name FIRST — it's always the exact name shown in the dropdown
-        // Only fall back to address_components if place.name is empty
         const areaName =
           place.name ||
           place.address_components?.find(
@@ -296,6 +295,17 @@ const OnboardingSteps = ({
             "Already added",
             `${areaName} is already in your service areas.`,
           );
+          return;
+        }
+
+        // ── Add this ──
+        if (areas.length >= MAX_AREAS) {
+          showError(
+            "Limit reached",
+            `You can only add up to ${MAX_AREAS} service areas.`,
+          );
+          setShowAreaInput(false);
+          setAreaInput("");
           return;
         }
 
@@ -613,6 +623,14 @@ const OnboardingSteps = ({
     }
     if (areas.length < 2) {
       showError("Not enough areas", "Please add at least 2 service areas.");
+      return;
+    }
+    // ── Add this ──
+    if (areas.length > MAX_AREAS) {
+      showError(
+        "Too many areas",
+        `Please remove some areas. Maximum is ${MAX_AREAS}.`,
+      );
       return;
     }
     updateFormData({ areas });
@@ -1515,9 +1533,38 @@ const OnboardingSteps = ({
               <input type="text" value={city} className="form-input" disabled />
             </div>
             <div className="form-group">
-              <label className="form-label required">
-                Add Service Areas (at least 2)
-              </label>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}
+              >
+                <label className="form-label required" style={{ margin: 0 }}>
+                  Add Service Areas (at least 2)
+                </label>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color:
+                      areas.length >= MAX_AREAS
+                        ? "#ef4444"
+                        : "var(--color-text-secondary)",
+                    background:
+                      areas.length >= MAX_AREAS
+                        ? "rgba(239,68,68,0.08)"
+                        : "var(--color-bg-section)",
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    border: `1px solid ${areas.length >= MAX_AREAS ? "rgba(239,68,68,0.2)" : "var(--color-border)"}`,
+                  }}
+                >
+                  {areas.length}/{MAX_AREAS}
+                </span>
+              </div>
+
               {areas.length > 0 && (
                 <div className="custom-services-list">
                   {areas.map((area) => (
@@ -1537,6 +1584,7 @@ const OnboardingSteps = ({
                   ))}
                 </div>
               )}
+
               {showAreaInput ? (
                 <div className="custom-service-input-row">
                   <input
@@ -1564,6 +1612,25 @@ const OnboardingSteps = ({
                     Cancel
                   </button>
                 </div>
+              ) : areas.length >= MAX_AREAS ? (
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "#d97706",
+                    background: "rgba(245,158,11,0.08)",
+                    border: "1.5px solid rgba(245,158,11,0.2)",
+                    borderRadius: 8,
+                    padding: "9px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontWeight: 500,
+                    marginTop: 4,
+                  }}
+                >
+                  Maximum of {MAX_AREAS} service areas reached. Remove one to
+                  add another.
+                </div>
               ) : (
                 <button
                   type="button"
@@ -1573,10 +1640,12 @@ const OnboardingSteps = ({
                   Add a service area
                 </button>
               )}
+
               <span className="input-hint">
                 Start typing a suburb or area — select from the dropdown.
               </span>
             </div>
+
             <div className="form-actions">
               <button onClick={prevStep} className="btn-secondary">
                 Back
