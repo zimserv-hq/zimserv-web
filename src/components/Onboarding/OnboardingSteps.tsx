@@ -1,5 +1,5 @@
 // Location: src/components/Onboarding/OnboardingSteps.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type {
   OnboardingData,
   ServiceEntry,
@@ -7,6 +7,7 @@ import type {
 import { Eye, X } from "lucide-react";
 import { useServicesByCategory } from "../../data/services";
 import { useToast } from "../../contexts/ToastContext";
+import { useLoadScript } from "@react-google-maps/api";
 import "./OnboardingSteps.css";
 
 interface OnboardingStepsProps {
@@ -104,6 +105,9 @@ const eyeButtonStyle: React.CSSProperties = {
   alignItems: "center",
 };
 
+// ── Google Maps libraries (defined outside component to avoid re-renders) ────
+const MAPS_LIBRARIES: "places"[] = ["places"];
+
 // ── Component ────────────────────────────────────────────────────────────────
 const OnboardingSteps = ({
   currentStep,
@@ -116,6 +120,16 @@ const OnboardingSteps = ({
   loadError,
 }: OnboardingStepsProps) => {
   const { showError, showSuccess, showInfo } = useToast();
+
+  // ── Google Maps ──────────────────────────────────────────────────────────
+  const { isLoaded: mapsLoaded } = useLoadScript({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
+    libraries: MAPS_LIBRARIES,
+  });
+  const areaAutocompleteInputRef = useRef<HTMLInputElement>(null);
+  const areaAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(
+    null,
+  );
 
   // Step 1: Account
   const [email, setEmail] = useState(formData.email);
@@ -241,6 +255,61 @@ const OnboardingSteps = ({
   const [areas, setAreas] = useState<string[]>(formData.areas);
   const [areaInput, setAreaInput] = useState("");
   const [showAreaInput, setShowAreaInput] = useState(false);
+
+  // ── Google Places Autocomplete for areas ─────────────────────────────────
+  useEffect(() => {
+    if (!mapsLoaded || !showAreaInput || !areaAutocompleteInputRef.current)
+      return;
+
+    areaAutocompleteRef.current = new google.maps.places.Autocomplete(
+      areaAutocompleteInputRef.current,
+      {
+        componentRestrictions: { country: "zw" },
+        fields: ["name", "address_components"],
+        // No types filter — searches everything including suburbs
+      },
+    );
+
+    const listener = areaAutocompleteRef.current.addListener(
+      "place_changed",
+      () => {
+        const place = areaAutocompleteRef.current?.getPlace();
+        if (!place) return;
+
+        // ✅ Use place.name FIRST — it's always the exact name shown in the dropdown
+        // Only fall back to address_components if place.name is empty
+        const areaName =
+          place.name ||
+          place.address_components?.find(
+            (c) =>
+              c.types.includes("sublocality_level_1") ||
+              c.types.includes("sublocality") ||
+              c.types.includes("neighborhood") ||
+              c.types.includes("locality"),
+          )?.long_name ||
+          "";
+
+        if (!areaName) return;
+
+        if (areas.includes(areaName)) {
+          showInfo?.(
+            "Already added",
+            `${areaName} is already in your service areas.`,
+          );
+          return;
+        }
+
+        setAreas((prev) => [...prev, areaName]);
+        setAreaInput("");
+        setShowAreaInput(false);
+      },
+    );
+
+    return () => {
+      if (listener) google.maps.event.removeListener(listener);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapsLoaded, showAreaInput]);
 
   // Step 5: Portfolio / ID
   const [portfolioFiles, setPortfolioFiles] = useState<File[]>(
@@ -531,29 +600,6 @@ const OnboardingSteps = ({
   };
 
   // Step 4 logic
-  const addAreaFromInput = () => {
-    const value = areaInput.trim();
-    if (!value) return;
-    if (areas.includes(value)) {
-      showInfo?.("Already added", `${value} is already in your service areas.`);
-      return;
-    }
-    setAreas([...areas, value]);
-    setAreaInput("");
-    setShowAreaInput(false);
-  };
-
-  const handleAreaKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addAreaFromInput();
-    }
-    if (e.key === "Escape") {
-      setShowAreaInput(false);
-      setAreaInput("");
-    }
-  };
-
   const removeArea = (area: string) =>
     setAreas(areas.filter((a) => a !== area));
 
@@ -1494,21 +1540,19 @@ const OnboardingSteps = ({
               {showAreaInput ? (
                 <div className="custom-service-input-row">
                   <input
+                    ref={areaAutocompleteInputRef}
                     type="text"
                     className="form-input"
-                    placeholder="e.g., Borrowdale, Avondale"
+                    placeholder={
+                      mapsLoaded
+                        ? "Search suburb or area..."
+                        : "Loading maps..."
+                    }
                     value={areaInput}
                     onChange={(e) => setAreaInput(e.target.value)}
-                    onKeyDown={handleAreaKeyDown}
+                    disabled={!mapsLoaded}
                     autoFocus
                   />
-                  <button
-                    type="button"
-                    className="btn-primary btn-sm"
-                    onClick={addAreaFromInput}
-                  >
-                    Add area
-                  </button>
                   <button
                     type="button"
                     className="btn-secondary btn-sm"
@@ -1530,7 +1574,7 @@ const OnboardingSteps = ({
                 </button>
               )}
               <span className="input-hint">
-                Examples: Borrowdale, Mount Pleasant, Avondale.
+                Start typing a suburb or area — select from the dropdown.
               </span>
             </div>
             <div className="form-actions">
