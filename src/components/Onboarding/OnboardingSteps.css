@@ -315,6 +315,127 @@
 .checkbox-label a:hover {
   text-decoration: underline;
 }
+ /* ── Phone Input Wrapper ─────────────────────────────────────────────────── */
+.phone-input-wrapper {
+  display: flex;
+  align-items: stretch;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.phone-input-wrapper:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+.phone-input-wrapper.has-error {
+  border-color: #ef4444;
+}
+
+.phone-input-wrapper.has-error:focus-within {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+/* ── Flag + country selector ─────────────────────────────────────────────── */
+.phone-input-wrapper .PhoneInputCountry {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--color-bg-soft);
+  border-right: 1.5px solid var(--color-border);
+  gap: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-height: 48px;
+}
+
+.phone-input-wrapper .PhoneInputCountryIcon {
+  width: 24px;
+  height: 16px;
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.phone-input-wrapper .PhoneInputCountryIcon img,
+.phone-input-wrapper .PhoneInputCountryIcon svg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Hidden native select sits on top of the flag for click area */
+.phone-input-wrapper .PhoneInputCountrySelect {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.phone-input-wrapper .PhoneInputCountrySelectArrow {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--color-text-secondary);
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Number text input ───────────────────────────────────────────────────── */
+.phone-input-wrapper .PhoneInputInput {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-family: var(--font-primary);
+  font-size: 15px;
+  min-width: 0;
+  height: 48px;
+  box-sizing: border-box;
+}
+
+.phone-input-wrapper .PhoneInputInput::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+}
+
+/* ── Disabled state ──────────────────────────────────────────────────────── */
+.phone-input-wrapper:has(.PhoneInputInput:disabled) {
+  background: var(--color-bg-soft);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.phone-input-wrapper .PhoneInputInput:disabled {
+  cursor: not-allowed;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .phone-input-wrapper .PhoneInputCountry {
+    padding: 0 10px;
+  }
+
+  .phone-input-wrapper .PhoneInputInput {
+    font-size: 14px;
+    padding: 12px 12px;
+  }
+}
 
 
 /* ── File Upload ────────────────────────────── */

@@ -1,5 +1,5 @@
 // src/pages/admin/AdminApplicationDetails.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import {
   Download,
   Eye,
   MessageCircle,
+  RefreshCw,
 } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
 import ConfirmationModal from "../../components/Admin/ConfirmationModal";
@@ -28,7 +29,9 @@ type Application = {
   phone_number: string;
   whatsapp_number: string | null;
   city: string;
-  primary_category_id: string;
+  primary_category: string;
+  primary_category_id: string | null;
+  suggested_category: string | null;
   categories?: { name: string } | null;
   years_experience: string;
   work_type: string;
@@ -262,6 +265,16 @@ const AdminApplicationDetails = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileLoading, setFileLoading] = useState<"download" | null>(null);
 
+  // Category assignment state
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [customCategoryName, setCustomCategoryName] = useState("");
+  const [isAssigningCategory, setIsAssigningCategory] = useState(false);
+
+  const applicationRef = useRef<Application | null>(null);
+  useEffect(() => {
+    applicationRef.current = application;
+  }, [application]);
+
   useEffect(() => {
     if (id) fetchApplication();
   }, [id]);
@@ -276,7 +289,6 @@ const AdminApplicationDetails = () => {
         .single();
 
       if (error) {
-        console.error("❌ Error fetching application:", error);
         showError("Load failed", "Failed to load application.");
         navigate("/admin/applications");
         return;
@@ -284,7 +296,6 @@ const AdminApplicationDetails = () => {
 
       setApplication(data);
     } catch (err) {
-      console.error("❌ Unexpected error:", err);
       showError("Unexpected error", "An unexpected error occurred.");
       navigate("/admin/applications");
     } finally {
@@ -292,14 +303,21 @@ const AdminApplicationDetails = () => {
     }
   }
 
-  const handleApprove = async () => {
-    if (!application) return;
+  const isCustomCategory = (app: Application) =>
+    app.primary_category === "Other" && !!app.suggested_category;
+
+  // ── Whether this is a re-approval after expiry ────────────────────────────
+  const isExpiredResend = (app: Application) =>
+    app.status === "pending" && !!app.reviewed_at;
+
+  // ── Core approval ─────────────────────────────────────────────────────────
+  const runApproval = async (app: Application) => {
     setIsProcessing(true);
     try {
       const { data, error } = await supabase
         .from("provider_applications")
         .update({ status: "approved", reviewed_at: new Date().toISOString() })
-        .eq("id", application.id)
+        .eq("id", app.id)
         .select(`*, categories ( name )`)
         .single();
 
@@ -310,14 +328,15 @@ const AdminApplicationDetails = () => {
 
       setApplication(data);
       setShowApproveModal(false);
+      setShowCategoryModal(false);
 
       const { error: fnError } = await supabase.functions.invoke(
         "send-provider-invite",
         {
           body: {
-            applicationId: application.id,
-            email: application.email,
-            fullName: application.full_name,
+            applicationId: app.id,
+            email: app.email,
+            fullName: app.full_name,
           },
         },
       );
@@ -330,7 +349,7 @@ const AdminApplicationDetails = () => {
       } else {
         showSuccess(
           "Application approved",
-          `Invitation email sent to ${application.email}.`,
+          `Invitation email sent to ${app.email}.`,
         );
       }
     } catch (err) {
@@ -340,6 +359,108 @@ const AdminApplicationDetails = () => {
     }
   };
 
+  // ── Approve handler ───────────────────────────────────────────────────────
+  const handleApprove = async () => {
+    if (!application) return;
+
+    if (isCustomCategory(application)) {
+      setShowApproveModal(false);
+      setShowCategoryModal(true);
+      return;
+    }
+
+    await runApproval(application);
+  };
+
+  // ── Add suggested as new category then approve ────────────────────────────
+  const handleApproveWithNewCategory = async () => {
+    const app = applicationRef.current;
+    if (!app?.suggested_category) return;
+    setIsAssigningCategory(true);
+    try {
+      const { data: newCat, error: catError } = await supabase
+        .from("categories")
+        .insert({ name: app.suggested_category, status: "Active" })
+        .select()
+        .single();
+
+      if (catError) {
+        showError("Category error", "Failed to create new category.");
+        return;
+      }
+
+      await supabase
+        .from("provider_applications")
+        .update({
+          primary_category: newCat.name,
+          primary_category_id: newCat.id,
+        })
+        .eq("id", app.id);
+
+      const updated: Application = {
+        ...app,
+        primary_category: newCat.name,
+        primary_category_id: newCat.id,
+      };
+      setApplication(updated);
+      applicationRef.current = updated;
+
+      showSuccess("Category created", `"${newCat.name}" added to categories.`);
+      await runApproval(updated);
+    } catch (err) {
+      showError("Unexpected error", "An unexpected error occurred.");
+    } finally {
+      setIsAssigningCategory(false);
+    }
+  };
+
+  // ── Use custom-typed name then approve ────────────────────────────────────
+  const handleApproveWithCustomName = async () => {
+    const app = applicationRef.current;
+    const trimmed = customCategoryName.trim();
+    if (!app || !trimmed) {
+      showError("No name entered", "Please enter a category name.");
+      return;
+    }
+    setIsAssigningCategory(true);
+    try {
+      const { data: newCat, error: catError } = await supabase
+        .from("categories")
+        .insert({ name: trimmed, status: "Active" })
+        .select()
+        .single();
+
+      if (catError) {
+        showError("Category error", "Failed to create category.");
+        return;
+      }
+
+      await supabase
+        .from("provider_applications")
+        .update({
+          primary_category: newCat.name,
+          primary_category_id: newCat.id,
+        })
+        .eq("id", app.id);
+
+      const updated: Application = {
+        ...app,
+        primary_category: newCat.name,
+        primary_category_id: newCat.id,
+      };
+      setApplication(updated);
+      applicationRef.current = updated;
+
+      showSuccess("Category created", `"${newCat.name}" added to categories.`);
+      await runApproval(updated);
+    } catch (err) {
+      showError("Unexpected error", "An unexpected error occurred.");
+    } finally {
+      setIsAssigningCategory(false);
+    }
+  };
+
+  // ── Reject ────────────────────────────────────────────────────────────────
   const handleReject = async () => {
     if (!application) return;
     setIsProcessing(true);
@@ -366,25 +487,25 @@ const AdminApplicationDetails = () => {
     }
   };
 
-  // ── View: resolve public URL → open in new tab ────────────────────────────
+  // ── File handlers ─────────────────────────────────────────────────────────
   const handleViewFile = () => {
     if (!application?.verification_file_url) return;
-    const url = getPublicUrl(application.verification_file_url);
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(
+      getPublicUrl(application.verification_file_url),
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
-  // ── Download: fetch public URL as blob → Save As dialog ──────────────────
   const handleDownloadFile = async () => {
     if (!application?.verification_file_url) return;
     setFileLoading("download");
     try {
       const url = getPublicUrl(application.verification_file_url);
       const fileName = getFileName(application.verification_file_url);
-
       const response = await fetch(url);
       if (!response.ok)
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -395,7 +516,6 @@ const AdminApplicationDetails = () => {
       document.body.removeChild(anchor);
       URL.revokeObjectURL(blobUrl);
     } catch (err: any) {
-      console.error("❌ Download error:", err);
       showError("Download failed", err?.message || "Unknown error.");
     } finally {
       setFileLoading(null);
@@ -413,7 +533,11 @@ const AdminApplicationDetails = () => {
 
   if (!application) return null;
 
-  const categoryName = application.categories?.name ?? "—";
+  const categoryName =
+    application.suggested_category && application.primary_category === "Other"
+      ? "Other (Custom)"
+      : (application.categories?.name ?? application.primary_category ?? "—");
+
   const fileName = application.verification_file_url
     ? getFileName(application.verification_file_url)
     : null;
@@ -430,6 +554,29 @@ const AdminApplicationDetails = () => {
           <ArrowLeft size={18} strokeWidth={2.5} />
           Back to Applications
         </button>
+
+        {/* ── Expired invite resend banner ─────────────────────────────── */}
+        {isExpiredResend(application) && (
+          <div className="resend-banner">
+            <div className="resend-banner-left">
+              <RefreshCw size={18} strokeWidth={2.5} className="resend-icon" />
+              <div>
+                <div className="resend-title">Invite Link Expired</div>
+                <div className="resend-subtitle">
+                  This provider's invite link expired before they completed
+                  registration. Approve again to send a fresh 24-hour invite.
+                </div>
+              </div>
+            </div>
+            <button
+              className="resend-btn"
+              onClick={() => setShowApproveModal(true)}
+            >
+              <RefreshCw size={15} strokeWidth={2.5} />
+              Resend Invite
+            </button>
+          </div>
+        )}
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="details-header">
@@ -483,7 +630,7 @@ const AdminApplicationDetails = () => {
                 onClick={() => setShowApproveModal(true)}
               >
                 <CheckCircle size={18} strokeWidth={2.5} />
-                Approve
+                {isExpiredResend(application) ? "Resend Invite" : "Approve"}
               </button>
               <button
                 className="action-btn-large reject"
@@ -516,12 +663,11 @@ const AdminApplicationDetails = () => {
           </div>
 
           <div className="tab-content">
-            {/* Details */}
+            {/* ── Details Tab ───────────────────────────────────────────── */}
             {activeTab === "details" && (
               <div className="content-grid">
                 {/* Left column */}
                 <div>
-                  {/* Description */}
                   <div className="card" style={{ marginBottom: 24 }}>
                     <h2 className="card-title">
                       <FileText size={20} strokeWidth={2.5} />
@@ -532,7 +678,6 @@ const AdminApplicationDetails = () => {
                     </p>
                   </div>
 
-                  {/* Work info */}
                   <div className="card" style={{ marginBottom: 24 }}>
                     <h2 className="card-title">
                       <Briefcase size={20} strokeWidth={2.5} />
@@ -573,7 +718,6 @@ const AdminApplicationDetails = () => {
                     </div>
                   </div>
 
-                  {/* Verification document */}
                   {application.verification_file_url && (
                     <div className="card">
                       <h2 className="card-title">
@@ -618,7 +762,6 @@ const AdminApplicationDetails = () => {
 
                 {/* Right column */}
                 <div>
-                  {/* Contact */}
                   <div className="card" style={{ marginBottom: 24 }}>
                     <h2 className="card-title">
                       <User size={20} strokeWidth={2.5} />
@@ -659,7 +802,6 @@ const AdminApplicationDetails = () => {
                     )}
                   </div>
 
-                  {/* Location & category */}
                   <div className="card">
                     <h2 className="card-title">
                       <MapPin size={20} strokeWidth={2.5} />
@@ -673,12 +815,24 @@ const AdminApplicationDetails = () => {
                       <span className="info-label">Category</span>
                       <span className="info-value">{categoryName}</span>
                     </div>
+
+                    {isCustomCategory(application) && (
+                      <div className="suggested-category-banner">
+                        <span className="suggested-badge">SUGGESTED</span>
+                        <span className="suggested-name">
+                          {application.suggested_category}
+                        </span>
+                        <span className="suggested-note">
+                          Pending assignment on approval
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Timeline */}
+            {/* ── Timeline Tab ──────────────────────────────────────────── */}
             {activeTab === "timeline" && (
               <div className="card">
                 <h2 className="card-title">
@@ -709,21 +863,28 @@ const AdminApplicationDetails = () => {
                       </div>
                     </div>
                   </div>
+
                   {application.reviewed_at && (
                     <div className="timeline-item">
                       <div className="timeline-dot">
                         {application.status === "approved" ? (
                           <CheckCircle size={12} strokeWidth={3} />
+                        ) : application.status === "pending" ? (
+                          <RefreshCw size={12} strokeWidth={3} />
                         ) : (
                           <XCircle size={12} strokeWidth={3} />
                         )}
                       </div>
+                      {application.status === "pending" && (
+                        <div className="timeline-line" />
+                      )}
                       <div className="timeline-content">
                         <div className="timeline-title">
-                          Application{" "}
                           {application.status === "approved"
-                            ? "Approved"
-                            : "Rejected"}
+                            ? "Application Approved"
+                            : application.status === "pending"
+                              ? "Invite Expired — Awaiting Resend"
+                              : "Application Rejected"}
                         </div>
                         <div className="timeline-date">
                           {new Date(application.reviewed_at).toLocaleString(
@@ -746,16 +907,24 @@ const AdminApplicationDetails = () => {
           </div>
         </div>
 
-        {/* ── Modals ──────────────────────────────────────────────────────── */}
+        {/* ── Standard Modals ─────────────────────────────────────────────── */}
         <ConfirmationModal
           isOpen={showApproveModal}
           onClose={() => setShowApproveModal(false)}
           onConfirm={handleApprove}
-          title="Approve Application"
-          message={`Are you sure you want to approve "${application.full_name}"? An invitation email will be sent to complete their provider profile.`}
-          confirmLabel="Approve"
+          title={
+            isExpiredResend(application)
+              ? "Resend Invite"
+              : "Approve Application"
+          }
+          message={
+            isExpiredResend(application)
+              ? `The previous invite for "${application.full_name}" has expired. Send a fresh 24-hour invite link?`
+              : `Are you sure you want to approve "${application.full_name}"? An invitation email will be sent to complete their provider profile.`
+          }
+          confirmLabel={isExpiredResend(application) ? "Resend" : "Approve"}
           confirmStyle="success"
-          icon={CheckCircle}
+          icon={isExpiredResend(application) ? RefreshCw : CheckCircle}
           isLoading={isProcessing}
         />
         <ConfirmationModal
@@ -769,6 +938,69 @@ const AdminApplicationDetails = () => {
           icon={XCircle}
           isLoading={isProcessing}
         />
+
+        {/* ── Category Assignment Modal ────────────────────────────────────── */}
+        {showCategoryModal && (
+          <div className="modal-overlay">
+            <div className="modal-box">
+              <h2 className="modal-title">Assign a Category</h2>
+              <p className="modal-subtitle">
+                This applicant suggested:{" "}
+                <strong style={{ color: "var(--orange-primary)" }}>
+                  {application.suggested_category}
+                </strong>
+                . Choose how to categorise them before approving.
+              </p>
+
+              {/* Option A — Use suggested name as-is */}
+              <button
+                className="cat-btn cat-btn-green"
+                onClick={handleApproveWithNewCategory}
+                disabled={isAssigningCategory}
+              >
+                <CheckCircle size={18} strokeWidth={2.5} />
+                Use "{application.suggested_category}" as-is &amp; approve
+              </button>
+
+              {/* Option B — Write your own name */}
+              <div className="cat-existing-box">
+                <p className="cat-existing-label">
+                  Or use your own category name:
+                </p>
+                <input
+                  type="text"
+                  className="cat-input"
+                  placeholder="e.g. Drone Services, Solar Installation…"
+                  value={customCategoryName}
+                  maxLength={80}
+                  onChange={(e) => setCustomCategoryName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleApproveWithCustomName();
+                  }}
+                />
+                <button
+                  className="cat-btn cat-btn-orange"
+                  onClick={handleApproveWithCustomName}
+                  disabled={isAssigningCategory || !customCategoryName.trim()}
+                >
+                  Create &amp; Approve
+                </button>
+              </div>
+
+              {/* Cancel */}
+              <button
+                className="cat-btn cat-btn-cancel"
+                onClick={() => {
+                  setShowCategoryModal(false);
+                  setCustomCategoryName("");
+                }}
+                disabled={isAssigningCategory}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
@@ -781,36 +1013,18 @@ const pageStyles = `
     100% { background-position:  700px 0; }
   }
   .sk-block {
-    background: linear-gradient(
-      90deg,
-      var(--sk-base) 25%,
-      var(--sk-hi)   50%,
-      var(--sk-base) 75%
-    );
+    background: linear-gradient(90deg, var(--sk-base) 25%, var(--sk-hi) 50%, var(--sk-base) 75%);
     background-size: 700px 100%;
     animation: skShimmer 1.6s ease-in-out infinite;
-    border-radius: 6px;
-    flex-shrink: 0;
+    border-radius: 6px; flex-shrink: 0;
   }
   :root { --sk-base: #f0f0f0; --sk-hi: #e4e4e4; }
   .dark-mode { --sk-base: #374151; --sk-hi: #4b5563; }
 
-  .sk-header-card {
-    display: flex; gap: 24px; align-items: flex-start;
-    padding: 28px; background: var(--card-bg);
-    border: 1.5px solid var(--border-color); border-radius: 16px; margin-bottom: 32px;
-  }
+  .sk-header-card { display: flex; gap: 24px; align-items: flex-start; padding: 28px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; margin-bottom: 32px; }
   .sk-avatar { width: 120px; height: 120px; border-radius: 16px; flex-shrink: 0; }
-  .sk-tabs-bar {
-    display: flex; gap: 32px; padding: 0 20px; height: 56px; align-items: center;
-    background: var(--card-bg); border: 1.5px solid var(--border-color);
-    border-radius: 16px 16px 0 0; border-bottom: none;
-  }
-  .sk-content-grid {
-    display: grid; grid-template-columns: 2fr 1fr; gap: 24px; padding: 28px;
-    background: var(--card-bg); border: 1.5px solid var(--border-color);
-    border-radius: 0 0 16px 16px; border-top: 1.5px solid var(--border-color);
-  }
+  .sk-tabs-bar { display: flex; gap: 32px; padding: 0 20px; height: 56px; align-items: center; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px 16px 0 0; border-bottom: none; }
+  .sk-content-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; padding: 28px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 0 0 16px 16px; border-top: 1.5px solid var(--border-color); }
   .sk-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 14px; padding: 24px; }
 
   @media (max-width: 1024px) { .sk-content-grid { grid-template-columns: 1fr; } }
@@ -820,6 +1034,17 @@ const pageStyles = `
 
   .back-button { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 12px; border: 1.5px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); margin-bottom: 24px; }
   .back-button:hover { background: var(--hover-bg); border-color: var(--border-hover); transform: translateX(-4px); }
+
+  /* Resend invite banner */
+  .resend-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: rgba(251,191,36,0.1); border: 1.5px solid rgba(251,191,36,0.35); border-radius: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .resend-banner-left { display: flex; align-items: flex-start; gap: 12px; flex: 1; }
+  .resend-icon { color: #92400e; flex-shrink: 0; margin-top: 2px; }
+  .dark-mode .resend-icon { color: #fbbf24; }
+  .resend-title { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 3px; }
+  .dark-mode .resend-title { color: #fbbf24; }
+  .resend-subtitle { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+  .resend-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: none; background: #f59e0b; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0; }
+  .resend-btn:hover { background: #d97706; transform: translateY(-1px); }
 
   .details-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; padding: 28px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; box-shadow: 0 2px 8px var(--card-shadow); }
   .header-left { display: flex; gap: 24px; align-items: flex-start; flex: 1; }
@@ -884,6 +1109,30 @@ const pageStyles = `
   .file-btn.download-btn { background:var(--orange-primary); color:#fff; box-shadow:0 2px 8px rgba(255,107,53,0.25); }
   .file-btn.download-btn:hover:not(:disabled) { background:#e85a28; transform:translateY(-1px); box-shadow:0 4px 14px rgba(255,107,53,0.35); }
 
+  /* Suggested category banner */
+  .suggested-category-banner { display:flex; align-items:center; gap:10px; margin-top:14px; padding:12px 16px; background:rgba(255,107,53,0.08); border:1.5px solid rgba(255,107,53,0.25); border-radius:10px; flex-wrap:wrap; }
+  .suggested-badge { font-size:11px; font-weight:700; background:var(--orange-light-bg); color:var(--orange-primary); padding:2px 8px; border-radius:999px; flex-shrink:0; }
+  .suggested-name { font-size:14px; font-weight:600; color:var(--text-primary); flex:1; }
+  .suggested-note { font-size:12px; color:var(--text-secondary); margin-left:auto; white-space:nowrap; }
+
+  /* Category assignment modal */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; }
+  .modal-box { background:var(--card-bg); border-radius:16px; padding:32px; max-width:500px; width:100%; border:1.5px solid var(--border-color); box-shadow:0 20px 60px rgba(0,0,0,0.2); display:flex; flex-direction:column; gap:12px; }
+  .modal-title { font-size:20px; font-weight:700; color:var(--text-primary); margin:0 0 4px; }
+  .modal-subtitle { font-size:14px; color:var(--text-secondary); line-height:1.6; margin:0; }
+  .cat-btn { width:100%; padding:14px 20px; border:none; border-radius:12px; font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; transition:all 0.2s ease; font-family:inherit; }
+  .cat-btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .cat-btn-green { background:linear-gradient(135deg,#10b981,#059669); color:#fff; }
+  .cat-btn-green:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 4px 16px rgba(16,185,129,0.3); }
+  .cat-btn-orange { background:var(--orange-primary); color:#fff; }
+  .cat-btn-orange:hover:not(:disabled) { background:#e85a28; transform:translateY(-1px); }
+  .cat-btn-cancel { background:transparent; color:var(--text-secondary); border:1.5px solid var(--border-color); }
+  .cat-btn-cancel:hover:not(:disabled) { background:var(--hover-bg); }
+  .cat-existing-box { border:1.5px solid var(--border-color); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .cat-existing-label { font-size:13px; font-weight:600; color:var(--text-secondary); margin:0; }
+  .cat-input { width:100%; padding:10px 14px; border:1.5px solid var(--border-color); border-radius:8px; background:var(--card-bg); color:var(--text-primary); font-size:14px; font-family:inherit; box-sizing:border-box; }
+  .cat-input:focus { outline:none; border-color:var(--orange-primary); }
+
   .timeline { position:relative; }
   .timeline-item { position:relative; padding-left:40px; padding-bottom:28px; }
   .timeline-item:last-child { padding-bottom:0; }
@@ -919,6 +1168,10 @@ const pageStyles = `
     .file-preview-card { flex-direction:column; align-items:flex-start; }
     .file-actions { width:100%; }
     .file-btn { flex:1; justify-content:center; }
+    .suggested-note { display:none; }
+    .modal-box { padding:24px; }
+    .resend-banner { flex-direction:column; align-items:flex-start; }
+    .resend-btn { width:100%; justify-content:center; }
   }
 `;
 

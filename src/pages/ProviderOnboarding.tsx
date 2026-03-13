@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import imageCompression from "browser-image-compression";
 import SEO from "../components/SEO";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import OnboardingSteps from "../components/Onboarding/OnboardingSteps";
@@ -63,6 +64,38 @@ const generateSlug = (businessName: string, fullName: string): string => {
     .replace(/^-|-$/g, "");
 };
 
+// ── Image compression helper ─────────────────────────────────────────────────
+// Compresses images to max 1MB / 1920px using a web worker — skips PDFs
+const compressImage = async (file: File): Promise<File> => {
+  if (!file.type.startsWith("image/")) return file;
+  try {
+    return await imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true,
+    });
+  } catch {
+    return file;
+  }
+};
+
+// ── Batched parallel upload helper ───────────────────────────────────────────
+// <T,> trailing comma prevents TSX from parsing generic as a JSX tag
+// Uploads in groups of `batchSize` to avoid overwhelming mobile connections
+const batchedUpload = async <T,>(
+  items: T[],
+  fn: (item: T) => Promise<string | null>,
+  batchSize = 3,
+): Promise<(string | null)[]> => {
+  const results: (string | null)[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+};
+
 const ProviderOnboarding = () => {
   const [searchParams] = useSearchParams();
   const applicationId = searchParams.get("application_id");
@@ -81,6 +114,7 @@ const ProviderOnboarding = () => {
 
   const [currentStep, setCurrentStep] = useState<number>(getInitialStep);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [inviteExpired, setInviteExpired] = useState(false);
 
   const [formData, setFormData] = useState<OnboardingData>({
     email: "",
@@ -184,9 +218,16 @@ const ProviderOnboarding = () => {
   useEffect(() => {
     const handleInviteHash = async () => {
       const hash = window.location.hash;
-      if (!hash || !hash.includes("access_token")) return;
+      if (!hash) return;
 
       const params = new URLSearchParams(hash.replace("#", ""));
+
+      if (
+        params.get("error") === "access_denied" ||
+        params.get("error_code") === "otp_expired"
+      )
+        return;
+
       const accessToken = params.get("access_token");
       const refreshToken = params.get("refresh_token");
       const type = params.get("type");
@@ -212,7 +253,6 @@ const ProviderOnboarding = () => {
         return;
       }
 
-      // Clean tokens from URL bar — keep application_id query param
       window.history.replaceState(
         null,
         "",
@@ -238,10 +278,8 @@ const ProviderOnboarding = () => {
           const passwordSet = session.user.user_metadata?.password_set === true;
 
           if (!passwordSet) {
-            // Fresh invite — stay on Step 1, no toast
             setStep(1);
           } else {
-            // Returning mid-onboarding user — resume from saved step
             const stored = getInitialStep();
             if (stored <= 1) {
               setStep(2);
@@ -274,6 +312,51 @@ const ProviderOnboarding = () => {
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
   }, []);
+
+  // ── 4️⃣ FOURTH: Handle expired invite link ───────────────────────────────
+  useEffect(() => {
+    const handleExpiredInvite = async () => {
+      const hash = window.location.hash;
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash.replace("#", ""));
+      const type = params.get("type");
+      const error = params.get("error");
+      const errorCode = params.get("error_code");
+
+      const isExpired =
+        (type === "invite" && error === "access_denied") ||
+        errorCode === "otp_expired";
+
+      if (!isExpired || !applicationId) return;
+
+      console.log("⏰ Invite link expired — resetting application to pending");
+      setInviteExpired(true);
+
+      try {
+        const { error: resetError } = await supabase
+          .from("provider_applications")
+          .update({ status: "pending" })
+          .eq("id", applicationId);
+
+        if (resetError) {
+          console.error("Failed to reset application status:", resetError);
+        } else {
+          console.log("✅ Application reset to pending");
+        }
+      } catch (err) {
+        console.error("Unexpected error resetting application:", err);
+      }
+
+      window.history.replaceState(
+        null,
+        "",
+        `/provider/onboarding?application_id=${applicationId}`,
+      );
+    };
+
+    handleExpiredInvite();
+  }, [applicationId]);
 
   // ── Step 1: Account submit ───────────────────────────────────────────────
   const handleAccountSubmit = async (
@@ -355,29 +438,45 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── File upload helper ───────────────────────────────────────────────────
+  // ── File upload helper with retry + exponential backoff ──────────────────
   const uploadFile = async (
     file: File,
     _providerId: string,
     folder: string,
+    retries = 3,
   ): Promise<string | null> => {
-    try {
-      const ext = file.name.split(".").pop() || "bin";
-      const fileName = `${folder}/${crypto.randomUUID()}.${ext}`;
-      const { error } = await supabase.storage
-        .from("provider-media")
-        .upload(fileName, file);
+    const ext = file.name.split(".").pop() || "bin";
+    const fileName = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-      if (error) {
-        console.error("Error uploading file to storage:", error);
-        return null;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const { error } = await supabase.storage
+          .from("provider-media")
+          .upload(fileName, file, {
+            upsert: false,
+            cacheControl: "3600",
+          });
+
+        if (!error) return fileName;
+
+        console.warn(
+          `Upload attempt ${attempt}/${retries} failed for ${fileName}:`,
+          error.message,
+        );
+      } catch (err) {
+        console.warn(`Upload attempt ${attempt}/${retries} threw:`, err);
       }
 
-      return fileName;
-    } catch (err) {
-      console.error("Unexpected error during file upload:", err);
-      return null;
+      if (attempt < retries) {
+        // Exponential backoff: 2s → 4s → 8s
+        await new Promise<void>((res) =>
+          setTimeout(res, Math.pow(2, attempt) * 1000),
+        );
+      }
     }
+
+    console.error(`All ${retries} upload attempts failed for ${fileName}`);
+    return null;
   };
 
   // ── Send "profile received" email ────────────────────────────────────────
@@ -448,7 +547,7 @@ const ProviderOnboarding = () => {
         .single();
 
       if (providerError || !providerInsert) {
-        // Slug collision — retry once
+        // Slug collision — retry once with random suffix
         if (
           providerError?.code === "23505" &&
           providerError.message.includes("slug")
@@ -530,7 +629,7 @@ const ProviderOnboarding = () => {
     profileData: OnboardingData,
     providerId: string,
   ) => {
-    // Services
+    // Services — single batch insert
     if (profileData.selectedServices.length > 0) {
       const servicesPayload = profileData.selectedServices.map((svc) => ({
         provider_id: providerId,
@@ -556,7 +655,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // Service areas
+    // Service areas — single batch insert
     if (profileData.areas.length > 0) {
       const areasPayload = profileData.areas.map((suburb) => ({
         provider_id: providerId,
@@ -577,10 +676,11 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // Profile photo
+    // Profile photo — compress then upload
     if (profileData.profilePhoto) {
+      const compressed = await compressImage(profileData.profilePhoto);
       const path = await uploadFile(
-        profileData.profilePhoto,
+        compressed,
         providerId,
         `providers/${providerId}/profile`,
       );
@@ -616,28 +716,26 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // Portfolio images
+    // ✅ Portfolio images — compress all first, then batched parallel upload (3 at a time)
     if (profileData.portfolioFiles.length > 0) {
-      const portfolioPayload: {
-        provider_id: string;
-        media_type: string;
-        file_path: string;
-      }[] = [];
+      const compressed = await Promise.all(
+        profileData.portfolioFiles.map(compressImage),
+      );
 
-      for (const file of profileData.portfolioFiles) {
-        const path = await uploadFile(
-          file,
-          providerId,
-          `providers/${providerId}/portfolio`,
-        );
-        if (path) {
-          portfolioPayload.push({
-            provider_id: providerId,
-            media_type: "portfolio",
-            file_path: path,
-          });
-        }
-      }
+      const paths = await batchedUpload(
+        compressed,
+        (file: File) =>
+          uploadFile(file, providerId, `providers/${providerId}/portfolio`),
+        3,
+      );
+
+      const portfolioPayload = paths
+        .filter((p): p is string => p !== null)
+        .map((file_path: string) => ({
+          provider_id: providerId,
+          media_type: "portfolio",
+          file_path,
+        }));
 
       if (portfolioPayload.length > 0) {
         const { error: portfolioError } = await supabase
@@ -653,28 +751,22 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // License files
+    // ✅ License files — batched parallel upload, no compression (may be PDFs)
     if (profileData.licenseFiles.length > 0) {
-      const licensePayload: {
-        provider_id: string;
-        media_type: string;
-        file_path: string;
-      }[] = [];
+      const paths = await batchedUpload(
+        profileData.licenseFiles,
+        (file: File) =>
+          uploadFile(file, providerId, `providers/${providerId}/licenses`),
+        3,
+      );
 
-      for (const file of profileData.licenseFiles) {
-        const path = await uploadFile(
-          file,
-          providerId,
-          `providers/${providerId}/licenses`,
-        );
-        if (path) {
-          licensePayload.push({
-            provider_id: providerId,
-            media_type: "license",
-            file_path: path,
-          });
-        }
-      }
+      const licensePayload = paths
+        .filter((p): p is string => p !== null)
+        .map((file_path: string) => ({
+          provider_id: providerId,
+          media_type: "license",
+          file_path,
+        }));
 
       if (licensePayload.length > 0) {
         const { error: licenseError } = await supabase
@@ -690,7 +782,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ID document
+    // ID document — single file, retry built into uploadFile
     if (profileData.idFile) {
       const path = await uploadFile(
         profileData.idFile,
@@ -719,6 +811,94 @@ const ProviderOnboarding = () => {
 
   const stepLabels = ["Account", "Profile", "Services", "Areas", "Portfolio"];
 
+  // ── Expired invite screen ────────────────────────────────────────────────
+  if (inviteExpired) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--color-bg-section)",
+          fontFamily: "var(--font-primary)",
+          padding: "40px 20px",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 480,
+            textAlign: "center",
+            background: "var(--color-bg)",
+            border: "1.5px solid var(--color-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "48px 40px",
+            boxShadow: "var(--shadow-lg)",
+          }}
+        >
+          <div
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: "50%",
+              background: "#FEF3C7",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 24px",
+              fontSize: 36,
+            }}
+          >
+            ⏰
+          </div>
+
+          <h1
+            style={{
+              fontFamily: "Fraunces, serif",
+              fontSize: 24,
+              fontWeight: 800,
+              color: "var(--color-primary)",
+              marginBottom: 12,
+              letterSpacing: "-0.5px",
+            }}
+          >
+            Your Invite Has Expired
+          </h1>
+
+          <p
+            style={{
+              color: "var(--color-text-secondary)",
+              fontSize: 15,
+              lineHeight: 1.7,
+              marginBottom: 28,
+            }}
+          >
+            Your invitation link was only valid for <strong>24 hours</strong>{" "}
+            and has now expired. Don't worry — the ZimServ team has been
+            notified and will review your application and send you a fresh
+            invite link shortly.
+          </p>
+
+          <div
+            style={{
+              padding: "14px 20px",
+              background: "rgba(255,107,53,0.08)",
+              border: "1.5px solid rgba(255,107,53,0.2)",
+              borderRadius: 10,
+              fontSize: 13,
+              color: "var(--color-text-secondary)",
+              lineHeight: 1.6,
+            }}
+          >
+            📬 Keep an eye on your inbox. The new invite will arrive within 24
+            hours.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Checking session screen ──────────────────────────────────────────────
   if (isCheckingSession) {
     return (
       <div
@@ -751,6 +931,7 @@ const ProviderOnboarding = () => {
     );
   }
 
+  // ── Main onboarding UI ───────────────────────────────────────────────────
   return (
     <>
       <SEO
@@ -777,6 +958,59 @@ const ProviderOnboarding = () => {
         onSubmitProfile={handleSubmitProfile}
         loadError={loadError}
       />
+
+      {/*
+      
+      {import.meta.env.DEV && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 20,
+            right: 20,
+            zIndex: 9999,
+            background: "#1a1a2e",
+            border: "1.5px solid #ff6b35",
+            borderRadius: 10,
+            padding: "10px 14px",
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          <span
+            style={{
+              color: "#ff6b35",
+              fontSize: 12,
+              fontWeight: 700,
+              marginRight: 4,
+            }}
+          >
+            DEV
+          </span>
+          {[1, 2, 3, 4, 5].map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setStep(s);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                border: "none",
+                background: currentStep === s ? "#ff6b35" : "#2a2a3e",
+                color: currentStep === s ? "#fff" : "#aaa",
+                fontWeight: 700,
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}*/}
     </>
   );
 };

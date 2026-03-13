@@ -1,6 +1,4 @@
 // src/pages/BecomeProviderPage.tsx
-// Improved UI/UX with proper margins matching the rest of the site
-
 import { useState, useEffect, type JSX } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -15,8 +13,13 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
+import type { Value as PhoneValue } from "react-phone-number-input";
+import "react-phone-number-input/style.css";
+
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
+import { useToast } from "../contexts/ToastContext";
 
 const CITIES = [
   "Harare",
@@ -77,8 +80,6 @@ const BENEFITS = [
 type FormState = {
   fullName: string;
   email: string;
-  phone: string;
-  whatsapp?: string;
   city: string;
   category: string;
   yearsExperience: string;
@@ -92,8 +93,6 @@ type FormState = {
 const initialState: FormState = {
   fullName: "",
   email: "",
-  phone: "+263 ",
-  whatsapp: "+263 ",
   city: "",
   category: "",
   yearsExperience: "",
@@ -112,18 +111,24 @@ type CategoryRecord = {
 
 export default function BecomeProviderPage(): JSX.Element {
   const navigate = useNavigate();
+  const { showError, showWarning } = useToast();
+
   const [formData, setFormData] = useState<FormState>(initialState);
+  const [phone, setPhone] = useState<PhoneValue | undefined>(undefined);
+  const [whatsapp, setWhatsapp] = useState<PhoneValue | undefined>(undefined);
   const [verificationFile, setVerificationFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
-  // Dynamic categories state
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
 
-  // Fetch categories on mount
+  const [suggestedCategory, setSuggestedCategory] = useState("");
+  const [showCustomCategoryInput, setShowCustomCategoryInput] = useState(false);
+
+  // ── Fetch categories ─────────────────────────────────────────────────────
   useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -133,23 +138,24 @@ export default function BecomeProviderPage(): JSX.Element {
         const { data, error } = await supabase
           .from("categories")
           .select("id, name, status, display_order")
-          .eq("status", "Active") // matches your default 'Active'
+          .eq("status", "Active")
           .order("display_order", { ascending: true });
 
         if (error) {
           console.error("Supabase categories error:", error);
-          setCategoryError(
-            "Failed to load service categories. Please refresh.",
-          );
+          const msg = "Failed to load service categories. Please refresh.";
+          setCategoryError(msg);
+          showError("Categories unavailable", msg);
           return;
         }
 
         setCategories(data || []);
       } catch (err) {
         console.error("Error loading categories:", err);
-        setCategoryError(
-          "Failed to load service categories. Please refresh the page.",
-        );
+        const msg =
+          "Failed to load service categories. Please refresh the page.";
+        setCategoryError(msg);
+        showError("Categories unavailable", msg);
       } finally {
         setCategoryLoading(false);
       }
@@ -158,6 +164,7 @@ export default function BecomeProviderPage(): JSX.Element {
     fetchCategories();
   }, []);
 
+  // ── Input handlers ───────────────────────────────────────────────────────
   function handleInputChange(
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -180,64 +187,111 @@ export default function BecomeProviderPage(): JSX.Element {
       setVerificationFile(null);
       return;
     }
-
-    // Only enforce size limit — any file format accepted
     if (file.size > 5 * 1024 * 1024) {
-      setErrors((prev) => ({ ...prev, verificationFile: "Max file size 5MB" }));
+      const msg = "File is too large. Maximum size is 5MB.";
+      setErrors((prev) => ({ ...prev, verificationFile: msg }));
+      showError("File too large", msg);
       return;
     }
-
     setVerificationFile(file);
     setErrors((prev) => ({ ...prev, verificationFile: "" }));
   }
 
+  // ── Custom category helpers ──────────────────────────────────────────────
+  function confirmCustomCategory() {
+    const trimmed = suggestedCategory.trim();
+    if (!trimmed) {
+      const msg = "Please enter a category name.";
+      setErrors((prev) => ({ ...prev, category: msg }));
+      showWarning("Category required", msg);
+      return;
+    }
+    setFormData((prev) => ({ ...prev, category: "other" }));
+    setSuggestedCategory(trimmed);
+    setShowCustomCategoryInput(false);
+    setErrors((prev) => ({ ...prev, category: "" }));
+  }
+
+  function cancelCustomCategory() {
+    setSuggestedCategory("");
+    setShowCustomCategoryInput(false);
+  }
+
+  // ── Validation ───────────────────────────────────────────────────────────
   function validate(): boolean {
     const e: Record<string, string> = {};
 
     if (!formData.fullName.trim()) e.fullName = "Full name is required";
     if (!formData.email.trim()) e.email = "Email is required";
-    else if (!/\S+@\S+\.\S+/.test(formData.email)) e.email = "Invalid email";
-    if (!formData.phone.trim()) {
+    else if (!/\S+@\S+\.\S+/.test(formData.email))
+      e.email = "Invalid email address";
+
+    if (!phone) {
       e.phone = "Phone number is required";
+    } else if (!isValidPhoneNumber(phone)) {
+      e.phone = "Enter a valid phone number for your selected country";
     } else {
-      const normalizedPhone = formData.phone.replace(/\s/g, "");
-      if (!/^\+?[0-9]{3,16}$/.test(normalizedPhone)) {
-        e.phone = "Invalid phone number";
+      const digits = phone.replace(/\D/g, "");
+      const isZimbabwe = digits.startsWith("263");
+      if (isZimbabwe && digits.length > 12) {
+        e.phone = "Zimbabwean numbers cannot exceed 9 digits after +263";
       }
     }
 
+    if (whatsapp && !isValidPhoneNumber(whatsapp)) {
+      e.whatsapp = "Enter a valid WhatsApp number for your selected country";
+    }
+
     if (!formData.city) e.city = "City is required";
-    if (!formData.category) e.category = "Category is required";
-    if (!formData.yearsExperience) e.yearsExperience = "Experience is required";
+
+    if (!formData.category) {
+      e.category = "Please select a service category";
+    } else if (formData.category === "other" && !suggestedCategory.trim()) {
+      e.category = "Please enter your suggested category name";
+    }
+
+    if (!formData.yearsExperience)
+      e.yearsExperience = "Years of experience is required";
     if (!formData.workType) e.workType = "Work type is required";
     if (!formData.description.trim())
-      e.description = "Brief description is required";
+      e.description = "A brief description is required";
     else if (formData.description.length > 200)
-      e.description = "Max 200 characters";
-    if (!formData.agreedToTerms) e.agreedToTerms = "You must accept terms";
+      e.description = "Description must be 200 characters or less";
+    if (!formData.agreedToTerms)
+      e.agreedToTerms = "You must accept the Terms of Service to continue";
 
     setErrors(e);
-    return Object.keys(e).length === 0;
+
+    const errorCount = Object.keys(e).length;
+    if (errorCount > 0) {
+      // Show a single summary toast
+      showWarning(
+        "Please fix the errors below",
+        errorCount === 1
+          ? Object.values(e)[0]
+          : `${errorCount} fields need your attention before submitting.`,
+      );
+    }
+
+    return errorCount === 0;
   }
 
+  // ── Submit ───────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    console.log("=== FORM SUBMISSION STARTED ===");
 
     if (!validate()) {
-      console.log("❌ Validation failed");
       const first = document.querySelector(".input-error");
       first?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
-    console.log("✅ Validation passed");
     setIsSubmitting(true);
 
     try {
       let verificationFileUrl: string | null = null;
 
-      // Step 1: Upload verification file (keep as is)
+      // Step 1: Upload verification file
       if (verificationFile) {
         const fileExt = verificationFile.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
@@ -249,71 +303,61 @@ export default function BecomeProviderPage(): JSX.Element {
 
         if (uploadError) {
           console.error("❌ File upload error:", uploadError);
-          setErrors({
-            verificationFile: "Failed to upload file. Please try again.",
-          });
+          const msg =
+            "Failed to upload your verification file. Please try again.";
+          setErrors({ verificationFile: msg });
+          showError("Upload failed", msg);
           setIsSubmitting(false);
           return;
         }
 
         verificationFileUrl = filePath;
-        console.log("✅ File uploaded successfully:", filePath);
       }
 
-      // Step 2: Validate category ID exists
-      // Step 2: Validate category ID exists
+      // Step 2: Resolve category
       if (!formData.category) {
-        setErrors({ category: "Please select a category" });
+        const msg = "Please select a category before submitting.";
+        setErrors({ category: msg });
+        showError("Category required", msg);
         setIsSubmitting(false);
         return;
       }
 
-      // Step 2b: Find the selected category object (for name + id)
-      const selectedCategory = categories.find(
-        (cat) => cat.id === formData.category,
-      );
+      const isCustomCategory = formData.category === "other";
+      let resolvedCategoryName: string;
+      let resolvedCategoryId: string | null;
 
-      if (!selectedCategory) {
-        console.error("Selected category ID not found in categories list", {
-          selectedId: formData.category,
-          categories,
-        });
-        setErrors({
-          category:
-            "Selected category is no longer available. Please choose another option.",
-        });
-        setIsSubmitting(false);
-        return;
+      if (isCustomCategory) {
+        resolvedCategoryName = "Other";
+        resolvedCategoryId = null;
+      } else {
+        const selectedCategory = categories.find(
+          (cat) => cat.id === formData.category,
+        );
+
+        if (!selectedCategory) {
+          const msg =
+            "The selected category is no longer available. Please choose another option.";
+          setErrors({ category: msg });
+          showError("Category unavailable", msg);
+          setIsSubmitting(false);
+          return;
+        }
+
+        resolvedCategoryName = selectedCategory.name;
+        resolvedCategoryId = selectedCategory.id;
       }
 
-      const normalizePhone = (value: string) => {
-        const trimmed = value.trim();
-        // If it is still exactly "+263" or "+263" plus optional spaces, store as "+263"
-        if (/^\+263\s*$/.test(trimmed)) {
-          return "+263";
-        }
-        return trimmed;
-      };
-
-      const normalizeWhatsapp = (value: string | undefined) => {
-        if (!value) return null;
-        const trimmed = value.trim();
-        if (!trimmed) return null;
-        if (/^\+263\s*$/.test(trimmed)) {
-          return "+263";
-        }
-        return trimmed;
-      };
-
-      // Step 3: Insert application with both category name AND ID
+      // Step 3: Insert application
       const insertData = {
         full_name: formData.fullName.trim(),
         email: formData.email.toLowerCase().trim(),
-        phone_number: normalizePhone(formData.phone),
-        whatsapp_number: normalizeWhatsapp(formData.whatsapp),
+        phone_number: phone ?? null,
+        whatsapp_number: whatsapp ?? null,
         city: formData.city,
-        primary_category: selectedCategory.name,
-        primary_category_id: selectedCategory.id,
+        primary_category: resolvedCategoryName,
+        primary_category_id: resolvedCategoryId,
+        suggested_category: isCustomCategory ? suggestedCategory.trim() : null,
         years_experience: formData.yearsExperience,
         work_type: formData.workType,
         availability: formData.availability || null,
@@ -322,8 +366,6 @@ export default function BecomeProviderPage(): JSX.Element {
         verification_file_url: verificationFileUrl,
         status: "pending",
       };
-
-      console.log("💾 Inserting data into database:", insertData);
 
       const { data, error } = await supabase
         .from("provider_applications")
@@ -335,28 +377,25 @@ export default function BecomeProviderPage(): JSX.Element {
         console.error("❌ Database insertion error:", error);
 
         if (error.code === "23505" && error.message.includes("email")) {
-          setErrors({
-            email:
-              "An application with this email already exists. Please check your inbox or contact support.",
-          });
+          const msg =
+            "An application with this email already exists. Please check your inbox or contact support.";
+          setErrors({ email: msg });
+          showError("Email already registered", msg);
           const emailInput = document.querySelector('[name="email"]');
           emailInput?.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
-          setErrors({
-            fullName:
-              "Failed to submit application. Please try again or contact support.",
-          });
+          showError(
+            "Submission failed",
+            "Failed to submit your application. Please try again or contact support.",
+          );
         }
 
         setIsSubmitting(false);
         return;
       }
 
-      // Success!
-      console.log("✅ Application submitted successfully!");
-      console.log("Application ID:", data?.id);
+      console.log("✅ Application submitted successfully! ID:", data?.id);
 
-      // Notify admin — fire and forget, won't block the user
       supabase.functions
         .invoke("notify-new-application", {
           body: { fullName: formData.fullName },
@@ -367,109 +406,31 @@ export default function BecomeProviderPage(): JSX.Element {
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       console.error("❌ Unexpected error:", err);
-      setErrors({
-        fullName: "An unexpected error occurred. Please refresh and try again.",
-      });
+      showError(
+        "Unexpected error",
+        "An unexpected error occurred. Please refresh and try again.",
+      );
       setIsSubmitting(false);
     }
   }
 
+  // ── Success screen ───────────────────────────────────────────────────────
   if (submitSuccess) {
     return (
       <>
         <style>{`
-          .success-page {
-            min-height: 70vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 80px 20px;
-            background: var(--color-bg-section);
-          }
-          .success-container {
-            max-width: 600px;
-            text-align: center;
-            background: var(--color-bg);
-            padding: 48px 40px;
-            border-radius: var(--radius-lg);
-            border: 1.5px solid var(--color-border);
-            box-shadow: var(--shadow-lg);
-          }
-          .success-icon {
-            width: 100px;
-            height: 100px;
-            margin: 0 auto 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            background: var(--color-accent-soft);
-            color: var(--color-accent);
-          }
-          .success-title {
-            font-family: 'Fraunces', serif;
-            font-size: 28px;
-            font-weight: 800;
-            color: var(--color-primary);
-            margin-bottom: 12px;
-            letter-spacing: -0.5px;
-          }
-          .success-message {
-            color: var(--color-text-secondary);
-            line-height: 1.6;
-            margin-bottom: 28px;
-            font-size: 15px;
-          }
-          .success-actions {
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-            flex-wrap: wrap;
-          }
-          .btn-primary,
-          .btn-secondary {
-            padding: 14px 28px;
-            border-radius: var(--radius-full);
-            font-weight: 700;
-            font-size: 15px;
-            border: none;
-            cursor: pointer;
-            transition: all var(--transition-fast);
-            font-family: var(--font-primary);
-          }
-          .btn-primary {
-            background: var(--color-accent);
-            color: #fff;
-            box-shadow: 0 4px 14px rgba(255, 107, 53, 0.25);
-          }
-          .btn-primary:hover {
-            background: var(--color-accent-hover);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
-          }
-          .btn-secondary {
-            background: transparent;
-            border: 1.5px solid var(--color-border);
-            color: var(--color-text-secondary);
-          }
-          .btn-secondary:hover {
-            background: var(--color-bg-section);
-            border-color: var(--color-accent);
-            color: var(--color-accent);
-          }
-          @media (max-width: 640px) {
-            .success-container {
-              padding: 32px 24px;
-            }
-            .success-actions {
-              flex-direction: column;
-              width: 100%;
-            }
-            .btn-primary,
-            .btn-secondary {
-              width: 100%;
-            }
-          }
+          .success-page { min-height: 70vh; display: flex; align-items: center; justify-content: center; padding: 80px 20px; background: var(--color-bg-section); }
+          .success-container { max-width: 600px; text-align: center; background: var(--color-bg); padding: 48px 40px; border-radius: var(--radius-lg); border: 1.5px solid var(--color-border); box-shadow: var(--shadow-lg); }
+          .success-icon { width: 100px; height: 100px; margin: 0 auto 24px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-accent-soft); color: var(--color-accent); }
+          .success-title { font-family: 'Fraunces', serif; font-size: 28px; font-weight: 800; color: var(--color-primary); margin-bottom: 12px; letter-spacing: -0.5px; }
+          .success-message { color: var(--color-text-secondary); line-height: 1.6; margin-bottom: 28px; font-size: 15px; }
+          .success-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+          .btn-primary, .btn-secondary { padding: 14px 28px; border-radius: var(--radius-full); font-weight: 700; font-size: 15px; border: none; cursor: pointer; transition: all var(--transition-fast); font-family: var(--font-primary); }
+          .btn-primary { background: var(--color-accent); color: #fff; box-shadow: 0 4px 14px rgba(255, 107, 53, 0.25); }
+          .btn-primary:hover { background: var(--color-accent-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4); }
+          .btn-secondary { background: transparent; border: 1.5px solid var(--color-border); color: var(--color-text-secondary); }
+          .btn-secondary:hover { background: var(--color-bg-section); border-color: var(--color-accent); color: var(--color-accent); }
+          @media (max-width: 640px) { .success-container { padding: 32px 24px; } .success-actions { flex-direction: column; width: 100%; } .btn-primary, .btn-secondary { width: 100%; } }
         `}</style>
 
         <Breadcrumb items={[{ label: "Become a Provider" }]} />
@@ -503,354 +464,80 @@ export default function BecomeProviderPage(): JSX.Element {
     );
   }
 
+  // ── Main form ────────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
-        .become-provider-page {
-          width: 100%;
-          min-height: 100vh;
-          background: var(--color-bg-section);
-          padding: 40px 0 80px;
-          font-family: var(--font-primary);
-        }
-
-        .provider-container {
-          max-width: var(--container-max-width);
-          margin: 0 auto;
-          padding: 0 var(--container-padding);
-        }
-
-        .provider-header {
-          margin-bottom: 32px;
-        }
-
-        .provider-title {
-          font-family: 'Fraunces', serif;
-          font-size: 32px;
-          font-weight: 800;
-          color: var(--color-primary);
-          margin-bottom: 10px;
-          letter-spacing: -0.8px;
-        }
-
-        .provider-subtitle {
-          color: var(--color-text-secondary);
-          font-weight: 500;
-          font-size: 16px;
-        }
-
-        .benefits-section {
-          margin-bottom: 48px;
-        }
-
-        .benefits-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 20px;
-        }
-
-        .benefit-card {
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-lg);
-          padding: 24px;
-          transition: all var(--transition-base);
-        }
-
-        .benefit-card:hover {
-          border-color: var(--color-accent);
-          box-shadow: 0 8px 24px rgba(255, 107, 53, 0.08);
-          transform: translateY(-4px);
-        }
-
-        .benefit-icon {
-          width: 48px;
-          height: 48px;
-          border-radius: var(--radius-md);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: var(--color-accent-soft);
-          color: var(--color-accent);
-          margin-bottom: 16px;
-        }
-
-        .benefit-title {
-          font-weight: 700;
-          font-size: 16px;
-          margin-bottom: 8px;
-          color: var(--color-primary);
-        }
-
-        .benefit-description {
-          color: var(--color-text-secondary);
-          font-size: 14px;
-          line-height: 1.6;
-        }
-
-        .form-section {
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-lg);
-          padding: 40px;
-          box-shadow: var(--shadow-sm);
-        }
-
-        .form-title {
-          font-family: 'Fraunces', serif;
-          font-size: 24px;
-          font-weight: 700;
-          color: var(--color-primary);
-          margin-bottom: 8px;
-        }
-
-        .form-description {
-          color: var(--color-text-secondary);
-          margin-bottom: 32px;
-          font-size: 15px;
-        }
-
-        .section-label {
-          font-size: 18px;
-          font-weight: 700;
-          color: var(--color-primary);
-          margin-bottom: 20px;
-          margin-top: 8px;
-        }
-
-        .form-grid-2 {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 20px;
-        }
-
-        .form-group {
-          margin-bottom: 20px;
-        }
-
-        .form-label {
-          display: block;
-          font-weight: 600;
-          font-size: 14px;
-          color: var(--color-primary);
-          margin-bottom: 8px;
-        }
-
-        .form-label .required {
-          color: var(--color-accent);
-        }
-
-        .form-input,
-        .form-select,
-        .form-textarea {
-          width: 100%;
-          padding: 12px 16px;
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-md);
-          background: var(--color-bg);
-          color: var(--color-primary);
-          font-family: var(--font-primary);
-          font-size: 15px;
-          box-sizing: border-box;
-          transition: all var(--transition-fast);
-        }
-
-        .form-input:focus,
-        .form-select:focus,
-        .form-textarea:focus {
-          outline: none;
-          border-color: var(--color-accent);
-          box-shadow: 0 0 0 3px var(--color-accent-soft);
-        }
-
-        .form-input:disabled,
-        .form-select:disabled {
-          background: var(--color-bg-soft);
-          cursor: not-allowed;
-          opacity: 0.6;
-        }
-
-        .form-textarea {
-          min-height: 100px;
-          resize: vertical;
-          line-height: 1.6;
-        }
-
-        .input-error {
-          color: #ef4444;
-          font-size: 13px;
-          margin-top: 6px;
-          display: block;
-          font-weight: 500;
-        }
-
-        .upload-section {
-          background: var(--color-bg-soft);
-          border: 2px dashed var(--color-border);
-          border-radius: var(--radius-md);
-          padding: 20px;
-          margin-bottom: 20px;
-          text-align: center;
-        }
-
-        .upload-section.has-file {
-          border-color: #10b981;
-          background: #ECFDF5;
-        }
-
-        .file-input {
-          display: none;
-        }
-
-        .file-label {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 12px 20px;
-          border-radius: var(--radius-md);
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          cursor: pointer;
-          font-weight: 600;
-          font-size: 14px;
-          color: var(--color-primary);
-          transition: all var(--transition-fast);
-        }
-
-        .file-label:hover {
-          border-color: var(--color-accent);
-          color: var(--color-accent);
-          background: var(--color-accent-soft);
-        }
-
-        .file-info {
-          margin-top: 16px;
-          padding: 12px;
-          background: var(--color-bg);
-          border-radius: var(--radius-md);
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .file-name {
-          font-weight: 600;
-          color: var(--color-primary);
-          font-size: 14px;
-        }
-
-        .file-remove {
-          background: none;
-          border: none;
-          color: var(--color-text-secondary);
-          cursor: pointer;
-          padding: 4px;
-          display: flex;
-          align-items: center;
-          transition: color var(--transition-fast);
-        }
-
-        .file-remove:hover {
-          color: #ef4444;
-        }
-
-        .checkbox-row {
-          display: flex;
-          gap: 12px;
-          align-items: flex-start;
-          margin-top: 16px;
-        }
-
-        .checkbox-row input[type="checkbox"] {
-          width: 20px;
-          height: 20px;
-          cursor: pointer;
-          accent-color: var(--color-accent);
-          margin-top: 2px;
-        }
-
-        .checkbox-row label {
-          color: var(--color-text-secondary);
-          font-size: 14px;
-          line-height: 1.6;
-        }
-
-        .checkbox-row label a {
-          color: var(--color-accent);
-          font-weight: 600;
-          text-decoration: none;
-        }
-
-        .checkbox-row label a:hover {
-          text-decoration: underline;
-        }
-
-        .submit-row {
-          margin-top: 32px;
-          padding-top: 32px;
-          border-top: 1.5px solid var(--color-border);
-        }
-
-        .submit-btn {
-          padding: 14px 32px;
-          border-radius: var(--radius-full);
-          background: var(--color-accent);
-          color: #fff;
-          border: none;
-          cursor: pointer;
-          font-weight: 700;
-          font-size: 16px;
-          font-family: var(--font-primary);
-          display: inline-flex;
-          gap: 8px;
-          align-items: center;
-          transition: all var(--transition-fast);
-          box-shadow: 0 4px 14px rgba(255, 107, 53, 0.25);
-        }
-
-        .submit-btn:hover:not(:disabled) {
-          background: var(--color-accent-hover);
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
-        }
-
-        .submit-btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        @media (max-width: 900px) {
-          .provider-container {
-            padding: 0 24px;
-          }
-          .benefits-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-          .form-section {
-            padding: 32px 24px;
-          }
-        }
-
-        @media (max-width: 640px) {
-          .become-provider-page {
-            padding: 24px 0 48px;
-          }
-          .provider-container {
-            padding: 0 16px;
-          }
-          .provider-title {
-            font-size: 26px;
-          }
-          .benefits-grid {
-            grid-template-columns: 1fr;
-          }
-          .form-section {
-            padding: 24px 20px;
-          }
-          .form-grid-2 {
-            grid-template-columns: 1fr;
-          }
-        }
+        .become-provider-page { width: 100%; min-height: 100vh; background: var(--color-bg-section); padding: 40px 0 80px; font-family: var(--font-primary); }
+        .provider-container { max-width: var(--container-max-width); margin: 0 auto; padding: 0 var(--container-padding); }
+        .provider-header { margin-bottom: 32px; }
+        .provider-title { font-family: 'Fraunces', serif; font-size: 32px; font-weight: 800; color: var(--color-primary); margin-bottom: 10px; letter-spacing: -0.8px; }
+        .provider-subtitle { color: var(--color-text-secondary); font-weight: 500; font-size: 16px; }
+        .benefits-section { margin-bottom: 48px; }
+        .benefits-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .benefit-card { background: var(--color-bg); border: 1.5px solid var(--color-border); border-radius: var(--radius-lg); padding: 24px; transition: all var(--transition-base); }
+        .benefit-card:hover { border-color: var(--color-accent); box-shadow: 0 8px 24px rgba(255, 107, 53, 0.08); transform: translateY(-4px); }
+        .benefit-icon { width: 48px; height: 48px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; background: var(--color-accent-soft); color: var(--color-accent); margin-bottom: 16px; }
+        .benefit-title { font-weight: 700; font-size: 16px; margin-bottom: 8px; color: var(--color-primary); }
+        .benefit-description { color: var(--color-text-secondary); font-size: 14px; line-height: 1.6; }
+        .form-section { background: var(--color-bg); border: 1.5px solid var(--color-border); border-radius: var(--radius-lg); padding: 40px; box-shadow: var(--shadow-sm); }
+        .form-title { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 700; color: var(--color-primary); margin-bottom: 8px; }
+        .form-description { color: var(--color-text-secondary); margin-bottom: 32px; font-size: 15px; }
+        .section-label { font-size: 18px; font-weight: 700; color: var(--color-primary); margin-bottom: 20px; margin-top: 8px; }
+        .form-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+        .form-group { margin-bottom: 20px; }
+        .form-label { display: block; font-weight: 600; font-size: 14px; color: var(--color-primary); margin-bottom: 8px; }
+        .form-label .required { color: var(--color-accent); }
+        .form-input, .form-select, .form-textarea { width: 100%; padding: 12px 16px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-primary); font-family: var(--font-primary); font-size: 15px; box-sizing: border-box; transition: all var(--transition-fast); }
+        .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-soft); }
+        .form-input:disabled, .form-select:disabled { background: var(--color-bg-soft); cursor: not-allowed; opacity: 0.6; }
+        .form-textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
+        .input-error { color: #ef4444; font-size: 13px; margin-top: 6px; display: block; font-weight: 500; }
+        .phone-input-wrapper { display: flex; align-items: stretch; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-bg); transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+        .phone-input-wrapper:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-soft); }
+        .phone-input-wrapper .PhoneInputCountry { display: flex; align-items: center; padding: 0 12px; background: var(--color-bg-soft); border-right: 1.5px solid var(--color-border); gap: 6px; cursor: pointer; flex-shrink: 0; }
+        .phone-input-wrapper .PhoneInputCountryIcon { width: 24px; height: 16px; border-radius: 2px; overflow: hidden; display: flex; align-items: center; }
+        .phone-input-wrapper .PhoneInputCountryIcon img { width: 100%; height: 100%; object-fit: cover; }
+        .phone-input-wrapper .PhoneInputCountrySelect { position: absolute; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+        .phone-input-wrapper .PhoneInputCountrySelectArrow { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--color-text-secondary); margin-left: 2px; }
+        .phone-input-wrapper .PhoneInputInput { flex: 1; padding: 12px 16px; border: none; outline: none; background: transparent; color: var(--color-primary); font-family: var(--font-primary); font-size: 15px; min-width: 0; }
+        .phone-input-wrapper.has-error { border-color: #ef4444; }
+        .custom-services-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; margin-bottom: 4px; }
+        .custom-service-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--color-bg-soft); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); }
+        .custom-service-name { font-size: 14px; font-weight: 600; color: var(--color-primary); display: flex; align-items: center; gap: 8px; }
+        .custom-badge { font-size: 11px; font-weight: 700; background: var(--color-accent-soft); color: var(--color-accent); padding: 2px 8px; border-radius: 999px; }
+        .custom-service-right { display: flex; align-items: center; gap: 8px; }
+        .custom-service-remove { background: none; border: none; cursor: pointer; color: var(--color-text-secondary); display: flex; align-items: center; padding: 4px; transition: color var(--transition-fast); border-radius: 4px; }
+        .custom-service-remove:hover { color: #ef4444; }
+        .custom-service-input-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+        .custom-service-input-row .form-input { flex: 1; margin-bottom: 0; }
+        .add-custom-service-btn { margin-top: 10px; background: none; border: 1.5px dashed var(--color-border); border-radius: var(--radius-md); color: var(--color-accent); font-size: 13px; font-weight: 600; padding: 9px 16px; cursor: pointer; width: 100%; transition: all var(--transition-fast); font-family: var(--font-primary); text-align: left; }
+        .add-custom-service-btn:hover { background: var(--color-accent-soft); border-color: var(--color-accent); }
+        .btn-sm { padding: 10px 18px; font-size: 13px; border-radius: var(--radius-md); font-weight: 700; border: none; cursor: pointer; font-family: var(--font-primary); white-space: nowrap; transition: all var(--transition-fast); }
+        .btn-primary-sm { background: var(--color-accent); color: #fff; }
+        .btn-primary-sm:hover { background: var(--color-accent-hover); }
+        .btn-secondary-sm { background: transparent; border: 1.5px solid var(--color-border); color: var(--color-text-secondary); }
+        .btn-secondary-sm:hover { border-color: var(--color-accent); color: var(--color-accent); }
+        .upload-section { background: var(--color-bg-soft); border: 2px dashed var(--color-border); border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px; text-align: center; }
+        .upload-section.has-file { border-color: #10b981; background: #ECFDF5; }
+        .file-input { display: none; }
+        .file-label { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: var(--radius-md); background: var(--color-bg); border: 1.5px solid var(--color-border); cursor: pointer; font-weight: 600; font-size: 14px; color: var(--color-primary); transition: all var(--transition-fast); }
+        .file-label:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-soft); }
+        .file-info { margin-top: 16px; padding: 12px; background: var(--color-bg); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; }
+        .file-name { font-weight: 600; color: var(--color-primary); font-size: 14px; }
+        .file-remove { background: none; border: none; color: var(--color-text-secondary); cursor: pointer; padding: 4px; display: flex; align-items: center; transition: color var(--transition-fast); }
+        .file-remove:hover { color: #ef4444; }
+        .checkbox-row { display: flex; gap: 12px; align-items: flex-start; margin-top: 16px; }
+        .checkbox-row input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; accent-color: var(--color-accent); margin-top: 2px; }
+        .checkbox-row label { color: var(--color-text-secondary); font-size: 14px; line-height: 1.6; }
+        .checkbox-row label a { color: var(--color-accent); font-weight: 600; text-decoration: none; }
+        .checkbox-row label a:hover { text-decoration: underline; }
+        .submit-row { margin-top: 32px; padding-top: 32px; border-top: 1.5px solid var(--color-border); }
+        .submit-btn { padding: 14px 32px; border-radius: var(--radius-full); background: var(--color-accent); color: #fff; border: none; cursor: pointer; font-weight: 700; font-size: 16px; font-family: var(--font-primary); display: inline-flex; gap: 8px; align-items: center; transition: all var(--transition-fast); box-shadow: 0 4px 14px rgba(255, 107, 53, 0.25); }
+        .submit-btn:hover:not(:disabled) { background: var(--color-accent-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4); }
+        .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        @media (max-width: 900px) { .provider-container { padding: 0 24px; } .benefits-grid { grid-template-columns: repeat(2, 1fr); } .form-section { padding: 32px 24px; } }
+        @media (max-width: 640px) { .become-provider-page { padding: 24px 0 48px; } .provider-container { padding: 0 16px; } .provider-title { font-size: 26px; } .benefits-grid { grid-template-columns: 1fr; } .form-section { padding: 24px 20px; } .form-grid-2 { grid-template-columns: 1fr; } .custom-service-input-row { flex-wrap: wrap; } .custom-service-input-row .form-input { width: 100%; } }
       `}</style>
 
       <Breadcrumb items={[{ label: "Become a Provider" }]} />
@@ -864,6 +551,7 @@ export default function BecomeProviderPage(): JSX.Element {
             </p>
           </div>
 
+          {/* Benefits grid */}
           <div className="benefits-section">
             <div className="benefits-grid">
               {BENEFITS.map((benefit, index) => {
@@ -891,6 +579,7 @@ export default function BecomeProviderPage(): JSX.Element {
             </p>
 
             <form onSubmit={handleSubmit} noValidate>
+              {/* ── Contact Information ── */}
               <div className="section-label">Contact Information</div>
 
               <div className="form-grid-2">
@@ -900,7 +589,7 @@ export default function BecomeProviderPage(): JSX.Element {
                   </label>
                   <input
                     name="fullName"
-                    className="form-input"
+                    className={`form-input${errors.fullName ? " has-error" : ""}`}
                     value={formData.fullName}
                     onChange={handleInputChange}
                     placeholder="John Doe"
@@ -917,7 +606,7 @@ export default function BecomeProviderPage(): JSX.Element {
                   <input
                     name="email"
                     type="email"
-                    className="form-input"
+                    className={`form-input${errors.email ? " has-error" : ""}`}
                     value={formData.email}
                     onChange={handleInputChange}
                     placeholder="john@example.com"
@@ -928,18 +617,34 @@ export default function BecomeProviderPage(): JSX.Element {
                 </div>
               </div>
 
+              {/* Phone + WhatsApp */}
               <div className="form-grid-2">
                 <div className="form-group">
                   <label className="form-label">
                     Phone Number <span className="required">*</span>
                   </label>
-                  <input
-                    name="phone"
-                    className="form-input"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                    placeholder="+263 77 123 4567"
-                  />
+                  <div
+                    className={`phone-input-wrapper${errors.phone ? " has-error" : ""}`}
+                  >
+                    <PhoneInput
+                      defaultCountry="ZW"
+                      international
+                      countryCallingCodeEditable={false}
+                      limitMaxLength
+                      value={phone}
+                      onChange={(val) => {
+                        if (val) {
+                          const digits = val.replace(/\D/g, "");
+                          const isZimbabwe = digits.startsWith("263");
+                          if (isZimbabwe && digits.length > 12) return;
+                        }
+                        setPhone(val);
+                        if (errors.phone)
+                          setErrors((prev) => ({ ...prev, phone: "" }));
+                      }}
+                      placeholder="+263 77 123 4567"
+                    />
+                  </div>
                   {errors.phone && (
                     <span className="input-error">{errors.phone}</span>
                   )}
@@ -947,18 +652,45 @@ export default function BecomeProviderPage(): JSX.Element {
 
                 <div className="form-group">
                   <label className="form-label">
-                    WhatsApp Number (Optional)
+                    WhatsApp Number{" "}
+                    <span
+                      style={{
+                        fontWeight: 400,
+                        color: "var(--color-text-secondary)",
+                      }}
+                    >
+                      (Optional)
+                    </span>
                   </label>
-                  <input
-                    name="whatsapp"
-                    className="form-input"
-                    value={formData.whatsapp}
-                    onChange={handleInputChange}
-                    placeholder="If different from phone"
-                  />
+                  <div
+                    className={`phone-input-wrapper${errors.whatsapp ? " has-error" : ""}`}
+                  >
+                    <PhoneInput
+                      defaultCountry="ZW"
+                      international
+                      countryCallingCodeEditable={false}
+                      limitMaxLength
+                      value={whatsapp}
+                      onChange={(val) => {
+                        if (val) {
+                          const digits = val.replace(/\D/g, "");
+                          const isZimbabwe = digits.startsWith("263");
+                          if (isZimbabwe && digits.length > 12) return;
+                        }
+                        setWhatsapp(val);
+                        if (errors.whatsapp)
+                          setErrors((prev) => ({ ...prev, whatsapp: "" }));
+                      }}
+                      placeholder="+263 77 123 4567"
+                    />
+                  </div>
+                  {errors.whatsapp && (
+                    <span className="input-error">{errors.whatsapp}</span>
+                  )}
                 </div>
               </div>
 
+              {/* City + Category */}
               <div className="form-grid-2">
                 <div className="form-group">
                   <label className="form-label">
@@ -966,7 +698,7 @@ export default function BecomeProviderPage(): JSX.Element {
                   </label>
                   <select
                     name="city"
-                    className="form-select"
+                    className={`form-select${errors.city ? " has-error" : ""}`}
                     value={formData.city}
                     onChange={handleInputChange}
                   >
@@ -986,26 +718,104 @@ export default function BecomeProviderPage(): JSX.Element {
                   <label className="form-label">
                     Service Category <span className="required">*</span>
                   </label>
-                  <select
-                    name="category"
-                    className="form-select"
-                    value={formData.category}
-                    onChange={handleInputChange}
-                    disabled={categoryLoading || !!categoryError}
-                  >
-                    <option value="">
-                      {categoryLoading
-                        ? "Loading categories..."
-                        : categoryError
-                          ? "Error loading categories"
-                          : "Select a category"}
-                    </option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
+
+                  {formData.category !== "other" &&
+                    !showCustomCategoryInput && (
+                      <select
+                        name="category"
+                        className={`form-select${errors.category ? " has-error" : ""}`}
+                        value={formData.category}
+                        onChange={handleInputChange}
+                        disabled={categoryLoading || !!categoryError}
+                      >
+                        <option value="">
+                          {categoryLoading
+                            ? "Loading categories..."
+                            : categoryError
+                              ? "Error loading categories"
+                              : "Select a category"}
+                        </option>
+                        {categories.map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                  {formData.category === "other" &&
+                    !showCustomCategoryInput && (
+                      <div className="custom-services-list">
+                        <div className="custom-service-item">
+                          <div className="custom-service-name">
+                            <span className="custom-badge">Custom</span>
+                            {suggestedCategory}
+                          </div>
+                          <div className="custom-service-right">
+                            <button
+                              type="button"
+                              className="custom-service-remove"
+                              aria-label="Remove suggested category"
+                              onClick={() => {
+                                setSuggestedCategory("");
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  category: "",
+                                }));
+                              }}
+                            >
+                              <X size={14} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                  {showCustomCategoryInput && (
+                    <div className="custom-service-input-row">
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Drone Photography, Solar Panel Installation..."
+                        value={suggestedCategory}
+                        maxLength={80}
+                        autoFocus
+                        onChange={(e) => setSuggestedCategory(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            confirmCustomCategory();
+                          }
+                          if (e.key === "Escape") cancelCustomCategory();
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-sm btn-primary-sm"
+                        onClick={confirmCustomCategory}
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-sm btn-secondary-sm"
+                        onClick={cancelCustomCategory}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
+                  {formData.category === "" && !showCustomCategoryInput && (
+                    <button
+                      type="button"
+                      className="add-custom-service-btn"
+                      onClick={() => setShowCustomCategoryInput(true)}
+                    >
+                      + Don't see your category? Suggest one
+                    </button>
+                  )}
+
                   {errors.category && (
                     <span className="input-error">{errors.category}</span>
                   )}
@@ -1015,6 +825,7 @@ export default function BecomeProviderPage(): JSX.Element {
                 </div>
               </div>
 
+              {/* ── Work Information ── */}
               <div className="section-label">Work Information</div>
 
               <div className="form-grid-2">
@@ -1024,7 +835,7 @@ export default function BecomeProviderPage(): JSX.Element {
                   </label>
                   <select
                     name="yearsExperience"
-                    className="form-select"
+                    className={`form-select${errors.yearsExperience ? " has-error" : ""}`}
                     value={formData.yearsExperience}
                     onChange={handleInputChange}
                   >
@@ -1047,7 +858,7 @@ export default function BecomeProviderPage(): JSX.Element {
                   </label>
                   <select
                     name="workType"
-                    className="form-select"
+                    className={`form-select${errors.workType ? " has-error" : ""}`}
                     value={formData.workType}
                     onChange={handleInputChange}
                   >
@@ -1085,7 +896,7 @@ export default function BecomeProviderPage(): JSX.Element {
                 </label>
                 <textarea
                   name="description"
-                  className="form-textarea"
+                  className={`form-textarea${errors.description ? " has-error" : ""}`}
                   maxLength={200}
                   value={formData.description}
                   onChange={handleInputChange}
@@ -1105,6 +916,7 @@ export default function BecomeProviderPage(): JSX.Element {
                 )}
               </div>
 
+              {/* ── Verification ── */}
               <div className="section-label">Verification (Optional)</div>
 
               <div

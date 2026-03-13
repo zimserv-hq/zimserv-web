@@ -8,6 +8,9 @@ import { Eye, X } from "lucide-react";
 import { useServicesByCategory } from "../../data/services";
 import { useToast } from "../../contexts/ToastContext";
 import { useLoadScript } from "@react-google-maps/api";
+import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
+import type { Value as PhoneValue } from "react-phone-number-input";
+import "react-phone-number-input/style.css";
 import "./OnboardingSteps.css";
 
 interface OnboardingStepsProps {
@@ -105,8 +108,16 @@ const eyeButtonStyle: React.CSSProperties = {
   alignItems: "center",
 };
 
-// ── Google Maps libraries (defined outside component to avoid re-renders) ────
+// ── Block non-integer keystrokes (e, +, -, .) ────────────────────────────────
+const blockNonInteger = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault();
+};
+
+// ── Google Maps libraries ────────────────────────────────────────────────────
 const MAPS_LIBRARIES: "places"[] = ["places"];
+
+// ── Max portfolio photos ─────────────────────────────────────────────────────
+const MAX_PORTFOLIO = 3;
 
 // ── Component ────────────────────────────────────────────────────────────────
 const OnboardingSteps = ({
@@ -165,14 +176,17 @@ const OnboardingSteps = ({
   // Preloaded but editable (except full name)
   const [fullName] = useState(formData.fullName); // read-only
   const [businessName, setBusinessName] = useState(formData.businessName);
-  const [phoneNumber, setPhoneNumber] = useState(
-    formData.phoneNumber || "+263",
+
+  // ── Phone inputs using react-phone-number-input ──────────────────────────
+  const [phone, setPhone] = useState<PhoneValue | undefined>(
+    (formData.phoneNumber as PhoneValue) || undefined,
   );
-  const [whatsappNumber, setWhatsappNumber] = useState(
-    formData.whatsappNumber || "+263",
+  const [whatsapp, setWhatsapp] = useState<PhoneValue | undefined>(
+    (formData.whatsappNumber as PhoneValue) || undefined,
   );
+
   const [description, setDescription] = useState(formData.description);
-  const [experience, setExperience] = useState(""); // not preloaded
+  const [experience, setExperience] = useState(formData.experience || "");
   const [website, setWebsite] = useState(formData.website);
 
   // Languages
@@ -247,7 +261,6 @@ const OnboardingSteps = ({
   const [customServiceName, setCustomServiceName] = useState("");
   const [showCustomInput, setShowCustomInput] = useState(false);
 
-  // ── Load services from DB ────────────────────────────────────────────────
   const { services: availableServices, loading: servicesLoading } =
     useServicesByCategory(formData.category);
 
@@ -267,7 +280,6 @@ const OnboardingSteps = ({
       {
         componentRestrictions: { country: "zw" },
         fields: ["name", "address_components"],
-        // No types filter — searches everything including suburbs
       },
     );
 
@@ -298,7 +310,6 @@ const OnboardingSteps = ({
           return;
         }
 
-        // ── Add this ──
         if (areas.length >= MAX_AREAS) {
           showError(
             "Limit reached",
@@ -485,21 +496,18 @@ const OnboardingSteps = ({
       );
       return;
     }
-    if (!phoneNumber.trim()) {
+    if (!phone || !isValidPhoneNumber(phone)) {
+      showError("Invalid phone number", "Please enter a valid phone number.");
+      return;
+    }
+    if (whatsapp && !isValidPhoneNumber(whatsapp)) {
       showError(
-        "Phone number missing",
-        "Please enter your main contact phone number.",
+        "Invalid WhatsApp number",
+        "Please enter a valid WhatsApp number.",
       );
       return;
     }
-    if (!whatsappNumber.trim()) {
-      showError(
-        "WhatsApp number missing",
-        "Please enter the WhatsApp number customers can contact.",
-      );
-      return;
-    }
-    if (!teamSize) {
+    if (!teamSize || parseInt(teamSize, 10) < 1) {
       showError("Team size missing", "Please provide your team size.");
       return;
     }
@@ -518,8 +526,8 @@ const OnboardingSteps = ({
     const finalLanguages = languages.length > 0 ? languages : ["English"];
     updateFormData({
       businessName,
-      phoneNumber,
-      whatsappNumber,
+      phoneNumber: phone ?? "",
+      whatsappNumber: whatsapp ?? "",
       description,
       experience,
       website,
@@ -625,7 +633,6 @@ const OnboardingSteps = ({
       showError("Not enough areas", "Please add at least 2 service areas.");
       return;
     }
-    // ── Add this ──
     if (areas.length > MAX_AREAS) {
       showError(
         "Too many areas",
@@ -665,10 +672,30 @@ const OnboardingSteps = ({
     if (input) input.value = "";
   };
 
+  // ── Portfolio: max 3 photos ──────────────────────────────────────────────
   const handlePortfolioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    const newFiles = Array.from(e.target.files);
-    setPortfolioFiles((prev) => [...prev, ...newFiles]);
+    const incoming = Array.from(e.target.files);
+    const remaining = MAX_PORTFOLIO - portfolioFiles.length;
+
+    if (remaining <= 0) {
+      showError(
+        "Limit reached",
+        `You can only upload up to ${MAX_PORTFOLIO} portfolio photos.`,
+      );
+      e.target.value = "";
+      return;
+    }
+
+    const accepted = incoming.slice(0, remaining);
+    if (incoming.length > remaining) {
+      showInfo?.(
+        "Some photos skipped",
+        `Only ${remaining} more photo${remaining === 1 ? "" : "s"} allowed. The rest were not added.`,
+      );
+    }
+
+    setPortfolioFiles((prev) => [...prev, ...accepted]);
     e.target.value = "";
   };
 
@@ -707,8 +734,8 @@ const OnboardingSteps = ({
       password,
       fullName,
       businessName,
-      phoneNumber,
-      whatsappNumber,
+      phoneNumber: phone ?? "",
+      whatsappNumber: whatsapp ?? "",
       description,
       experience,
       website,
@@ -960,26 +987,59 @@ const OnboardingSteps = ({
                 className="form-input"
               />
             </div>
+
+            {/* ── Phone Number (PhoneInput) ── */}
             <div className="form-group">
               <label className="form-label required">Phone Number</label>
-              <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="Enter your main contact number"
-                className="form-input"
-              />
+              <div className="phone-input-wrapper">
+                <PhoneInput
+                  defaultCountry="ZW"
+                  international
+                  countryCallingCodeEditable={false}
+                  limitMaxLength
+                  value={phone}
+                  onChange={(val) => {
+                    if (val) {
+                      const digits = val.replace(/\D/g, "");
+                      const isZimbabwe = digits.startsWith("263");
+                      if (isZimbabwe && digits.length > 12) return;
+                    }
+                    setPhone(val);
+                  }}
+                  placeholder="+263 77 123 4567"
+                />
+              </div>
+              <span className="input-hint">
+                Your main contact number for customers.
+              </span>
             </div>
+
+            {/* ── WhatsApp Number (PhoneInput) ── */}
             <div className="form-group">
               <label className="form-label required">WhatsApp Number</label>
-              <input
-                type="tel"
-                value={whatsappNumber}
-                onChange={(e) => setWhatsappNumber(e.target.value)}
-                placeholder="Enter your WhatsApp number"
-                className="form-input"
-              />
+              <div className="phone-input-wrapper">
+                <PhoneInput
+                  defaultCountry="ZW"
+                  international
+                  countryCallingCodeEditable={false}
+                  limitMaxLength
+                  value={whatsapp}
+                  onChange={(val) => {
+                    if (val) {
+                      const digits = val.replace(/\D/g, "");
+                      const isZimbabwe = digits.startsWith("263");
+                      if (isZimbabwe && digits.length > 12) return;
+                    }
+                    setWhatsapp(val);
+                  }}
+                  placeholder="+263 77 123 4567"
+                />
+              </div>
+              <span className="input-hint">
+                The WhatsApp number customers can message you on.
+              </span>
             </div>
+
             <div className="form-group">
               <label className="form-label">About Your Services</label>
               <textarea
@@ -989,16 +1049,28 @@ const OnboardingSteps = ({
                 className="form-textarea"
               />
             </div>
+
+            {/* ── Experience — numbers only ── */}
             <div className="form-group">
-              <label className="form-label required">Experience (years)</label>
+              <label className="form-label required">Years of Experience</label>
               <input
-                type="text"
+                type="number"
                 value={experience}
-                onChange={(e) => setExperience(e.target.value)}
-                placeholder="e.g., 5"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "" || /^\d+$/.test(val)) setExperience(val);
+                }}
+                onKeyDown={blockNonInteger}
+                placeholder="e.g. 5"
+                min={0}
+                max={60}
                 className="form-input"
               />
+              <span className="input-hint">
+                How many years have you worked in this field?
+              </span>
             </div>
+
             <div className="form-group">
               <label className="form-label">Website (Optional)</label>
               <input
@@ -1144,13 +1216,18 @@ const OnboardingSteps = ({
             </div>
 
             <div className="form-grid-2">
+              {/* ── Team Size — numbers only ── */}
               <div className="form-group">
                 <label className="form-label required">Team Size</label>
                 <input
                   type="number"
                   value={teamSize}
-                  onChange={(e) => setTeamSize(e.target.value)}
-                  placeholder="e.g., 3"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "" || /^\d+$/.test(val)) setTeamSize(val);
+                  }}
+                  onKeyDown={blockNonInteger}
+                  placeholder="e.g. 3"
                   min={1}
                   className="form-input"
                 />
@@ -1315,6 +1392,36 @@ const OnboardingSteps = ({
               Select services and set a starting price for each. Add custom
               services if yours aren&apos;t listed.
             </p>
+
+            {/* NB: Starting price notice */}
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "flex-start",
+                background: "rgba(255,107,53,0.06)",
+                border: "1.5px solid rgba(255,107,53,0.2)",
+                borderRadius: 10,
+                padding: "12px 16px",
+                marginBottom: 24,
+              }}
+            >
+              <span style={{ fontSize: 18, lineHeight: 1 }}>💡</span>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 14,
+                  color: "var(--color-text-secondary)",
+                  lineHeight: 1.6,
+                }}
+              >
+                <strong style={{ color: "var(--color-primary)" }}>NB:</strong>{" "}
+                The price you enter for each service is a{" "}
+                <strong>starting price only</strong> — it gives customers an
+                idea of your rates. The final price will be agreed upon between
+                you and the customer based on the specific job requirements.
+              </p>
+            </div>
 
             <div className="form-group">
               <label className="form-label">Your Category</label>
@@ -1673,38 +1780,66 @@ const OnboardingSteps = ({
             <div className="form-group">
               <label className="form-label required">
                 Work Portfolio{" "}
-                <span style={{ fontWeight: 400 }}>(at least 1 photo)</span>
+                <span style={{ fontWeight: 400 }}>
+                  (at least 1, max {MAX_PORTFOLIO} photos)
+                </span>
               </label>
-              <div
-                onClick={() =>
-                  document.getElementById("portfolioInput")?.click()
-                }
-                className="file-upload-zone"
-                style={{ marginBottom: portfolioFiles.length > 0 ? 12 : 0 }}
-              >
-                <div className="file-upload-icon" />
-                <div className="file-upload-text">
-                  {portfolioFiles.length === 0
-                    ? "Click to upload portfolio images"
-                    : "Click to add more photos"}
+
+              {/* Upload zone — hidden once limit reached */}
+              {portfolioFiles.length < MAX_PORTFOLIO && (
+                <div
+                  onClick={() =>
+                    document.getElementById("portfolioInput")?.click()
+                  }
+                  className="file-upload-zone"
+                  style={{ marginBottom: portfolioFiles.length > 0 ? 12 : 0 }}
+                >
+                  <div className="file-upload-icon" />
+                  <div className="file-upload-text">
+                    {portfolioFiles.length === 0
+                      ? "Click to upload portfolio images"
+                      : "Click to add more photos"}
+                  </div>
+                  <div className="file-upload-hint">
+                    Upload photos of your completed work. JPG or PNG, max 5MB
+                    each.
+                    {portfolioFiles.length > 0 && (
+                      <span
+                        style={{
+                          color: "var(--color-accent)",
+                          fontWeight: 600,
+                          marginLeft: 6,
+                        }}
+                      >
+                        {portfolioFiles.length}/{MAX_PORTFOLIO} photos added
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="file-upload-hint">
-                  Upload photos of your completed work. JPG or PNG, max 5MB
-                  each.
-                  {portfolioFiles.length > 0 && (
-                    <span
-                      style={{
-                        color: "var(--color-accent)",
-                        fontWeight: 600,
-                        marginLeft: 6,
-                      }}
-                    >
-                      {portfolioFiles.length}{" "}
-                      {portfolioFiles.length === 1 ? "photo" : "photos"} added
-                    </span>
-                  )}
+              )}
+
+              {/* Limit reached notice */}
+              {portfolioFiles.length >= MAX_PORTFOLIO && (
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "#d97706",
+                    background: "rgba(245,158,11,0.08)",
+                    border: "1.5px solid rgba(245,158,11,0.2)",
+                    borderRadius: 8,
+                    padding: "9px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontWeight: 500,
+                    marginBottom: 12,
+                  }}
+                >
+                  Maximum of {MAX_PORTFOLIO} portfolio photos reached. Remove
+                  one to add another.
                 </div>
-              </div>
+              )}
+
               <input
                 type="file"
                 id="portfolioInput"
@@ -1739,11 +1874,41 @@ const OnboardingSteps = ({
             {/* Government ID */}
             <div className="form-group">
               <label className="form-label required">
-                Government ID{" "}
-                <span style={{ fontWeight: 400 }}>
-                  Private, not shown to customers
-                </span>
+                Government ID or Business Registration{" "}
               </label>
+
+              {/* NB: ID purpose notice */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "flex-start",
+                  background: "rgba(59,130,246,0.05)",
+                  border: "1.5px solid rgba(59,130,246,0.18)",
+                  borderRadius: 10,
+                  padding: "12px 16px",
+                  marginBottom: 14,
+                }}
+              >
+                <span style={{ fontSize: 16, lineHeight: 1.2 }}>🔒</span>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    color: "var(--color-text-secondary)",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <strong style={{ color: "var(--color-primary)" }}>NB:</strong>{" "}
+                  Your government-issued ID or business registration document
+                  serves as an official point of reference in the unlikely event
+                  of a dispute between you and a client. It is stored securely,
+                  accessible only to authorised ZimServ staff, and will{" "}
+                  <strong>never</strong> be shared with or disclosed to
+                  customers under any circumstances.
+                </p>
+              </div>
+
               {idFile ? (
                 <div className="photo-preview-row">
                   <div className="id-file-icon">
@@ -1797,7 +1962,7 @@ const OnboardingSteps = ({
                 >
                   <div className="file-upload-icon" />
                   <div className="file-upload-text">
-                    Upload a photo or scan of your ID
+                    Upload a photo or scan of your ID or business registration
                   </div>
                   <div className="file-upload-hint">
                     This is only visible to ZimServ staff for verification and

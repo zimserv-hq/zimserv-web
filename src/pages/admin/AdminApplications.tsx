@@ -11,6 +11,7 @@ import {
   Eye,
   MapPin,
   Briefcase,
+  Send,
 } from "lucide-react";
 import PageHeader from "../../components/Admin/PageHeader";
 import StatCard from "../../components/Admin/StatCard";
@@ -25,9 +26,10 @@ export type Application = {
   phone_number: string;
   whatsapp_number: string | null;
   city: string;
-  primary_category_id: string;
+  primary_category: string;
+  primary_category_id: string | null;
+  suggested_category: string | null;
   categories?: { name: string } | null;
-  years_experience: string;
   work_type: string;
   availability: string | null;
   description: string;
@@ -40,7 +42,13 @@ export type Application = {
   rejection_reason: string | null;
 };
 
-// ── Skeleton Components ──────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// A pending application with a reviewed_at means the invite expired and was reset
+const isResend = (app: Application) =>
+  app.status === "pending" && !!app.reviewed_at;
+
+// ── Skeleton Components ───────────────────────────────────────────────────────
 
 const SkeletonStatCard = () => (
   <div className="skeleton-stat-card">
@@ -62,9 +70,6 @@ const SkeletonRow = () => (
     </td>
     <td>
       <div className="skeleton-block skeleton-cell-md" />
-    </td>
-    <td>
-      <div className="skeleton-block skeleton-cell-sm" />
     </td>
     <td>
       <div className="skeleton-block skeleton-cell-sm" />
@@ -128,9 +133,9 @@ const AdminApplications = () => {
   const [selectedApplication, setSelectedApplication] =
     useState<Application | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [modalAction, setModalAction] = useState<"approve" | "reject">(
-    "approve",
-  );
+  const [modalAction, setModalAction] = useState<
+    "approve" | "reject" | "resend"
+  >("approve");
 
   const filterDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -147,11 +152,13 @@ const AdminApplications = () => {
         .order("created_at", { ascending: false });
       if (error) {
         console.error("Error fetching applications:", error);
+        showError("Load failed", "Failed to load applications.");
         return;
       }
       setApplications(data || []);
     } catch (err) {
       console.error("Unexpected error:", err);
+      showError("Unexpected error", "An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
@@ -170,12 +177,19 @@ const AdminApplications = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showFilter]);
 
+  const getCategoryName = (app: Application) => {
+    if (app.suggested_category && app.primary_category === "Other") {
+      return `${app.suggested_category} (Custom)`;
+    }
+    return app.categories?.name ?? app.primary_category ?? "—";
+  };
+
   const handleView = (app: Application) =>
     navigate(`/admin/applications/${app.id}`);
 
   const handleApprove = (app: Application) => {
     setSelectedApplication(app);
-    setModalAction("approve");
+    setModalAction(isResend(app) ? "resend" : "approve");
     setShowStatusModal(true);
   };
 
@@ -189,7 +203,9 @@ const AdminApplications = () => {
     if (!selectedApplication) return;
     setIsUpdating(true);
     try {
-      const newStatus = modalAction === "approve" ? "approved" : "rejected";
+      const isResendAction = modalAction === "resend";
+      const newStatus = modalAction === "reject" ? "rejected" : "approved";
+
       const { data, error } = await supabase
         .from("provider_applications")
         .update({ status: newStatus, reviewed_at: new Date().toISOString() })
@@ -202,7 +218,7 @@ const AdminApplications = () => {
         return;
       }
 
-      if (modalAction === "approve") {
+      if (modalAction === "approve" || isResendAction) {
         const { error: functionError } = await supabase.functions.invoke(
           "send-provider-invite",
           {
@@ -216,11 +232,11 @@ const AdminApplications = () => {
         if (functionError) {
           showError(
             "Invite failed",
-            "Application approved but failed to send invitation email. Please send manually.",
+            `Application ${isResendAction ? "updated" : "approved"} but failed to send invitation email. Please try again.`,
           );
         } else {
           showSuccess(
-            "Application approved",
+            isResendAction ? "Invite resent" : "Application approved",
             `Invitation email sent to ${selectedApplication.email}.`,
           );
         }
@@ -257,7 +273,7 @@ const AdminApplications = () => {
         (app) =>
           app.full_name.toLowerCase().includes(query) ||
           app.email.toLowerCase().includes(query) ||
-          (app.categories?.name || "").toLowerCase().includes(query) ||
+          getCategoryName(app).toLowerCase().includes(query) ||
           app.city.toLowerCase().includes(query),
       );
     }
@@ -268,17 +284,54 @@ const AdminApplications = () => {
 
   const stats = {
     total: applications.length,
-    pending: applications.filter((app) => app.status === "pending").length,
-    approved: applications.filter((app) => app.status === "approved").length,
-    rejected: applications.filter((app) => app.status === "rejected").length,
+    pending: applications.filter((a) => a.status === "pending").length,
+    approved: applications.filter((a) => a.status === "approved").length,
+    rejected: applications.filter((a) => a.status === "rejected").length,
   };
+
+  // ── Render action buttons ─────────────────────────────────────────────────
+  const renderActionButtons = (app: Application) => (
+    <div className="actions-cell">
+      <button className="action-btn view" onClick={() => handleView(app)}>
+        <Eye size={14} strokeWidth={2.5} />
+        View
+      </button>
+      {app.status === "pending" && (
+        <>
+          {isResend(app) ? (
+            <button
+              className="action-btn resend"
+              onClick={() => handleApprove(app)}
+            >
+              <Send size={14} strokeWidth={2.5} />
+              Resend Invite
+            </button>
+          ) : (
+            <button
+              className="action-btn approve"
+              onClick={() => handleApprove(app)}
+            >
+              <CheckCircle size={14} strokeWidth={2.5} />
+              Approve
+            </button>
+          )}
+          <button
+            className="action-btn reject"
+            onClick={() => handleReject(app)}
+          >
+            <XCircle size={14} strokeWidth={2.5} />
+            Reject
+          </button>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <>
       <style>{`
         *, *::before, *::after { box-sizing: border-box; }
 
-        /* ── Skeleton ── */
         @keyframes shimmer {
           0%   { background-position: -600px 0; }
           100% { background-position:  600px 0; }
@@ -292,12 +345,7 @@ const AdminApplications = () => {
         :root { --skeleton-base: #f0f0f0; --skeleton-highlight: #e0e0e0; }
         .dark-mode { --skeleton-base: #374151; --skeleton-highlight: #4b5563; }
 
-        .skeleton-stat-card {
-          border-radius: 16px; padding: 24px;
-          border: 1.5px solid var(--border-color);
-          background: var(--card-bg); min-height: 110px;
-          display: flex; flex-direction: column; justify-content: space-between;
-        }
+        .skeleton-stat-card { border-radius: 16px; padding: 24px; border: 1.5px solid var(--border-color); background: var(--card-bg); min-height: 110px; display: flex; flex-direction: column; justify-content: space-between; }
         .skeleton-stat-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .skeleton-stat-label { height: 13px; width: 80px; }
         .skeleton-stat-icon  { width: 40px; height: 40px; border-radius: 10px; }
@@ -312,131 +360,45 @@ const AdminApplications = () => {
         .skeleton-actions { display: flex; gap: 8px; }
         .skeleton-btn     { height: 32px; width: 72px; border-radius: 8px; }
 
-        /* ── Page ── */
-        .admin-applications {
-          padding: 28px;
-          max-width: 1600px;
-          margin: 0 auto;
-          background: var(--bg-primary);
-          min-height: 100vh;
-          width: 100%;
-          overflow-x: hidden;
-        }
-
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 20px;
-          margin-bottom: 24px;
-        }
-
-        .toolbar {
-          display: flex;
-          gap: 12px;
-          align-items: center;
-          margin-bottom: 20px;
-        }
+        .admin-applications { padding: 28px; max-width: 1600px; margin: 0 auto; background: var(--bg-primary); min-height: 100vh; width: 100%; overflow-x: hidden; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 24px; }
+        .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
         .toolbar-left { flex: 1; display: flex; gap: 12px; }
-
         .search-container { position: relative; flex: 1; max-width: 500px; }
-
-        .search-input {
-          width: 100%;
-          padding: 13px 16px 13px 48px;
-          border-radius: 12px;
-          border: 1.5px solid var(--border-color);
-          background: var(--search-bg);
-          color: var(--text-primary);
-          font-size: 14px;
-          font-weight: 500;
-          outline: none;
-          transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
-        }
+        .search-input { width: 100%; padding: 13px 16px 13px 48px; border-radius: 12px; border: 1.5px solid var(--border-color); background: var(--search-bg); color: var(--text-primary); font-size: 14px; font-weight: 500; outline: none; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
         .search-input::placeholder { color: var(--text-tertiary); }
-        .search-input:focus {
-          border-color: var(--orange-primary);
-          background: var(--card-bg);
-          box-shadow: 0 0 0 4px var(--orange-shadow);
-          transform: translateY(-1px);
-        }
-        .search-icon {
-          position: absolute; left: 16px; top: 50%;
-          transform: translateY(-50%);
-          color: var(--text-tertiary);
-          pointer-events: none;
-          transition: all 0.3s ease;
-        }
-        .clear-search {
-          position: absolute; right: 12px; top: 50%;
-          transform: translateY(-50%);
-          background: none; border: none; cursor: pointer;
-          color: var(--text-secondary); padding: 6px;
-          display: flex; align-items: center; justify-content: center;
-          border-radius: 6px; transition: all 0.2s ease;
-        }
+        .search-input:focus { border-color: var(--orange-primary); background: var(--card-bg); box-shadow: 0 0 0 4px var(--orange-shadow); transform: translateY(-1px); }
+        .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
+        .clear-search { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 6px; display: flex; align-items: center; border-radius: 6px; transition: all 0.2s ease; }
         .clear-search:hover { background: var(--hover-bg); color: var(--text-primary); }
-
         .filter-wrapper { position: relative; }
-        .filter-btn {
-          padding: 13px 20px; border-radius: 12px;
-          border: 1.5px solid var(--border-color);
-          background: var(--filter-btn-bg); color: var(--text-primary);
-          font-size: 14px; font-weight: 600; cursor: pointer;
-          display: flex; align-items: center; gap: 10px;
-          transition: all 0.3s cubic-bezier(0.4,0,0.2,1); white-space: nowrap;
-        }
+        .filter-btn { padding: 13px 20px; border-radius: 12px; border: 1.5px solid var(--border-color); background: var(--filter-btn-bg); color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); white-space: nowrap; }
         .filter-btn:hover { background: var(--filter-btn-hover); border-color: var(--border-hover); transform: translateY(-2px); }
         .filter-btn.active { background: var(--orange-light-bg); border-color: var(--orange-primary); color: var(--orange-primary); }
-
-        .filter-dropdown {
-          position: absolute; top: calc(100% + 8px); right: 0;
-          background: var(--card-bg); border: 1.5px solid var(--border-color);
-          border-radius: 12px; box-shadow: 0 12px 48px var(--dropdown-shadow);
-          padding: 8px; min-width: 180px; z-index: 100;
-          animation: slideDown 0.2s cubic-bezier(0.4,0,0.2,1);
-        }
+        .filter-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 12px; box-shadow: 0 12px 48px var(--dropdown-shadow); padding: 8px; min-width: 180px; z-index: 100; animation: slideDown 0.2s cubic-bezier(0.4,0,0.2,1); }
         @keyframes slideDown { from { opacity:0; transform: translateY(-8px); } to { opacity:1; transform: translateY(0); } }
-        .filter-option {
-          padding: 12px 14px; cursor: pointer; border-radius: 8px;
-          font-size: 14px; font-weight: 500; color: var(--text-primary);
-          transition: all 0.15s ease;
-        }
+        .filter-option { padding: 12px 14px; cursor: pointer; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary); transition: all 0.15s ease; }
         .filter-option:hover { background: var(--hover-bg); color: var(--orange-primary); transform: translateX(4px); }
         .filter-option.active { background: var(--orange-light-bg); color: var(--orange-primary); font-weight: 600; }
 
-        /* ── Desktop Table ── */
-        .table-card {
-          background: var(--card-bg);
-          border: 1.5px solid var(--border-color);
-          border-radius: 16px; overflow: hidden;
-          box-shadow: 0 4px 24px var(--card-shadow);
-        }
+        .table-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px var(--card-shadow); }
         .table-container { overflow-x: auto; }
-
         .applications-table { width: 100%; border-collapse: collapse; min-width: 800px; }
         .applications-table thead { background: var(--hover-bg); border-bottom: 1.5px solid var(--border-color); }
-        .applications-table th {
-          padding: 16px 20px; text-align: left;
-          font-size: 13px; font-weight: 700; color: var(--text-secondary);
-          text-transform: uppercase; letter-spacing: 0.5px;
-        }
-        .applications-table td {
-          padding: 18px 20px; border-bottom: 1px solid var(--border-color);
-          font-size: 14px; color: var(--text-primary);
-        }
+        .applications-table th { padding: 16px 20px; text-align: left; font-size: 13px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+        .applications-table td { padding: 18px 20px; border-bottom: 1px solid var(--border-color); font-size: 14px; color: var(--text-primary); }
         .applications-table tbody tr { transition: background 0.15s ease; }
         .applications-table tbody tr:hover { background: var(--hover-bg); }
         .applications-table tbody tr:last-child td { border-bottom: none; }
-
         .applicant-cell { display: flex; flex-direction: column; gap: 4px; }
         .applicant-name { font-weight: 600; color: var(--text-primary); }
         .applicant-email { font-size: 13px; color: var(--text-secondary); }
 
-        .status-badge {
-          display: inline-flex; align-items: center; gap: 6px;
-          padding: 6px 12px; border-radius: 20px;
-          font-size: 12px; font-weight: 600; text-transform: capitalize;
-        }
+        .category-cell { display: flex; flex-direction: column; gap: 3px; }
+        .category-name { font-weight: 600; color: var(--text-primary); }
+        .category-custom-badge { font-size: 11px; font-weight: 700; background: var(--orange-light-bg); color: var(--orange-primary); padding: 2px 7px; border-radius: 999px; display: inline-block; width: fit-content; }
+
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
         .status-badge.pending  { background: #fef3c7; color: #92400e; }
         .status-badge.approved { background: #d1fae5; color: #065f46; }
         .status-badge.rejected { background: #fee2e2; color: #991b1b; }
@@ -444,156 +406,61 @@ const AdminApplications = () => {
         .dark-mode .status-badge.approved { background: rgba(16,185,129,0.2);  color: #10b981; }
         .dark-mode .status-badge.rejected { background: rgba(239,68,68,0.2);   color: #ef4444; }
 
-        .actions-cell { display: flex; gap: 8px; }
-
-        .action-btn {
-          padding: 8px 16px; border: none; border-radius: 8px;
-          font-size: 13px; font-weight: 600; cursor: pointer;
-          display: flex; align-items: center; gap: 6px;
-          transition: all 0.2s ease;
-        }
+        .actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
+        .action-btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; white-space: nowrap; }
         .action-btn.view { background: var(--hover-bg); color: var(--text-primary); border: 1.5px solid var(--border-color); }
         .action-btn.view:hover { background: var(--border-color); transform: translateY(-2px); }
-        .action-btn.approve {
-          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          color: #fff; box-shadow: 0 2px 8px rgba(16,185,129,0.3);
-        }
+        .action-btn.approve { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; box-shadow: 0 2px 8px rgba(16,185,129,0.3); }
         .action-btn.approve:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,185,129,0.4); }
-        .action-btn.reject {
-          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-          color: #fff; box-shadow: 0 2px 8px rgba(239,68,68,0.3);
-        }
-        .action-btn.reject:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
+        .action-btn.resend { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; box-shadow: 0 2px 8px rgba(245,158,11,0.3); }
+        .action-btn.resend:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(245,158,11,0.4); }
+        .action-btn.reject  { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; box-shadow: 0 2px 8px rgba(239,68,68,0.3); }
+        .action-btn.reject:hover  { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
         .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
 
-        /* ── Mobile Cards ── */
-        .mobile-cards {
-          display: none;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .app-card {
-          background: var(--card-bg);
-          border: 1.5px solid var(--border-color);
-          border-radius: 12px;
-          padding: 16px;
-          transition: all 0.15s ease;
-        }
-        .app-card:hover {
-          border-color: var(--border-hover);
-          box-shadow: 0 2px 12px var(--card-shadow);
-        }
-
-        .app-card-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-          margin-bottom: 12px;
-        }
-
-        .app-card-name {
-          font-size: 15px;
-          font-weight: 700;
-          color: var(--text-primary);
-          margin: 0 0 3px 0;
-        }
-
-        .app-card-email {
-          font-size: 13px;
-          color: var(--text-secondary);
-          margin: 0 0 8px 0;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .app-card-meta {
-          display: flex;
-          gap: 12px;
-          flex-wrap: wrap;
-          margin-bottom: 12px;
-        }
-
-        .app-card-meta-item {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 13px;
-          color: var(--text-secondary);
-          font-weight: 500;
-        }
-
-        .app-card-stats {
-          display: flex;
-          justify-content: space-between;
-          padding: 12px 0;
-          border-top: 1px solid var(--border-color);
-          border-bottom: 1px solid var(--border-color);
-          margin-bottom: 12px;
-          gap: 8px;
-        }
-
+        .mobile-cards { display: none; flex-direction: column; gap: 12px; }
+        .app-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 16px; transition: all 0.15s ease; }
+        .app-card:hover { border-color: var(--border-hover); box-shadow: 0 2px 12px var(--card-shadow); }
+        .app-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+        .app-card-name  { font-size: 15px; font-weight: 700; color: var(--text-primary); margin: 0 0 3px 0; }
+        .app-card-email { font-size: 13px; color: var(--text-secondary); margin: 0 0 8px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .app-card-meta  { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .app-card-meta-item { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+        .app-card-stats { display: flex; justify-content: space-between; padding: 12px 0; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); margin-bottom: 12px; gap: 8px; }
         .app-card-stat { flex: 1; text-align: center; }
-        .app-card-stat-label {
-          font-size: 11px; color: var(--text-secondary);
-          text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
-        }
+        .app-card-stat-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
         .app-card-stat-value { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+        .app-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .app-card-actions .action-btn { flex: 1; justify-content: center; padding: 10px 8px; font-size: 13px; }
 
-        .app-card-actions { display: flex; gap: 8px; }
-        .app-card-actions .action-btn {
-          flex: 1; justify-content: center;
-          padding: 10px 8px; font-size: 13px;
-        }
+        .expired-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; background: #fff3cd; color: #b45309; padding: 3px 8px; border-radius: 999px; margin-left: 6px; }
+        .dark-mode .expired-badge { background: rgba(245,158,11,0.2); color: #f59e0b; }
 
-        /* ── Empty State ── */
         .empty-state { padding: 60px 40px; text-align: center; color: var(--text-secondary); }
-        .empty-icon  { margin-bottom: 16px; opacity: 0.5; }
-        .empty-text  { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+        .empty-icon   { margin-bottom: 16px; opacity: 0.5; }
+        .empty-text   { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
         .empty-subtext { font-size: 14px; opacity: 0.7; }
 
-        /* ── Modal ── */
-        .modal-overlay {
-          position: fixed; inset: 0;
-          background: var(--modal-overlay);
-          display: flex; align-items: center; justify-content: center;
-          z-index: 1000; backdrop-filter: blur(8px);
-          animation: fadeIn 0.2s ease;
-        }
+        .modal-overlay { position: fixed; inset: 0; background: var(--modal-overlay); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(8px); animation: fadeIn 0.2s ease; }
         @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
-
-        .modal-content {
-          background: var(--card-bg);
-          border: 1.5px solid var(--border-color);
-          border-radius: 16px; padding: 28px;
-          max-width: 460px; width: 90%;
-          box-shadow: 0 24px 80px var(--modal-shadow);
-          animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1);
-        }
+        .modal-content { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; padding: 28px; max-width: 460px; width: 90%; box-shadow: 0 24px 80px var(--modal-shadow); animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1); }
         @keyframes slideUp { from { opacity:0; transform: translateY(20px) scale(0.95); } to { opacity:1; transform: translateY(0) scale(1); } }
-
-        .modal-title {
-          font-size: 20px; font-weight: 700;
-          color: var(--text-primary); margin-bottom: 16px;
-          display: flex; align-items: center; gap: 12px;
-        }
+        .modal-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
         .modal-text { color: var(--text-secondary); line-height: 1.6; margin-bottom: 28px; font-size: 15px; }
         .modal-text strong { color: var(--text-primary); font-weight: 600; }
         .modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
-
         .btn-modal { padding: 12px 24px; border: none; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
         .btn-cancel { background: var(--btn-cancel-bg); color: var(--text-primary); }
         .btn-cancel:hover { background: var(--btn-cancel-hover); }
         .btn-confirm { color: #fff; }
         .btn-confirm.approve { background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 16px rgba(16,185,129,0.3); }
         .btn-confirm.approve:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.4); }
-        .btn-confirm.reject { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 4px 16px rgba(239,68,68,0.3); }
-        .btn-confirm.reject:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.4); }
+        .btn-confirm.resend { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 16px rgba(245,158,11,0.3); }
+        .btn-confirm.resend:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,158,11,0.4); }
+        .btn-confirm.reject  { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 4px 16px rgba(239,68,68,0.3); }
+        .btn-confirm.reject:hover  { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.4); }
         .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* ── CSS Variables ── */
         :root {
           --bg-primary: #f8f9fa; --text-primary: #111827; --text-secondary: #6b7280;
           --text-tertiary: #9ca3af; --card-bg: #ffffff; --border-color: #e5e7eb;
@@ -617,11 +484,7 @@ const AdminApplications = () => {
           --btn-cancel-bg: #374151; --btn-cancel-hover: #4b5563;
         }
 
-        /* ── Responsive ── */
-        @media (max-width: 1024px) {
-          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; }
-        }
-
+        @media (max-width: 1024px) { .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; } }
         @media (max-width: 768px) {
           .admin-applications { padding: 20px 16px; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -634,11 +497,9 @@ const AdminApplications = () => {
           .modal-actions { flex-direction: column-reverse; }
           .btn-modal { width: 100%; }
         }
-
         @media (max-width: 480px) {
           .admin-applications { padding: 12px 10px; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-          .app-card-actions { flex-wrap: wrap; }
         }
       `}</style>
 
@@ -694,7 +555,7 @@ const AdminApplications = () => {
             <div className="search-container">
               <input
                 type="text"
-                placeholder="Search applications..."
+                placeholder="Search by name, email, category, city..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="search-input"
@@ -752,7 +613,6 @@ const AdminApplications = () => {
                     <th>Applicant</th>
                     <th>Category</th>
                     <th>City</th>
-                    <th>Experience</th>
                     <th>Applied</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -781,7 +641,6 @@ const AdminApplications = () => {
                     <th>Applicant</th>
                     <th>Category</th>
                     <th>City</th>
-                    <th>Experience</th>
                     <th>Applied</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -798,9 +657,25 @@ const AdminApplications = () => {
                           <span className="applicant-email">{app.email}</span>
                         </div>
                       </td>
-                      <td>{app.categories?.name ?? "—"}</td>
+                      <td>
+                        <div className="category-cell">
+                          <span className="category-name">
+                            {app.suggested_category &&
+                            app.primary_category === "Other"
+                              ? app.suggested_category
+                              : (app.categories?.name ??
+                                app.primary_category ??
+                                "—")}
+                          </span>
+                          {app.suggested_category &&
+                            app.primary_category === "Other" && (
+                              <span className="category-custom-badge">
+                                Custom
+                              </span>
+                            )}
+                        </div>
+                      </td>
                       <td>{app.city}</td>
-                      <td>{app.years_experience}</td>
                       <td>
                         {new Date(app.created_at).toLocaleDateString("en-US", {
                           month: "short",
@@ -821,36 +696,14 @@ const AdminApplications = () => {
                           )}
                           {app.status}
                         </span>
+                        {isResend(app) && (
+                          <span className="expired-badge">
+                            <Clock size={10} strokeWidth={2.5} />
+                            Invite Expired
+                          </span>
+                        )}
                       </td>
-                      <td>
-                        <div className="actions-cell">
-                          <button
-                            className="action-btn view"
-                            onClick={() => handleView(app)}
-                          >
-                            <Eye size={14} strokeWidth={2.5} />
-                            View
-                          </button>
-                          {app.status === "pending" && (
-                            <>
-                              <button
-                                className="action-btn approve"
-                                onClick={() => handleApprove(app)}
-                              >
-                                <CheckCircle size={14} strokeWidth={2.5} />
-                                Approve
-                              </button>
-                              <button
-                                className="action-btn reject"
-                                onClick={() => handleReject(app)}
-                              >
-                                <XCircle size={14} strokeWidth={2.5} />
-                                Reject
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
+                      <td>{renderActionButtons(app)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -880,25 +733,42 @@ const AdminApplications = () => {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <h3 className="app-card-name">{app.full_name}</h3>
                     <p className="app-card-email">{app.email}</p>
-                    <span className={`status-badge ${app.status}`}>
-                      {app.status === "pending" && (
-                        <Clock size={12} strokeWidth={2.5} />
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: 6,
+                      }}
+                    >
+                      <span className={`status-badge ${app.status}`}>
+                        {app.status === "pending" && (
+                          <Clock size={12} strokeWidth={2.5} />
+                        )}
+                        {app.status === "approved" && (
+                          <CheckCircle size={12} strokeWidth={2.5} />
+                        )}
+                        {app.status === "rejected" && (
+                          <XCircle size={12} strokeWidth={2.5} />
+                        )}
+                        {app.status}
+                      </span>
+                      {isResend(app) && (
+                        <span className="expired-badge">
+                          <Clock size={10} strokeWidth={2.5} />
+                          Invite Expired
+                        </span>
                       )}
-                      {app.status === "approved" && (
-                        <CheckCircle size={12} strokeWidth={2.5} />
-                      )}
-                      {app.status === "rejected" && (
-                        <XCircle size={12} strokeWidth={2.5} />
-                      )}
-                      {app.status}
-                    </span>
+                    </div>
                   </div>
                 </div>
 
                 <div className="app-card-meta">
                   <div className="app-card-meta-item">
                     <Briefcase size={13} strokeWidth={2} />
-                    {app.categories?.name ?? "—"}
+                    {app.suggested_category && app.primary_category === "Other"
+                      ? `${app.suggested_category} (Custom)`
+                      : (app.categories?.name ?? app.primary_category ?? "—")}
                   </div>
                   <div className="app-card-meta-item">
                     <MapPin size={13} strokeWidth={2} />
@@ -908,9 +778,12 @@ const AdminApplications = () => {
 
                 <div className="app-card-stats">
                   <div className="app-card-stat">
-                    <div className="app-card-stat-label">Experience</div>
-                    <div className="app-card-stat-value">
-                      {app.years_experience}
+                    <div className="app-card-stat-label">Work Type</div>
+                    <div
+                      className="app-card-stat-value"
+                      style={{ textTransform: "capitalize" }}
+                    >
+                      {app.work_type || "—"}
                     </div>
                   </div>
                   <div className="app-card-stat">
@@ -923,39 +796,13 @@ const AdminApplications = () => {
                     </div>
                   </div>
                   <div className="app-card-stat">
-                    <div className="app-card-stat-label">Work Type</div>
-                    <div className="app-card-stat-value">
-                      {app.work_type || "—"}
-                    </div>
+                    <div className="app-card-stat-label">City</div>
+                    <div className="app-card-stat-value">{app.city}</div>
                   </div>
                 </div>
 
                 <div className="app-card-actions">
-                  <button
-                    className="action-btn view"
-                    onClick={() => handleView(app)}
-                  >
-                    <Eye size={14} strokeWidth={2.5} />
-                    View
-                  </button>
-                  {app.status === "pending" && (
-                    <>
-                      <button
-                        className="action-btn approve"
-                        onClick={() => handleApprove(app)}
-                      >
-                        <CheckCircle size={14} strokeWidth={2.5} />
-                        Approve
-                      </button>
-                      <button
-                        className="action-btn reject"
-                        onClick={() => handleReject(app)}
-                      >
-                        <XCircle size={14} strokeWidth={2.5} />
-                        Reject
-                      </button>
-                    </>
-                  )}
+                  {renderActionButtons(app)}
                 </div>
               </div>
             ))
@@ -970,22 +817,44 @@ const AdminApplications = () => {
           >
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <h2 className="modal-title">
-                {modalAction === "approve" ? (
+                {modalAction === "approve" && (
                   <CheckCircle size={24} color="#10b981" strokeWidth={2.5} />
-                ) : (
+                )}
+                {modalAction === "resend" && (
+                  <Send size={24} color="#f59e0b" strokeWidth={2.5} />
+                )}
+                {modalAction === "reject" && (
                   <XCircle size={24} color="#ef4444" strokeWidth={2.5} />
                 )}
-                {modalAction === "approve"
-                  ? "Approve Application"
-                  : "Reject Application"}
+                {modalAction === "approve" && "Approve Application"}
+                {modalAction === "resend" && "Resend Invite"}
+                {modalAction === "reject" && "Reject Application"}
               </h2>
               <p className="modal-text">
-                Are you sure you want to{" "}
-                <strong>
-                  {modalAction === "approve" ? "approve" : "reject"}
-                </strong>{" "}
-                the application from{" "}
-                <strong>{selectedApplication.full_name}</strong>?
+                {modalAction === "approve" && (
+                  <>
+                    Are you sure you want to <strong>approve</strong> the
+                    application from{" "}
+                    <strong>{selectedApplication.full_name}</strong>? An
+                    invitation email will be sent to{" "}
+                    <strong>{selectedApplication.email}</strong>.
+                  </>
+                )}
+                {modalAction === "resend" && (
+                  <>
+                    The previous invite for{" "}
+                    <strong>{selectedApplication.full_name}</strong> has
+                    expired. Send a fresh 24-hour invite link to{" "}
+                    <strong>{selectedApplication.email}</strong>?
+                  </>
+                )}
+                {modalAction === "reject" && (
+                  <>
+                    Are you sure you want to <strong>reject</strong> the
+                    application from{" "}
+                    <strong>{selectedApplication.full_name}</strong>?
+                  </>
+                )}
               </p>
               <div className="modal-actions">
                 <button
@@ -1003,8 +872,10 @@ const AdminApplications = () => {
                   {isUpdating
                     ? "Processing..."
                     : modalAction === "approve"
-                      ? "Approve"
-                      : "Reject"}
+                      ? "Approve & Send Invite"
+                      : modalAction === "resend"
+                        ? "Resend Invite"
+                        : "Reject"}
                 </button>
               </div>
             </div>
