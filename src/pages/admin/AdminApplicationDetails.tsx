@@ -17,6 +17,7 @@ import {
   Eye,
   MessageCircle,
   RefreshCw,
+  UserCheck,
 } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
 import ConfirmationModal from "../../components/Admin/ConfirmationModal";
@@ -265,6 +266,9 @@ const AdminApplicationDetails = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileLoading, setFileLoading] = useState<"download" | null>(null);
 
+  // ── NEW: track whether a provider profile already exists ─────────────────
+  const [hasProviderProfile, setHasProviderProfile] = useState(false);
+
   // Category assignment state
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
@@ -295,6 +299,15 @@ const AdminApplicationDetails = () => {
       }
 
       setApplication(data);
+
+      // ── Check if a provider profile already exists for this email ────────
+      const { data: providerProfile } = await supabase
+        .from("providers")
+        .select("id")
+        .eq("email", data.email)
+        .maybeSingle();
+
+      setHasProviderProfile(!!providerProfile);
     } catch (err) {
       showError("Unexpected error", "An unexpected error occurred.");
       navigate("/admin/applications");
@@ -306,9 +319,13 @@ const AdminApplicationDetails = () => {
   const isCustomCategory = (app: Application) =>
     app.primary_category === "Other" && !!app.suggested_category;
 
-  // ── Whether this is a re-approval after expiry ────────────────────────────
+  // ── Expired resend: pending + reviewed_at set + NO existing provider profile
   const isExpiredResend = (app: Application) =>
-    app.status === "pending" && !!app.reviewed_at;
+    app.status === "pending" && !!app.reviewed_at && !hasProviderProfile;
+
+  // ── Already registered: pending + reviewed_at set + provider profile EXISTS
+  const isAlreadyRegistered = (app: Application) =>
+    app.status === "pending" && !!app.reviewed_at && hasProviderProfile;
 
   // ── Core approval ─────────────────────────────────────────────────────────
   const runApproval = async (app: Application) => {
@@ -555,7 +572,29 @@ const AdminApplicationDetails = () => {
           Back to Applications
         </button>
 
-        {/* ── Expired invite resend banner ─────────────────────────────── */}
+        {/* ── Already Registered Banner ────────────────────────────────── */}
+        {isAlreadyRegistered(application) && (
+          <div className="resend-banner registered-banner">
+            <div className="resend-banner-left">
+              <UserCheck
+                size={18}
+                strokeWidth={2.5}
+                className="registered-icon"
+              />
+              <div>
+                <div className="registered-title">
+                  Provider Already Registered
+                </div>
+                <div className="resend-subtitle">
+                  This provider has already completed onboarding. Their profile
+                  exists in the system — no new invite is needed.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Expired Invite Resend Banner ─────────────────────────────── */}
         {isExpiredResend(application) && (
           <div className="resend-banner">
             <div className="resend-banner-left">
@@ -623,24 +662,26 @@ const AdminApplicationDetails = () => {
             </div>
           </div>
 
-          {application.status === "pending" && (
-            <div className="header-actions">
-              <button
-                className="action-btn-large approve"
-                onClick={() => setShowApproveModal(true)}
-              >
-                <CheckCircle size={18} strokeWidth={2.5} />
-                {isExpiredResend(application) ? "Resend Invite" : "Approve"}
-              </button>
-              <button
-                className="action-btn-large reject"
-                onClick={() => setShowRejectModal(true)}
-              >
-                <XCircle size={18} strokeWidth={2.5} />
-                Reject
-              </button>
-            </div>
-          )}
+          {/* Only show action buttons if NOT already registered */}
+          {application.status === "pending" &&
+            !isAlreadyRegistered(application) && (
+              <div className="header-actions">
+                <button
+                  className="action-btn-large approve"
+                  onClick={() => setShowApproveModal(true)}
+                >
+                  <CheckCircle size={18} strokeWidth={2.5} />
+                  {isExpiredResend(application) ? "Resend Invite" : "Approve"}
+                </button>
+                <button
+                  className="action-btn-large reject"
+                  onClick={() => setShowRejectModal(true)}
+                >
+                  <XCircle size={18} strokeWidth={2.5} />
+                  Reject
+                </button>
+              </div>
+            )}
         </div>
 
         {/* ── Tabs ────────────────────────────────────────────────────────── */}
@@ -815,7 +856,6 @@ const AdminApplicationDetails = () => {
                       <span className="info-label">Category</span>
                       <span className="info-value">{categoryName}</span>
                     </div>
-
                     {isCustomCategory(application) && (
                       <div className="suggested-category-banner">
                         <span className="suggested-badge">SUGGESTED</span>
@@ -869,6 +909,9 @@ const AdminApplicationDetails = () => {
                       <div className="timeline-dot">
                         {application.status === "approved" ? (
                           <CheckCircle size={12} strokeWidth={3} />
+                        ) : application.status === "pending" &&
+                          hasProviderProfile ? (
+                          <UserCheck size={12} strokeWidth={3} />
                         ) : application.status === "pending" ? (
                           <RefreshCw size={12} strokeWidth={3} />
                         ) : (
@@ -882,9 +925,12 @@ const AdminApplicationDetails = () => {
                         <div className="timeline-title">
                           {application.status === "approved"
                             ? "Application Approved"
-                            : application.status === "pending"
-                              ? "Invite Expired — Awaiting Resend"
-                              : "Application Rejected"}
+                            : application.status === "pending" &&
+                                hasProviderProfile
+                              ? "Invite Sent — Provider Registered"
+                              : application.status === "pending"
+                                ? "Invite Expired — Awaiting Resend"
+                                : "Application Rejected"}
                         </div>
                         <div className="timeline-date">
                           {new Date(application.reviewed_at).toLocaleString(
@@ -897,6 +943,33 @@ const AdminApplicationDetails = () => {
                               minute: "2-digit",
                             },
                           )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Extra timeline node if provider registered ── */}
+                  {application.status === "pending" && hasProviderProfile && (
+                    <div className="timeline-item">
+                      <div
+                        className="timeline-dot"
+                        style={{
+                          background: "rgba(16,185,129,0.15)",
+                          borderColor: "#10b981",
+                        }}
+                      >
+                        <CheckCircle size={12} strokeWidth={3} />
+                      </div>
+                      <div className="timeline-content">
+                        <div
+                          className="timeline-title"
+                          style={{ color: "#059669" }}
+                        >
+                          Onboarding Completed
+                        </div>
+                        <div className="timeline-date">
+                          Provider has completed registration and is active on
+                          the platform.
                         </div>
                       </div>
                     </div>
@@ -952,7 +1025,6 @@ const AdminApplicationDetails = () => {
                 . Choose how to categorise them before approving.
               </p>
 
-              {/* Option A — Use suggested name as-is */}
               <button
                 className="cat-btn cat-btn-green"
                 onClick={handleApproveWithNewCategory}
@@ -962,7 +1034,6 @@ const AdminApplicationDetails = () => {
                 Use "{application.suggested_category}" as-is &amp; approve
               </button>
 
-              {/* Option B — Write your own name */}
               <div className="cat-existing-box">
                 <p className="cat-existing-label">
                   Or use your own category name:
@@ -987,7 +1058,6 @@ const AdminApplicationDetails = () => {
                 </button>
               </div>
 
-              {/* Cancel */}
               <button
                 className="cat-btn cat-btn-cancel"
                 onClick={() => {
@@ -1031,7 +1101,6 @@ const pageStyles = `
   @media (max-width: 768px)  { .sk-header-card  { flex-direction: column; align-items: center; } }
 
   .provider-details { padding: 28px; max-width: 1600px; margin: 0 auto; background: var(--bg-primary); min-height: 100vh; }
-
   .back-button { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 12px; border: 1.5px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); margin-bottom: 24px; }
   .back-button:hover { background: var(--hover-bg); border-color: var(--border-hover); transform: translateX(-4px); }
 
@@ -1045,6 +1114,13 @@ const pageStyles = `
   .resend-subtitle { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
   .resend-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: none; background: #f59e0b; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0; }
   .resend-btn:hover { background: #d97706; transform: translateY(-1px); }
+
+  /* Already registered banner variant */
+  .registered-banner { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); }
+  .registered-icon { color: #065f46; flex-shrink: 0; margin-top: 2px; }
+  .dark-mode .registered-icon { color: #10b981; }
+  .registered-title { font-size: 14px; font-weight: 700; color: #065f46; margin-bottom: 3px; }
+  .dark-mode .registered-title { color: #10b981; }
 
   .details-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; padding: 28px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; box-shadow: 0 2px 8px var(--card-shadow); }
   .header-left { display: flex; gap: 24px; align-items: flex-start; flex: 1; }
@@ -1109,13 +1185,11 @@ const pageStyles = `
   .file-btn.download-btn { background:var(--orange-primary); color:#fff; box-shadow:0 2px 8px rgba(255,107,53,0.25); }
   .file-btn.download-btn:hover:not(:disabled) { background:#e85a28; transform:translateY(-1px); box-shadow:0 4px 14px rgba(255,107,53,0.35); }
 
-  /* Suggested category banner */
   .suggested-category-banner { display:flex; align-items:center; gap:10px; margin-top:14px; padding:12px 16px; background:rgba(255,107,53,0.08); border:1.5px solid rgba(255,107,53,0.25); border-radius:10px; flex-wrap:wrap; }
   .suggested-badge { font-size:11px; font-weight:700; background:var(--orange-light-bg); color:var(--orange-primary); padding:2px 8px; border-radius:999px; flex-shrink:0; }
   .suggested-name { font-size:14px; font-weight:600; color:var(--text-primary); flex:1; }
   .suggested-note { font-size:12px; color:var(--text-secondary); margin-left:auto; white-space:nowrap; }
 
-  /* Category assignment modal */
   .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; }
   .modal-box { background:var(--card-bg); border-radius:16px; padding:32px; max-width:500px; width:100%; border:1.5px solid var(--border-color); box-shadow:0 20px 60px rgba(0,0,0,0.2); display:flex; flex-direction:column; gap:12px; }
   .modal-title { font-size:20px; font-weight:700; color:var(--text-primary); margin:0 0 4px; }
