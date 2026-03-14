@@ -17,12 +17,11 @@ interface OnboardingStepsProps {
   currentStep: number;
   formData: OnboardingData;
   updateFormData: (data: Partial<OnboardingData>) => void;
-  nextStep: (stepData?: OnboardingData) => Promise<void>;
+  nextStep: () => void;
   prevStep: () => void;
   onAccountSubmit?: (email: string, password: string) => Promise<boolean>;
   onSubmitProfile?: (profileData: OnboardingData) => Promise<void>;
   loadError?: string | null;
-  isSaving?: boolean;
 }
 
 // ── Draft helpers ────────────────────────────────────────────────────────────
@@ -130,7 +129,6 @@ const OnboardingSteps = ({
   onAccountSubmit,
   onSubmitProfile,
   loadError,
-  isSaving,
 }: OnboardingStepsProps) => {
   const { showError, showSuccess, showInfo } = useToast();
 
@@ -521,14 +519,12 @@ const OnboardingSteps = ({
       showError("Experience missing", "Please enter your years of experience.");
       return;
     }
-    // ── Allow existing uploaded photo OR a newly selected one ──────────────
-    if (!profilePhoto && !formData.existingProfilePhotoUrl) {
+    if (!profilePhoto) {
       showError("Profile photo missing", "Please upload a profile photo.");
       return;
     }
     const finalLanguages = languages.length > 0 ? languages : ["English"];
-    const stepData: OnboardingData = {
-      ...formData,
+    updateFormData({
       businessName,
       phoneNumber: phone ?? "",
       whatsappNumber: whatsapp ?? "",
@@ -539,11 +535,10 @@ const OnboardingSteps = ({
       callAvailable,
       whatsappAvailable,
       emergencyAvailable,
-      profilePhoto, // null if using existing — parent handles it
+      profilePhoto,
       languages: finalLanguages,
-    };
-    updateFormData(stepData);
-    nextStep(stepData);
+    });
+    nextStep();
   };
 
   // Step 3 service logic
@@ -618,13 +613,8 @@ const OnboardingSteps = ({
       );
       return;
     }
-    const stepData: OnboardingData = {
-      ...formData,
-      selectedServices,
-      pricingModel,
-    };
-    updateFormData(stepData);
-    nextStep(stepData);
+    updateFormData({ selectedServices, pricingModel });
+    nextStep();
   };
 
   // Step 4 logic
@@ -650,10 +640,8 @@ const OnboardingSteps = ({
       );
       return;
     }
-    // ── Pass stepData so parent saves immediately ──────────────────────────
-    const stepData: OnboardingData = { ...formData, areas };
-    updateFormData(stepData);
-    nextStep(stepData);
+    updateFormData({ areas });
+    nextStep();
   };
 
   // File handlers
@@ -1288,9 +1276,7 @@ const OnboardingSteps = ({
             {/* Profile Photo */}
             <div className="form-group">
               <label className="form-label required">Profile Photo</label>
-
               {profilePhoto && profilePhotoPreview ? (
-                // ── Newly selected file preview ────────────────────────────
                 <div className="photo-preview-row">
                   <div
                     className="photo-thumbnail-wrap"
@@ -1333,43 +1319,7 @@ const OnboardingSteps = ({
                     </button>
                   </div>
                 </div>
-              ) : !profilePhoto && formData.existingProfilePhotoUrl ? (
-                // ── Already uploaded — restored from DB on refresh ─────────
-                <div className="photo-preview-row">
-                  <div
-                    className="photo-thumbnail-wrap"
-                    onClick={() => setShowPhotoModal(true)}
-                    title="Click to preview"
-                  >
-                    <img
-                      src={formData.existingProfilePhotoUrl}
-                      alt="Profile preview"
-                      className="photo-thumbnail"
-                    />
-                    <div className="photo-thumbnail-overlay">
-                      <Eye size={18} color="#fff" strokeWidth={2.5} />
-                    </div>
-                  </div>
-                  <div className="photo-preview-info">
-                    <span className="photo-file-name">
-                      Profile photo uploaded ✅
-                    </span>
-                    <span className="photo-file-size">Already saved</span>
-                  </div>
-                  <div className="photo-preview-actions">
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      onClick={() =>
-                        document.getElementById("photoInput")?.click()
-                      }
-                    >
-                      Change
-                    </button>
-                  </div>
-                </div>
               ) : (
-                // ── Empty state — no photo yet ─────────────────────────────
                 <div
                   onClick={() => document.getElementById("photoInput")?.click()}
                   className="file-upload-zone"
@@ -1384,7 +1334,6 @@ const OnboardingSteps = ({
                   </div>
                 </div>
               )}
-
               <input
                 type="file"
                 id="photoInput"
@@ -1401,43 +1350,37 @@ const OnboardingSteps = ({
               <button
                 onClick={validateProfileAndContinue}
                 className="btn-primary"
-                disabled={isSaving}
               >
-                {isSaving ? "Saving..." : "Continue to Services"}
+                Continue to Services
               </button>
             </div>
 
             {/* Photo preview modal */}
-            {showPhotoModal &&
-              (profilePhotoPreview || formData.existingProfilePhotoUrl) && (
+            {showPhotoModal && profilePhotoPreview && (
+              <div
+                className="photo-modal-overlay"
+                onClick={() => setShowPhotoModal(false)}
+              >
                 <div
-                  className="photo-modal-overlay"
-                  onClick={() => setShowPhotoModal(false)}
+                  className="photo-modal-content"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <div
-                    className="photo-modal-content"
-                    onClick={(e) => e.stopPropagation()}
+                  <button
+                    className="photo-modal-close"
+                    onClick={() => setShowPhotoModal(false)}
+                    aria-label="Close preview"
                   >
-                    <button
-                      className="photo-modal-close"
-                      onClick={() => setShowPhotoModal(false)}
-                      aria-label="Close preview"
-                    >
-                      <X size={20} strokeWidth={2.5} />
-                    </button>
-                    <img
-                      src={
-                        profilePhotoPreview ?? formData.existingProfilePhotoUrl
-                      }
-                      alt="Profile photo preview"
-                      className="photo-modal-img"
-                    />
-                    <p className="photo-modal-name">
-                      {profilePhoto?.name ?? "Profile photo"}
-                    </p>
-                  </div>
+                    <X size={20} strokeWidth={2.5} />
+                  </button>
+                  <img
+                    src={profilePhotoPreview}
+                    alt="Profile photo preview"
+                    className="photo-modal-img"
+                  />
+                  <p className="photo-modal-name">{profilePhoto?.name}</p>
                 </div>
-              )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1675,9 +1618,8 @@ const OnboardingSteps = ({
               <button
                 onClick={validateServicesAndContinue}
                 className="btn-primary"
-                disabled={isSaving}
               >
-                {isSaving ? "Saving..." : "Continue to Service Areas"}
+                Continue to Service Areas
               </button>
             </div>
           </div>
@@ -1818,9 +1760,8 @@ const OnboardingSteps = ({
               <button
                 onClick={validateAreasAndContinue}
                 className="btn-primary"
-                disabled={isSaving}
               >
-                {isSaving ? "Saving..." : "Continue to Portfolio"}
+                Continue to Portfolio
               </button>
             </div>
           </div>
