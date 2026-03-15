@@ -7,6 +7,7 @@ import ProviderInfoCard from "../components/Provider/ProviderInfoCard";
 import ProviderSkeleton from "../components/Provider/ProviderSkeleton";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
+import SEO from "../components/SEO";
 import type {
   ProviderPublic,
   ProviderService,
@@ -304,6 +305,55 @@ const ProviderProfilePage = () => {
 
   return (
     <>
+      {/* ── SEO — only renders once provider data is loaded ── */}
+      {provider ? (
+        <SEO
+          title={`${provider.name} – ${provider.category} in ${provider.city}`}
+          description={`Hire ${provider.name}, a verified ${provider.category} professional in ${provider.city}, Zimbabwe.${provider.reviewCount > 0 ? ` Rated ${provider.rating.toFixed(1)}/5 from ${provider.reviewCount} reviews.` : ""} Contact directly by phone or WhatsApp.`}
+          url={`/providers/${provider.slug}`}
+          image={provider.heroImageUrl || "/og-image.jpg"}
+          imageAlt={`${provider.name} – ${provider.category} provider in ${provider.city}, Zimbabwe`}
+          type="profile"
+          keywords={[
+            provider.name,
+            provider.category,
+            `${provider.category} ${provider.city}`,
+            `${provider.category} Zimbabwe`,
+            `hire ${provider.category.toLowerCase()} Zimbabwe`,
+          ]}
+          structuredData={{
+            "@context": "https://schema.org",
+            "@type": "LocalBusiness",
+            name: provider.name,
+            description: provider.description,
+            image: provider.heroImageUrl,
+            url: `https://www.zimserv.co.zw/providers/${provider.slug}`,
+            telephone: provider.contact.phone,
+            address: {
+              "@type": "PostalAddress",
+              addressLocality: provider.city,
+              addressCountry: "ZW",
+            },
+            priceRange: provider.pricing,
+            ...(provider.reviewCount > 0 && {
+              aggregateRating: {
+                "@type": "AggregateRating",
+                ratingValue: provider.rating.toFixed(1),
+                reviewCount: provider.reviewCount,
+                bestRating: "5",
+                worstRating: "1",
+              },
+            }),
+          }}
+        />
+      ) : (
+        // Fallback while loading — prevents empty <title> flash
+        <SEO
+          title="Service Provider Profile"
+          description="View this verified service provider's profile on ZimServ Zimbabwe."
+          url={`/providers/${slug}`}
+        />
+      )}
       <style>{`
         /* ── PAGE SHELL ── */
         .profile-page {

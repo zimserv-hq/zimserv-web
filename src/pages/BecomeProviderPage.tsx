@@ -20,6 +20,7 @@ import "react-phone-number-input/style.css";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
 import { useToast } from "../contexts/ToastContext";
+import SEO from "../components/SEO";
 
 const CITIES = [
   "Harare",
@@ -467,6 +468,18 @@ export default function BecomeProviderPage(): JSX.Element {
   // ── Main form ────────────────────────────────────────────────────────────
   return (
     <>
+      <SEO
+        title="Become a Service Provider in Zimbabwe"
+        description="Join ZimServ and grow your service business across Zimbabwe. Register as a verified provider and get discovered by thousands of customers in Harare, Bulawayo and beyond."
+        url="/become-provider"
+        keywords={[
+          "become service provider Zimbabwe",
+          "register provider ZimServ",
+          "grow service business Zimbabwe",
+          "list your services Zimbabwe",
+          "service provider application Zimbabwe",
+        ]}
+      />
       <style>{`
         .become-provider-page { width: 100%; min-height: 100vh; background: var(--color-bg-section); padding: 40px 0 80px; font-family: var(--font-primary); }
         .provider-container { max-width: var(--container-max-width); margin: 0 auto; padding: 0 var(--container-padding); }

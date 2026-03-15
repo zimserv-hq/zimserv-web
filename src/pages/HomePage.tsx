@@ -11,7 +11,7 @@ const HomePage = () => {
   return (
     <>
       <SEO
-        title="Find Trusted Service Providers in Zimbabwe | ZimServ"
+        title="Find Trusted Service Providers in Zimbabwe"
         description="ZimServ connects you with verified service providers across Zimbabwe. Find plumbers, electricians, cleaners, event planners, and more in Harare, Bulawayo, and beyond."
         keywords="service providers Zimbabwe, Harare services, Bulawayo professionals, plumbers Zimbabwe, electricians, home services, event planners, verified providers"
         url="/"

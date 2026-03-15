@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import { supabase } from "../lib/supabaseClient";
+import SEO from "../components/SEO";
 
 type DbCategory = {
   id: string;
@@ -124,6 +125,19 @@ const CategoriesPage = () => {
 
   return (
     <>
+      <SEO
+        title="Browse Service Categories"
+        description="Explore all service categories on ZimServ — plumbing, electrical, cleaning, landscaping, tutoring and more. Find the right verified professional anywhere in Zimbabwe."
+        keywords={[
+          "service categories Zimbabwe",
+          "plumbers Zimbabwe",
+          "electricians Harare",
+          "cleaning services",
+          "home services Zimbabwe",
+          "ZimServ categories",
+        ]}
+        url="/categories"
+      />
       <style>{`
         /* ── SHIMMER ──────────────────────────────────────── */
         @keyframes cat-shimmer {

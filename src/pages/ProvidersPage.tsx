@@ -16,6 +16,7 @@ import {
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import ProvidersPageSkeleton from "../components/Providers/ProvidersPageSkeleton";
 import { supabase } from "../lib/supabaseClient";
+import SEO from "../components/SEO";
 
 type DbProvider = {
   id: string;
@@ -477,6 +478,40 @@ const ProvidersPage = () => {
 
   return (
     <>
+      {/* ── SEO — dynamic based on active filters ── */}
+      {(() => {
+        const hasCategory = selectedCategory !== "All Categories";
+        const hasCity = selectedCity !== "All Cities";
+
+        const title = hasCategory
+          ? `${selectedCategory} Providers${hasCity ? ` in ${selectedCity}` : " in Zimbabwe"}`
+          : hasCity
+            ? `Service Providers in ${selectedCity}, Zimbabwe`
+            : "Find Service Providers in Zimbabwe";
+
+        const description = hasCategory
+          ? `Browse verified ${selectedCategory} professionals${hasCity ? ` in ${selectedCity}` : " across Zimbabwe"}. Contact directly by phone or WhatsApp on ZimServ.`
+          : hasCity
+            ? `Find trusted service providers in ${selectedCity}, Zimbabwe. Browse verified plumbers, electricians, cleaners and more on ZimServ.`
+            : "Browse verified service professionals across Zimbabwe. Filter by category, city and rating. Contact providers directly by phone or WhatsApp.";
+
+        return (
+          <SEO
+            title={title}
+            description={description}
+            url="/providers"
+            keywords={[
+              hasCategory
+                ? `${selectedCategory} Zimbabwe`
+                : "service providers Zimbabwe",
+              hasCity ? `services ${selectedCity}` : "services Harare",
+              "verified professionals Zimbabwe",
+              "ZimServ providers",
+            ]}
+          />
+        );
+      })()}
+
       <style>{`
         .pp-page {
           width: 100%;

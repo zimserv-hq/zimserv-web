@@ -6,10 +6,7 @@
 
     <!-- Primary SEO -->
     <title>ZimServ - Zimbabwe's Trusted Service Directory</title>
-    <meta
-      name="title"
-      content="ZimServ - Zimbabwe's Trusted Service Directory"
-    />
+    <meta name="title" content="ZimServ - Zimbabwe's Trusted Service Directory" />
     <meta
       name="description"
       content="Find trusted service providers across Zimbabwe. Connect with verified plumbers, electricians, cleaners, mechanics, tutors and more in Harare, Bulawayo, Mutare and other cities."
@@ -27,11 +24,11 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <meta name="apple-mobile-web-app-title" content="MyWebSite" />
+    <meta name="apple-mobile-web-app-title" content="ZimServ" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#FF6B35" />
 
-    <!-- Geo (country-level for now) -->
+    <!-- Geo -->
     <meta name="geo.region" content="ZW" />
     <meta name="geo.placename" content="Zimbabwe" />
 
@@ -39,49 +36,35 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://www.zimserv.co.zw/" />
     <meta property="og:site_name" content="ZimServ" />
-    <meta
-      property="og:title"
-      content="ZimServ - Zimbabwe's Trusted Service Directory"
-    />
+    <meta property="og:title" content="ZimServ - Zimbabwe's Trusted Service Directory" />
     <meta
       property="og:description"
       content="Search verified local service providers across Zimbabwe. Browse plumbers, electricians, cleaners, mechanics, tutors and more, then contact them directly by phone or WhatsApp."
     />
-    <meta
-      property="og:image"
-      content="https://www.zimserv.co.zw/og-image.jpg"
-    />
+    <meta property="og:image" content="https://www.zimserv.co.zw/og-image.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta
-      property="og:image:alt"
-      content="ZimServ - Service providers in Zimbabwe"
-    />
+    <meta property="og:image:alt" content="ZimServ - Service providers in Zimbabwe" />
     <meta property="og:locale" content="en_ZW" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://www.zimserv.co.zw/" />
-    <meta
-      name="twitter:title"
-      content="ZimServ - Zimbabwe's Trusted Service Directory"
-    />
+    <meta name="twitter:title" content="ZimServ - Zimbabwe's Trusted Service Directory" />
     <meta
       name="twitter:description"
       content="Find trusted and verified local service providers across Zimbabwe with ZimServ."
     />
-    <meta
-      name="twitter:image"
-      content="https://www.zimserv.co.zw/og-image.jpg"
-    />
+    <meta name="twitter:image" content="https://www.zimserv.co.zw/og-image.jpg" />
 
-    <!-- Preconnect / Performance (adjust Supabase URL) -->
+    <!-- Preconnect / Performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="dns-prefetch"
-      href="https://your-supabase-project.supabase.co"
-    />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    <!-- Replace YOUR_PROJECT_REF with your actual Supabase project ref -->
+    <link rel="preconnect" href="https://YOUR_PROJECT_REF.supabase.co" />
+    <link rel="dns-prefetch" href="https://YOUR_PROJECT_REF.supabase.co" />
 
     <!-- Structured Data: WebSite + SearchAction -->
     <script type="application/ld+json">
@@ -95,21 +78,25 @@
           "@type": "SearchAction",
           "target": {
             "@type": "EntryPoint",
-            "urlTemplate": "https://www.zimserv.co.zw/search?q={search_term_string}"
+            "urlTemplate": "https://www.zimserv.co.zw/providers?q={search_term_string}"
           },
           "query-input": "required name=search_term_string"
         },
         "publisher": {
           "@type": "Organization",
           "name": "ZimServ",
+          "url": "https://www.zimserv.co.zw",
           "logo": {
             "@type": "ImageObject",
-            "url": "https://www.zimserv.co.zw/android-chrome-192x192.png"
+            "url": "https://www.zimserv.co.zw/android-chrome-192x192.png",
+            "width": 192,
+            "height": 192
           },
           "address": {
             "@type": "PostalAddress",
             "addressCountry": "ZW"
-          }
+          },
+          "sameAs": []
         }
       }
     </script>
