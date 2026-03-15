@@ -52,6 +52,35 @@ export interface OnboardingData {
   idFile: File | null;
 }
 
+// ── Draft type (what gets persisted to Supabase) ─────────────────────────────
+// File objects cannot be serialised — we store storage paths instead
+export interface OnboardingDraftPatch {
+  // Step 2
+  businessName?: string;
+  phoneNumber?: string;
+  whatsappNumber?: string;
+  description?: string;
+  experience?: string;
+  teamSize?: string;
+  website?: string;
+  languages?: string[];
+  callAvailable?: boolean;
+  whatsappAvailable?: boolean;
+  emergencyAvailable?: boolean;
+  profilePhotoPath?: string; // storage path, not File
+
+  // Step 3
+  selectedServices?: ServiceEntry[];
+  pricingModel?: string;
+
+  // Step 4
+  areas?: string[];
+
+  // Step 5
+  portfolioPaths?: string[]; // storage paths, not File[]
+  idFilePath?: string; // storage path, not File
+}
+
 // ── Step persistence key ─────────────────────────────────────────────────────
 const STEP_KEY = "zimserv_onboarding_step";
 
@@ -65,7 +94,6 @@ const generateSlug = (businessName: string, fullName: string): string => {
 };
 
 // ── Image compression helper ─────────────────────────────────────────────────
-// Compresses images to max 1MB / 1920px using a web worker — skips PDFs
 const compressImage = async (file: File): Promise<File> => {
   if (!file.type.startsWith("image/")) return file;
   try {
@@ -80,8 +108,6 @@ const compressImage = async (file: File): Promise<File> => {
 };
 
 // ── Batched parallel upload helper ───────────────────────────────────────────
-// <T,> trailing comma prevents TSX from parsing generic as a JSX tag
-// Uploads in groups of `batchSize` to avoid overwhelming mobile connections
 const batchedUpload = async <T,>(
   items: T[],
   fn: (item: T) => Promise<string | null>,
@@ -141,6 +167,14 @@ const ProviderOnboarding = () => {
     licenseFiles: [],
     idFile: null,
   });
+
+  // Stores uploaded file paths from eager uploads so final submit can
+  // reference them without re-uploading
+  const [draftFilePaths, setDraftFilePaths] = useState<{
+    profilePhotoPath?: string;
+    portfolioPaths: string[];
+    idFilePath?: string;
+  }>({ portfolioPaths: [] });
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -214,6 +248,119 @@ const ProviderOnboarding = () => {
     }
   };
 
+  // ── Save step draft to Supabase ──────────────────────────────────────────
+  // Upserts on user_id — safe to call after every step advance
+  const saveStepDraft = async (
+    step: number,
+    patch: OnboardingDraftPatch,
+  ): Promise<void> => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase.from("provider_drafts").upsert(
+        {
+          user_id: user.id,
+          step_reached: step,
+          business_name: patch.businessName,
+          phone_number: patch.phoneNumber,
+          whatsapp_number: patch.whatsappNumber,
+          description: patch.description,
+          experience: patch.experience,
+          team_size: patch.teamSize,
+          website: patch.website,
+          languages: patch.languages,
+          call_available: patch.callAvailable,
+          whatsapp_available: patch.whatsappAvailable,
+          emergency_available: patch.emergencyAvailable,
+          profile_photo_path: patch.profilePhotoPath,
+          selected_services: patch.selectedServices,
+          pricing_model: patch.pricingModel,
+          areas: patch.areas,
+          portfolio_paths: patch.portfolioPaths,
+          id_file_path: patch.idFilePath,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+
+      if (error) {
+        console.warn("Draft save failed (non-critical):", error.message);
+      }
+    } catch (e) {
+      console.warn("Draft save threw (non-critical):", e);
+    }
+  };
+
+  // ── Restore draft from Supabase ──────────────────────────────────────────
+  const restoreDraft = async (userId: string): Promise<void> => {
+    try {
+      const { data: draft, error } = await supabase
+        .from("provider_drafts")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+
+      if (error || !draft) return;
+
+      // Restore all serialisable fields into formData
+      setFormData((prev) => ({
+        ...prev,
+        businessName: draft.business_name ?? prev.businessName,
+        phoneNumber: draft.phone_number ?? prev.phoneNumber,
+        whatsappNumber: draft.whatsapp_number ?? prev.whatsappNumber,
+        description: draft.description ?? prev.description,
+        experience: draft.experience ?? prev.experience,
+        teamSize: draft.team_size ?? prev.teamSize,
+        website: draft.website ?? prev.website,
+        languages: draft.languages ?? prev.languages,
+        callAvailable: draft.call_available ?? prev.callAvailable,
+        whatsappAvailable: draft.whatsapp_available ?? prev.whatsappAvailable,
+        emergencyAvailable:
+          draft.emergency_available ?? prev.emergencyAvailable,
+        selectedServices: draft.selected_services ?? prev.selectedServices,
+        pricingModel: draft.pricing_model ?? prev.pricingModel,
+        areas: draft.areas ?? prev.areas,
+      }));
+
+      // Restore file paths so final submit can use them without re-uploading
+      setDraftFilePaths({
+        profilePhotoPath: draft.profile_photo_path ?? undefined,
+        portfolioPaths: draft.portfolio_paths ?? [],
+        idFilePath: draft.id_file_path ?? undefined,
+      });
+
+      // Jump to the saved step if further than current
+      if (draft.step_reached > 1) {
+        setStep(draft.step_reached);
+        showInfo?.(
+          "Progress restored",
+          `We resumed your onboarding from step ${draft.step_reached}.`,
+        );
+      }
+    } catch (e) {
+      console.warn("Draft restore threw (non-critical):", e);
+    }
+  };
+
+  // ── Delete draft after successful final submit ───────────────────────────
+  const deleteDraft = async (userId: string): Promise<void> => {
+    try {
+      const { error } = await supabase
+        .from("provider_drafts")
+        .delete()
+        .eq("user_id", userId);
+
+      if (error) {
+        console.warn("Draft delete failed (non-critical):", error.message);
+      }
+    } catch (e) {
+      console.warn("Draft delete threw (non-critical):", e);
+    }
+  };
+
   // ── 1️⃣ FIRST: Handle invite hash tokens from email link ─────────────────
   useEffect(() => {
     const handleInviteHash = async () => {
@@ -265,7 +412,7 @@ const ProviderOnboarding = () => {
     handleInviteHash();
   }, []);
 
-  // ── 2️⃣ SECOND: Check session and decide starting step ───────────────────
+  // ── 2️⃣ SECOND: Check session, restore draft, decide starting step ────────
   useEffect(() => {
     const checkExistingSession = async () => {
       try {
@@ -278,18 +425,21 @@ const ProviderOnboarding = () => {
           const passwordSet = session.user.user_metadata?.password_set === true;
 
           if (!passwordSet) {
+            // First visit via invite link — always start at step 1
             setStep(1);
           } else {
+            // Returning user — restore draft first, then decide step
+            await restoreDraft(session.user.id);
+
+            // If session storage has no step saved, default to step 2
             const stored = getInitialStep();
             if (stored <= 1) {
               setStep(2);
             }
-            showInfo?.(
-              "Session restored",
-              "We detected an active session and resumed your onboarding.",
-            );
           }
 
+          // Preload application data (may be overridden by draft restore above,
+          // but application data fills fields the draft may not have yet)
           if (applicationId && userEmail) {
             await preloadFromApplication(applicationId, userEmail);
           }
@@ -359,6 +509,7 @@ const ProviderOnboarding = () => {
   }, [applicationId]);
 
   // ── Step 1: Account submit ───────────────────────────────────────────────
+  // No draft save needed here — Supabase auth session is the persistence
   const handleAccountSubmit = async (
     email: string,
     password: string,
@@ -468,7 +619,6 @@ const ProviderOnboarding = () => {
       }
 
       if (attempt < retries) {
-        // Exponential backoff: 2s → 4s → 8s
         await new Promise<void>((res) =>
           setTimeout(res, Math.pow(2, attempt) * 1000),
         );
@@ -477,6 +627,101 @@ const ProviderOnboarding = () => {
 
     console.error(`All ${retries} upload attempts failed for ${fileName}`);
     return null;
+  };
+
+  // ── Step 2: Save profile draft ───────────────────────────────────────────
+  // Called by OnboardingSteps after validateProfileAndContinue passes.
+  // Uploads the profile photo eagerly so the path is stored in the draft.
+  const handleSaveProfileDraft = async (
+    profilePatch: Omit<OnboardingDraftPatch, "profilePhotoPath">,
+    profilePhotoFile: File | null,
+  ): Promise<void> => {
+    let profilePhotoPath: string | undefined;
+
+    if (profilePhotoFile) {
+      const compressed = await compressImage(profilePhotoFile);
+      const path = await uploadFile(
+        compressed,
+        "",
+        `drafts/${crypto.randomUUID()}/profile`,
+      );
+      if (path) {
+        profilePhotoPath = path;
+        setDraftFilePaths((prev) => ({ ...prev, profilePhotoPath: path }));
+      }
+    }
+
+    await saveStepDraft(2, { ...profilePatch, profilePhotoPath });
+  };
+
+  // ── Step 3: Save services draft ──────────────────────────────────────────
+  const handleSaveServicesDraft = async (
+    selectedServices: ServiceEntry[],
+    pricingModel: string,
+  ): Promise<void> => {
+    await saveStepDraft(3, { selectedServices, pricingModel });
+  };
+
+  // ── Step 4: Save areas draft ─────────────────────────────────────────────
+  const handleSaveAreasDraft = async (areas: string[]): Promise<void> => {
+    await saveStepDraft(4, { areas });
+  };
+
+  // ── Step 5: Eager file upload handlers ──────────────────────────────────
+  // Files are uploaded immediately on selection; paths saved to draft.
+  // Final submit reads these paths instead of re-uploading.
+  const handleUploadPortfolio = async (files: File[]): Promise<void> => {
+    const compressed = await Promise.all(files.map(compressImage));
+    const paths = await batchedUpload(
+      compressed,
+      (file: File) =>
+        uploadFile(file, "", `drafts/${crypto.randomUUID()}/portfolio`),
+      3,
+    );
+    const validPaths = paths.filter((p): p is string => p !== null);
+
+    setDraftFilePaths((prev) => {
+      const merged = [...prev.portfolioPaths, ...validPaths];
+      saveStepDraft(5, {
+        portfolioPaths: merged,
+        idFilePath: prev.idFilePath,
+      });
+      return { ...prev, portfolioPaths: merged };
+    });
+  };
+
+  const handleUploadIdFile = async (file: File): Promise<void> => {
+    const path = await uploadFile(file, "", `drafts/${crypto.randomUUID()}/id`);
+    if (path) {
+      setDraftFilePaths((prev) => {
+        saveStepDraft(5, {
+          portfolioPaths: prev.portfolioPaths,
+          idFilePath: path,
+        });
+        return { ...prev, idFilePath: path };
+      });
+    }
+  };
+
+  const handleRemovePortfolioPath = (index: number): void => {
+    setDraftFilePaths((prev) => {
+      const updated = prev.portfolioPaths.filter((_, i) => i !== index);
+      saveStepDraft(5, {
+        portfolioPaths: updated,
+        idFilePath: prev.idFilePath,
+      });
+      return { ...prev, portfolioPaths: updated };
+    });
+  };
+
+  const handleRemoveIdFilePath = (): void => {
+    setDraftFilePaths((prev) => {
+      saveStepDraft(5, {
+        portfolioPaths: prev.portfolioPaths,
+        idFilePath: undefined,
+      });
+      return { ...prev, idFilePath: undefined };
+    });
   };
 
   // ── Send "profile received" email ────────────────────────────────────────
@@ -579,6 +824,7 @@ const ProviderOnboarding = () => {
             profileData.email,
             profileData.fullName,
           );
+          await deleteDraft(user.id);
           showSuccess(
             "Profile submitted!",
             "Check your email for instructions on how to access your dashboard.",
@@ -609,6 +855,10 @@ const ProviderOnboarding = () => {
       const providerId = providerInsert.id as string;
       await insertRelatedData(profileData, providerId);
       await sendProfileReceivedEmail(profileData.email, profileData.fullName);
+
+      // ── Draft cleanup — only after all data is safely in the DB ──────────
+      await deleteDraft(user.id);
+
       showSuccess(
         "Profile submitted!",
         "Check your email for instructions on how to access your dashboard.",
@@ -625,6 +875,8 @@ const ProviderOnboarding = () => {
   };
 
   // ── Insert services, areas, media ────────────────────────────────────────
+  // Files are already uploaded — we use stored paths from draftFilePaths
+  // instead of re-uploading. Falls back to File objects if paths are missing.
   const insertRelatedData = async (
     profileData: OnboardingData,
     providerId: string,
@@ -676,62 +928,95 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // Profile photo — compress then upload
-    if (profileData.profilePhoto) {
+    // ── Profile photo ──────────────────────────────────────────────────────
+    // Use eagerly uploaded path if available, otherwise upload now
+    let profilePhotoPath = draftFilePaths.profilePhotoPath ?? null;
+
+    if (!profilePhotoPath && profileData.profilePhoto) {
       const compressed = await compressImage(profileData.profilePhoto);
-      const path = await uploadFile(
+      profilePhotoPath = await uploadFile(
         compressed,
         providerId,
         `providers/${providerId}/profile`,
       );
+    }
 
-      if (path) {
-        const { data: urlData } = supabase.storage
-          .from("provider-media")
-          .getPublicUrl(path);
-        const publicUrl = urlData.publicUrl;
+    if (profilePhotoPath) {
+      // Move from drafts/ folder to providers/ folder for clean storage
+      const finalPath = `providers/${providerId}/profile/${crypto.randomUUID()}.${profilePhotoPath.split(".").pop()}`;
+      await supabase.storage
+        .from("provider-media")
+        .copy(profilePhotoPath, finalPath)
+        .catch(() => {
+          // If copy fails, use the draft path as-is
+          console.warn("Profile photo copy failed — using draft path");
+        });
 
-        const { error: mediaError } = await supabase
-          .from("provider_media")
-          .insert({
-            provider_id: providerId,
-            media_type: "profile_photo",
-            file_path: path,
-          });
-        if (mediaError) {
-          console.error("Error inserting profile_photo media:", mediaError);
-        }
+      const resolvedPath = finalPath ?? profilePhotoPath;
+      const { data: urlData } = supabase.storage
+        .from("provider-media")
+        .getPublicUrl(resolvedPath);
+      const publicUrl = urlData.publicUrl;
 
-        const { error: profileImgError } = await supabase
-          .from("providers")
-          .update({ profile_image_url: publicUrl })
-          .eq("id", providerId);
-        if (profileImgError) {
-          console.error("Error updating profile_image_url:", profileImgError);
-          showError(
-            "Profile photo not linked",
-            "Your photo was uploaded but could not be set as your profile image.",
-          );
-        }
+      const { error: mediaError } = await supabase
+        .from("provider_media")
+        .insert({
+          provider_id: providerId,
+          media_type: "profile_photo",
+          file_path: resolvedPath,
+        });
+      if (mediaError) {
+        console.error("Error inserting profile_photo media:", mediaError);
+      }
+
+      const { error: profileImgError } = await supabase
+        .from("providers")
+        .update({ profile_image_url: publicUrl })
+        .eq("id", providerId);
+      if (profileImgError) {
+        console.error("Error updating profile_image_url:", profileImgError);
+        showError(
+          "Profile photo not linked",
+          "Your photo was uploaded but could not be set as your profile image.",
+        );
       }
     }
 
-    // ✅ Portfolio images — compress all first, then batched parallel upload (3 at a time)
-    if (profileData.portfolioFiles.length > 0) {
+    // ── Portfolio images ───────────────────────────────────────────────────
+    // Use eagerly uploaded paths; fall back to File objects if paths are empty
+    const portfolioPaths = draftFilePaths.portfolioPaths;
+
+    if (portfolioPaths.length > 0) {
+      const portfolioPayload = portfolioPaths.map((file_path) => ({
+        provider_id: providerId,
+        media_type: "portfolio",
+        file_path,
+      }));
+
+      const { error: portfolioError } = await supabase
+        .from("provider_media")
+        .insert(portfolioPayload);
+      if (portfolioError) {
+        console.error("Error inserting portfolio media:", portfolioError);
+        showError(
+          "Portfolio not fully saved",
+          "Some portfolio images could not be saved.",
+        );
+      }
+    } else if (profileData.portfolioFiles.length > 0) {
+      // Fallback: upload now (e.g. draft paths were lost)
       const compressed = await Promise.all(
         profileData.portfolioFiles.map(compressImage),
       );
-
       const paths = await batchedUpload(
         compressed,
         (file: File) =>
           uploadFile(file, providerId, `providers/${providerId}/portfolio`),
         3,
       );
-
       const portfolioPayload = paths
         .filter((p): p is string => p !== null)
-        .map((file_path: string) => ({
+        .map((file_path) => ({
           provider_id: providerId,
           media_type: "portfolio",
           file_path,
@@ -751,7 +1036,7 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ✅ License files — batched parallel upload, no compression (may be PDFs)
+    // ── License files — batched parallel upload, no compression (may be PDFs)
     if (profileData.licenseFiles.length > 0) {
       const paths = await batchedUpload(
         profileData.licenseFiles,
@@ -782,14 +1067,30 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ID document — single file, retry built into uploadFile
-    if (profileData.idFile) {
+    // ── ID document ────────────────────────────────────────────────────────
+    // Use eagerly uploaded path; fall back to File object if path is missing
+    const idFilePath = draftFilePaths.idFilePath ?? null;
+
+    if (idFilePath) {
+      const { error: idError } = await supabase.from("provider_media").insert({
+        provider_id: providerId,
+        media_type: "id_document",
+        file_path: idFilePath,
+      });
+      if (idError) {
+        console.error("Error inserting id_document media:", idError);
+        showError(
+          "ID not saved",
+          "Your ID document was uploaded but could not be saved.",
+        );
+      }
+    } else if (profileData.idFile) {
+      // Fallback: upload now
       const path = await uploadFile(
         profileData.idFile,
         providerId,
         `providers/${providerId}/ID`,
       );
-
       if (path) {
         const { error: idError } = await supabase
           .from("provider_media")
@@ -851,7 +1152,6 @@ const ProviderOnboarding = () => {
           >
             ⏰
           </div>
-
           <h1
             style={{
               fontFamily: "Fraunces, serif",
@@ -864,7 +1164,6 @@ const ProviderOnboarding = () => {
           >
             Your Invite Has Expired
           </h1>
-
           <p
             style={{
               color: "var(--color-text-secondary)",
@@ -878,7 +1177,6 @@ const ProviderOnboarding = () => {
             notified and will review your application and send you a fresh
             invite link shortly.
           </p>
-
           <div
             style={{
               padding: "14px 20px",
@@ -956,61 +1254,16 @@ const ProviderOnboarding = () => {
         prevStep={prevStep}
         onAccountSubmit={handleAccountSubmit}
         onSubmitProfile={handleSubmitProfile}
+        onSaveProfileDraft={handleSaveProfileDraft}
+        onSaveServicesDraft={handleSaveServicesDraft}
+        onSaveAreasDraft={handleSaveAreasDraft}
+        onUploadPortfolio={handleUploadPortfolio}
+        onUploadIdFile={handleUploadIdFile}
+        onRemovePortfolioPath={handleRemovePortfolioPath}
+        onRemoveIdFilePath={handleRemoveIdFilePath}
+        draftFilePaths={draftFilePaths}
         loadError={loadError}
       />
-
-      {/*
-      
-      {import.meta.env.DEV && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 20,
-            right: 20,
-            zIndex: 9999,
-            background: "#1a1a2e",
-            border: "1.5px solid #ff6b35",
-            borderRadius: 10,
-            padding: "10px 14px",
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              color: "#ff6b35",
-              fontSize: 12,
-              fontWeight: 700,
-              marginRight: 4,
-            }}
-          >
-            DEV
-          </span>
-          {[1, 2, 3, 4, 5].map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                setStep(s);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 6,
-                border: "none",
-                background: currentStep === s ? "#ff6b35" : "#2a2a3e",
-                color: currentStep === s ? "#fff" : "#aaa",
-                fontWeight: 700,
-                cursor: "pointer",
-                fontSize: 13,
-              }}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}*/}
     </>
   );
 };

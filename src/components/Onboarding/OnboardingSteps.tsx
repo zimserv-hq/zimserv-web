@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import type {
   OnboardingData,
   ServiceEntry,
+  OnboardingDraftPatch,
 } from "../../pages/ProviderOnboarding";
 import { Eye, X } from "lucide-react";
 import { useServicesByCategory } from "../../data/services";
@@ -22,43 +23,30 @@ interface OnboardingStepsProps {
   onAccountSubmit?: (email: string, password: string) => Promise<boolean>;
   onSubmitProfile?: (profileData: OnboardingData) => Promise<void>;
   loadError?: string | null;
-}
 
-// ── Draft helpers ────────────────────────────────────────────────────────────
-const DRAFT_KEY = "zimserv_onboarding_draft";
+  // ── Draft callbacks ──────────────────────────────────────────────────────
+  onSaveProfileDraft?: (
+    patch: Omit<OnboardingDraftPatch, "profilePhotoPath">,
+    profilePhotoFile: File | null,
+  ) => Promise<void>;
+  onSaveServicesDraft?: (
+    selectedServices: ServiceEntry[],
+    pricingModel: string,
+  ) => Promise<void>;
+  onSaveAreasDraft?: (areas: string[]) => Promise<void>;
 
-type DraftData = {
-  teamSize: string;
-  callAvailable: boolean;
-  whatsappAvailable: boolean;
-  emergencyAvailable: boolean;
-  selectedServices: ServiceEntry[];
-  pricingModel: string;
-  areas: string[];
-  savedStep: number;
-};
+  // ── Eager file upload callbacks ──────────────────────────────────────────
+  onUploadPortfolio?: (files: File[]) => Promise<void>;
+  onUploadIdFile?: (file: File) => Promise<void>;
+  onRemovePortfolioPath?: (index: number) => void;
+  onRemoveIdFilePath?: () => void;
 
-function saveDraft(data: DraftData) {
-  try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
-  } catch {
-    /* ignore */
-  }
-}
-function loadDraft(): DraftData | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY);
-    return raw ? (JSON.parse(raw) as DraftData) : null;
-  } catch {
-    return null;
-  }
-}
-function clearDraft() {
-  try {
-    localStorage.removeItem(DRAFT_KEY);
-  } catch {
-    /* ignore */
-  }
+  // ── Eagerly uploaded paths from parent ──────────────────────────────────
+  draftFilePaths?: {
+    profilePhotoPath?: string;
+    portfolioPaths: string[];
+    idFilePath?: string;
+  };
 }
 
 // ── Eye toggle SVG helpers ───────────────────────────────────────────────────
@@ -129,6 +117,14 @@ const OnboardingSteps = ({
   onAccountSubmit,
   onSubmitProfile,
   loadError,
+  onSaveProfileDraft,
+  onSaveServicesDraft,
+  onSaveAreasDraft,
+  onUploadPortfolio,
+  onUploadIdFile,
+  onRemovePortfolioPath,
+  onRemoveIdFilePath,
+  draftFilePaths,
 }: OnboardingStepsProps) => {
   const { showError, showSuccess, showInfo } = useToast();
 
@@ -142,7 +138,7 @@ const OnboardingSteps = ({
     null,
   );
 
-  // Step 1: Account
+  // ── Step 1: Account ──────────────────────────────────────────────────────
   const [email, setEmail] = useState(formData.email);
   const [password, setPassword] = useState(formData.password);
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -154,7 +150,7 @@ const OnboardingSteps = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
-  // Step 2: Profile
+  // ── Step 2: Profile ──────────────────────────────────────────────────────
   const [teamSize, setTeamSize] = useState(formData.teamSize);
   const [callAvailable, setCallAvailable] = useState(
     formData.callAvailable ?? true,
@@ -172,6 +168,7 @@ const OnboardingSteps = ({
     null,
   );
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Preloaded but editable (except full name)
   const [fullName] = useState(formData.fullName); // read-only
@@ -200,58 +197,7 @@ const OnboardingSteps = ({
   const [languageInput, setLanguageInput] = useState("");
   const [showLanguageInput, setShowLanguageInput] = useState(false);
 
-  const toggleQuickLanguage = (lang: string) => {
-    if (languages.some((l) => l.toLowerCase() === lang.toLowerCase())) {
-      const updated = languages.filter(
-        (l) => l.toLowerCase() !== lang.toLowerCase(),
-      );
-      setLanguages(updated.length === 0 ? ["English"] : updated);
-    } else if (languages.length >= MAX_LANGUAGES) {
-      showError(
-        "Maximum reached",
-        `You can only add up to ${MAX_LANGUAGES} languages.`,
-      );
-    } else {
-      setLanguages([...languages, lang]);
-    }
-  };
-
-  const addLanguage = () => {
-    const value = languageInput.trim();
-    if (!value) return;
-    if (languages.some((l) => l.toLowerCase() === value.toLowerCase())) {
-      showInfo?.("Already added", `${value} is already in your languages.`);
-      return;
-    }
-    if (languages.length >= MAX_LANGUAGES) {
-      showError(
-        "Maximum reached",
-        `You can only add up to ${MAX_LANGUAGES} languages.`,
-      );
-      return;
-    }
-    setLanguages([...languages, value]);
-    setLanguageInput("");
-    setShowLanguageInput(false);
-  };
-
-  const handleLanguageKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addLanguage();
-    }
-    if (e.key === "Escape") {
-      setShowLanguageInput(false);
-      setLanguageInput("");
-    }
-  };
-
-  const removeLanguage = (lang: string) => {
-    const updated = languages.filter((l) => l !== lang);
-    setLanguages(updated.length === 0 ? ["English"] : updated);
-  };
-
-  // Step 3: Services
+  // ── Step 3: Services ─────────────────────────────────────────────────────
   const [selectedServices, setSelectedServices] = useState<ServiceEntry[]>(
     formData.selectedServices,
   );
@@ -260,15 +206,49 @@ const OnboardingSteps = ({
   );
   const [customServiceName, setCustomServiceName] = useState("");
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [isSavingServices, setIsSavingServices] = useState(false);
 
   const { services: availableServices, loading: servicesLoading } =
     useServicesByCategory(formData.category);
 
-  // Step 4: Areas
+  // ── Step 4: Areas ────────────────────────────────────────────────────────
   const city = formData.city;
   const [areas, setAreas] = useState<string[]>(formData.areas);
   const [areaInput, setAreaInput] = useState("");
   const [showAreaInput, setShowAreaInput] = useState(false);
+  const [isSavingAreas, setIsSavingAreas] = useState(false);
+
+  // ── Step 5: Portfolio / ID ───────────────────────────────────────────────
+  const [portfolioFiles, setPortfolioFiles] = useState<File[]>(
+    formData.portfolioFiles,
+  );
+  const [licenseFiles] = useState<File[]>(formData.licenseFiles);
+  const [idFile, setIdFile] = useState<File | null>(formData.idFile ?? null);
+  const [portfolioPreviews, setPortfolioPreviews] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingPortfolio, setIsUploadingPortfolio] = useState(false);
+  const [isUploadingId, setIsUploadingId] = useState(false);
+
+  // ── Re-sync all local state when formData changes (draft restore) ────────
+  useEffect(() => {
+    setBusinessName(formData.businessName);
+    setPhone((formData.phoneNumber as PhoneValue) || undefined);
+    setWhatsapp((formData.whatsappNumber as PhoneValue) || undefined);
+    setDescription(formData.description);
+    setExperience(formData.experience || "");
+    setWebsite(formData.website);
+    setTeamSize(formData.teamSize);
+    setCallAvailable(formData.callAvailable ?? true);
+    setWhatsappAvailable(formData.whatsappAvailable ?? true);
+    setEmergencyAvailable(formData.emergencyAvailable ?? false);
+    setLanguages(
+      formData.languages?.length > 0 ? formData.languages : ["English"],
+    );
+    setSelectedServices(formData.selectedServices);
+    setPricingModel(formData.pricingModel ?? "Quote-based");
+    setAreas(formData.areas);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData]);
 
   // ── Google Places Autocomplete for areas ─────────────────────────────────
   useEffect(() => {
@@ -332,93 +312,14 @@ const OnboardingSteps = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapsLoaded, showAreaInput]);
 
-  // Step 5: Portfolio / ID
-  const [portfolioFiles, setPortfolioFiles] = useState<File[]>(
-    formData.portfolioFiles,
-  );
-  const [licenseFiles] = useState<File[]>(formData.licenseFiles);
-  const [idFile, setIdFile] = useState<File | null>(formData.idFile ?? null);
-  const [portfolioPreviews, setPortfolioPreviews] = useState<string[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Draft banner state
-  const [showResumeBanner, setShowResumeBanner] = useState(false);
-  const [savedStep, setSavedStep] = useState<number | null>(null);
-
-  // Draft logic
+  // ── Clean up portfolio object URL previews on unmount ───────────────────
   useEffect(() => {
-    const draft = loadDraft();
-    if (draft && currentStep === 1 && draft.savedStep > 1) {
-      setSavedStep(draft.savedStep);
-      setShowResumeBanner(true);
-    }
-  }, [currentStep]);
-
-  const applyDraft = () => {
-    const draft = loadDraft();
-    if (!draft) return;
-    setTeamSize(draft.teamSize);
-    setCallAvailable(draft.callAvailable ?? true);
-    setWhatsappAvailable(draft.whatsappAvailable ?? true);
-    setEmergencyAvailable(draft.emergencyAvailable ?? false);
-    setSelectedServices(draft.selectedServices);
-    setPricingModel(draft.pricingModel ?? "Quote-based");
-    setAreas(draft.areas);
-    setShowResumeBanner(false);
-    showInfo?.(
-      "Draft restored",
-      "We loaded your saved progress from this device.",
-    );
-  };
-
-  const discardDraft = () => {
-    clearDraft();
-    setShowResumeBanner(false);
-    showInfo?.("Draft cleared", "Your saved onboarding progress was removed.");
-  };
-
-  // Save draft when key fields change
-  useEffect(() => {
-    if (!formData.email) return;
-    saveDraft({
-      teamSize,
-      callAvailable,
-      whatsappAvailable,
-      emergencyAvailable,
-      selectedServices,
-      pricingModel,
-      areas,
-      savedStep: currentStep,
-    });
-  }, [
-    teamSize,
-    callAvailable,
-    whatsappAvailable,
-    emergencyAvailable,
-    selectedServices,
-    pricingModel,
-    areas,
-    currentStep,
-    formData.email,
-  ]);
-
-  // Re-sync availability flags when returning to step 2
-  useEffect(() => {
-    if (currentStep === 2) {
-      setTeamSize(formData.teamSize);
-      setCallAvailable(formData.callAvailable ?? true);
-      setWhatsappAvailable(formData.whatsappAvailable ?? true);
-      setEmergencyAvailable(formData.emergencyAvailable ?? false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep]);
-
-  // Clean up previews
-  useEffect(() => {
-    portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
+    return () => {
+      portfolioPreviews.forEach((url) => URL.revokeObjectURL(url));
+    };
   }, [portfolioPreviews]);
 
-  // Password strength helpers
+  // ── Password strength ────────────────────────────────────────────────────
   const checkPasswordStrength = (
     pwd: string,
   ): "weak" | "medium" | "strong" | null => {
@@ -442,7 +343,59 @@ const OnboardingSteps = ({
   const isStrongPassword = (pwd: string) =>
     /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /[0-9]/.test(pwd);
 
-  // Step 1 validation
+  // ── Language helpers ─────────────────────────────────────────────────────
+  const toggleQuickLanguage = (lang: string) => {
+    if (languages.some((l) => l.toLowerCase() === lang.toLowerCase())) {
+      const updated = languages.filter(
+        (l) => l.toLowerCase() !== lang.toLowerCase(),
+      );
+      setLanguages(updated.length === 0 ? ["English"] : updated);
+    } else if (languages.length >= MAX_LANGUAGES) {
+      showError(
+        "Maximum reached",
+        `You can only add up to ${MAX_LANGUAGES} languages.`,
+      );
+    } else {
+      setLanguages([...languages, lang]);
+    }
+  };
+
+  const addLanguage = () => {
+    const value = languageInput.trim();
+    if (!value) return;
+    if (languages.some((l) => l.toLowerCase() === value.toLowerCase())) {
+      showInfo?.("Already added", `${value} is already in your languages.`);
+      return;
+    }
+    if (languages.length >= MAX_LANGUAGES) {
+      showError(
+        "Maximum reached",
+        `You can only add up to ${MAX_LANGUAGES} languages.`,
+      );
+      return;
+    }
+    setLanguages([...languages, value]);
+    setLanguageInput("");
+    setShowLanguageInput(false);
+  };
+
+  const handleLanguageKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addLanguage();
+    }
+    if (e.key === "Escape") {
+      setShowLanguageInput(false);
+      setLanguageInput("");
+    }
+  };
+
+  const removeLanguage = (lang: string) => {
+    const updated = languages.filter((l) => l !== lang);
+    setLanguages(updated.length === 0 ? ["English"] : updated);
+  };
+
+  // ── Step 1 validation ────────────────────────────────────────────────────
   const validateAccountAndContinue = async () => {
     if (!email || !password || !confirmPassword) {
       showError("Missing fields", "Please fill in all required fields.");
@@ -487,8 +440,8 @@ const OnboardingSteps = ({
     nextStep();
   };
 
-  // Step 2 validation
-  const validateProfileAndContinue = () => {
+  // ── Step 2 validation + draft save ──────────────────────────────────────
+  const validateProfileAndContinue = async () => {
     if (!businessName.trim()) {
       showError(
         "Business name missing",
@@ -519,12 +472,15 @@ const OnboardingSteps = ({
       showError("Experience missing", "Please enter your years of experience.");
       return;
     }
-    if (!profilePhoto) {
+    // Allow passing if a photo was already uploaded in a previous session
+    if (!profilePhoto && !draftFilePaths?.profilePhotoPath) {
       showError("Profile photo missing", "Please upload a profile photo.");
       return;
     }
+
     const finalLanguages = languages.length > 0 ? languages : ["English"];
-    updateFormData({
+
+    const patch: Omit<OnboardingDraftPatch, "profilePhotoPath"> = {
       businessName,
       phoneNumber: phone ?? "",
       whatsappNumber: whatsapp ?? "",
@@ -535,13 +491,26 @@ const OnboardingSteps = ({
       callAvailable,
       whatsappAvailable,
       emergencyAvailable,
+      languages: finalLanguages,
+    };
+
+    updateFormData({
+      ...patch,
       profilePhoto,
       languages: finalLanguages,
     });
+
+    // Upload photo eagerly + persist draft before advancing
+    if (onSaveProfileDraft) {
+      setIsSavingProfile(true);
+      await onSaveProfileDraft(patch, profilePhoto);
+      setIsSavingProfile(false);
+    }
+
     nextStep();
   };
 
-  // Step 3 service logic
+  // ── Step 3 service helpers ───────────────────────────────────────────────
   const toggleService = (name: string) => {
     setSelectedServices((prev) => {
       const exists = prev.find((s) => s.name === name);
@@ -598,7 +567,8 @@ const OnboardingSteps = ({
     showInfo?.("Service removed", `${name} was removed from your services.`);
   };
 
-  const validateServicesAndContinue = () => {
+  // ── Step 3 validation + draft save ──────────────────────────────────────
+  const validateServicesAndContinue = async () => {
     if (selectedServices.length < 3) {
       showError("Not enough services", "Please select at least 3 services.");
       return;
@@ -613,15 +583,24 @@ const OnboardingSteps = ({
       );
       return;
     }
+
     updateFormData({ selectedServices, pricingModel });
+
+    if (onSaveServicesDraft) {
+      setIsSavingServices(true);
+      await onSaveServicesDraft(selectedServices, pricingModel);
+      setIsSavingServices(false);
+    }
+
     nextStep();
   };
 
-  // Step 4 logic
+  // ── Step 4 helpers ───────────────────────────────────────────────────────
   const removeArea = (area: string) =>
     setAreas(areas.filter((a) => a !== area));
 
-  const validateAreasAndContinue = () => {
+  // ── Step 4 validation + draft save ──────────────────────────────────────
+  const validateAreasAndContinue = async () => {
     if (!city) {
       showError(
         "City missing",
@@ -640,11 +619,19 @@ const OnboardingSteps = ({
       );
       return;
     }
+
     updateFormData({ areas });
+
+    if (onSaveAreasDraft) {
+      setIsSavingAreas(true);
+      await onSaveAreasDraft(areas);
+      setIsSavingAreas(false);
+    }
+
     nextStep();
   };
 
-  // File handlers
+  // ── File handlers ────────────────────────────────────────────────────────
   const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -672,11 +659,15 @@ const OnboardingSteps = ({
     if (input) input.value = "";
   };
 
-  // ── Portfolio: max 3 photos ──────────────────────────────────────────────
-  const handlePortfolioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ── Portfolio: upload immediately on selection ───────────────────────────
+  const handlePortfolioChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     if (!e.target.files) return;
     const incoming = Array.from(e.target.files);
-    const remaining = MAX_PORTFOLIO - portfolioFiles.length;
+    const currentCount =
+      draftFilePaths?.portfolioPaths.length ?? portfolioFiles.length;
+    const remaining = MAX_PORTFOLIO - currentCount;
 
     if (remaining <= 0) {
       showError(
@@ -695,38 +686,70 @@ const OnboardingSteps = ({
       );
     }
 
+    // Keep File objects for local previews
     setPortfolioFiles((prev) => [...prev, ...accepted]);
-    e.target.value = "";
-  };
+    const newPreviews = accepted.map((f) => URL.createObjectURL(f));
+    setPortfolioPreviews((prev) => [...prev, ...newPreviews]);
 
-  const handleIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setIdFile(file);
+    // Upload immediately + save to draft
+    if (onUploadPortfolio) {
+      setIsUploadingPortfolio(true);
+      await onUploadPortfolio(accepted);
+      setIsUploadingPortfolio(false);
+    }
+
+    e.target.value = "";
   };
 
   const removePortfolioFile = (index: number) => {
     setPortfolioFiles((prev) => prev.filter((_, i) => i !== index));
+    if (portfolioPreviews[index]) URL.revokeObjectURL(portfolioPreviews[index]);
     setPortfolioPreviews((prev) => prev.filter((_, i) => i !== index));
+    onRemovePortfolioPath?.(index);
   };
 
-  const clearIdFile = () => setIdFile(null);
+  // ── ID: upload immediately on selection ─────────────────────────────────
+  const handleIdChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIdFile(file);
 
-  // Step 5 submit
+    if (onUploadIdFile) {
+      setIsUploadingId(true);
+      await onUploadIdFile(file);
+      setIsUploadingId(false);
+    }
+  };
+
+  const clearIdFile = () => {
+    setIdFile(null);
+    onRemoveIdFilePath?.();
+    const input = document.getElementById("idInput") as HTMLInputElement;
+    if (input) input.value = "";
+  };
+
+  // ── Step 5 submit ────────────────────────────────────────────────────────
   const submitProfile = async () => {
-    if (portfolioFiles.length < 1) {
+    const hasPortfolio =
+      (draftFilePaths?.portfolioPaths.length ?? 0) > 0 ||
+      portfolioFiles.length > 0;
+    const hasId = !!draftFilePaths?.idFilePath || !!idFile;
+
+    if (!hasPortfolio) {
       showError(
         "Portfolio missing",
         "Please upload at least 1 portfolio image.",
       );
       return;
     }
-    if (!idFile) {
+    if (!hasId) {
       showError(
         "ID missing",
         "Please upload at least 1 government ID document.",
       );
       return;
     }
+
     setIsSubmitting(true);
     const profileData: OnboardingData = {
       ...formData,
@@ -756,13 +779,11 @@ const OnboardingSteps = ({
     try {
       if (onSubmitProfile) {
         await onSubmitProfile(profileData);
-        clearDraft();
       } else {
         showSuccess(
           "Profile submitted",
           "Your account is now ready to receive customers.",
         );
-        clearDraft();
       }
     } catch (err) {
       console.error("Error submitting profile:", err);
@@ -775,7 +796,7 @@ const OnboardingSteps = ({
     }
   };
 
-  // Render
+  // ── Step labels ──────────────────────────────────────────────────────────
   const steps = [
     { number: 1, label: "Account" },
     { number: 2, label: "Profile" },
@@ -786,27 +807,10 @@ const OnboardingSteps = ({
 
   const customServices = selectedServices.filter((s) => s.isCustom);
 
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="onboarding-page">
       <div className="onboarding-container">
-        {/* Draft banner */}
-        {showResumeBanner && savedStep && (
-          <div className="draft-resume-banner">
-            <div className="draft-resume-text">
-              You have an unfinished application saved, last on step {savedStep}
-              .
-            </div>
-            <div className="draft-resume-actions">
-              <button className="btn-primary btn-sm" onClick={applyDraft}>
-                Resume where I left off
-              </button>
-              <button className="btn-secondary btn-sm" onClick={discardDraft}>
-                Start fresh
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Progress */}
         <div className="progress-section">
           <div className="progress-steps">
@@ -831,7 +835,7 @@ const OnboardingSteps = ({
           </div>
         </div>
 
-        {/* STEP 1: Account */}
+        {/* ── STEP 1: Account ─────────────────────────────────────────────── */}
         {currentStep === 1 && (
           <div className="form-section">
             <h2 className="form-title">Create Your Account</h2>
@@ -960,7 +964,7 @@ const OnboardingSteps = ({
           </div>
         )}
 
-        {/* STEP 2: Profile */}
+        {/* ── STEP 2: Profile ──────────────────────────────────────────────── */}
         {currentStep === 2 && (
           <div className="form-section">
             <h2 className="form-title">Profile Information</h2>
@@ -1276,6 +1280,38 @@ const OnboardingSteps = ({
             {/* Profile Photo */}
             <div className="form-group">
               <label className="form-label required">Profile Photo</label>
+
+              {/* Show "already uploaded" banner if draft has a path but no local file */}
+              {!profilePhoto && draftFilePaths?.profilePhotoPath && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 14px",
+                    background: "rgba(34,197,94,0.06)",
+                    border: "1.5px solid rgba(34,197,94,0.2)",
+                    borderRadius: 10,
+                    marginBottom: 12,
+                    fontSize: 13,
+                    color: "var(--color-text-secondary)",
+                    fontWeight: 500,
+                  }}
+                >
+                  ✅ Profile photo already uploaded from a previous session.
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() =>
+                      document.getElementById("photoInput")?.click()
+                    }
+                    style={{ marginLeft: "auto" }}
+                  >
+                    Replace
+                  </button>
+                </div>
+              )}
+
               {profilePhoto && profilePhotoPreview ? (
                 <div className="photo-preview-row">
                   <div
@@ -1320,19 +1356,23 @@ const OnboardingSteps = ({
                   </div>
                 </div>
               ) : (
-                <div
-                  onClick={() => document.getElementById("photoInput")?.click()}
-                  className="file-upload-zone"
-                >
-                  <div className="file-upload-icon" />
-                  <div className="file-upload-text">
-                    Click to upload your profile photo
+                !draftFilePaths?.profilePhotoPath && (
+                  <div
+                    onClick={() =>
+                      document.getElementById("photoInput")?.click()
+                    }
+                    className="file-upload-zone"
+                  >
+                    <div className="file-upload-icon" />
+                    <div className="file-upload-text">
+                      Click to upload your profile photo
+                    </div>
+                    <div className="file-upload-hint">
+                      JPG, PNG, or WebP. Max 5MB. Professional headshot
+                      recommended.
+                    </div>
                   </div>
-                  <div className="file-upload-hint">
-                    JPG, PNG, or WebP. Max 5MB. Professional headshot
-                    recommended.
-                  </div>
-                </div>
+                )
               )}
               <input
                 type="file"
@@ -1350,8 +1390,9 @@ const OnboardingSteps = ({
               <button
                 onClick={validateProfileAndContinue}
                 className="btn-primary"
+                disabled={isSavingProfile}
               >
-                Continue to Services
+                {isSavingProfile ? "Saving..." : "Continue to Services"}
               </button>
             </div>
 
@@ -1384,7 +1425,7 @@ const OnboardingSteps = ({
           </div>
         )}
 
-        {/* STEP 3: Services */}
+        {/* ── STEP 3: Services ─────────────────────────────────────────────── */}
         {currentStep === 3 && (
           <div className="form-section">
             <h2 className="form-title">Services You Offer</h2>
@@ -1618,14 +1659,15 @@ const OnboardingSteps = ({
               <button
                 onClick={validateServicesAndContinue}
                 className="btn-primary"
+                disabled={isSavingServices}
               >
-                Continue to Service Areas
+                {isSavingServices ? "Saving..." : "Continue to Service Areas"}
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 4: Areas */}
+        {/* ── STEP 4: Areas ────────────────────────────────────────────────── */}
         {currentStep === 4 && (
           <div className="form-section">
             <h2 className="form-title">Service Areas</h2>
@@ -1760,14 +1802,15 @@ const OnboardingSteps = ({
               <button
                 onClick={validateAreasAndContinue}
                 className="btn-primary"
+                disabled={isSavingAreas}
               >
-                Continue to Portfolio
+                {isSavingAreas ? "Saving..." : "Continue to Portfolio"}
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 5: Portfolio & ID */}
+        {/* ── STEP 5: Portfolio & ID ────────────────────────────────────────── */}
         {currentStep === 5 && (
           <div className="form-section">
             <h2 className="form-title">Portfolio & ID Verification</h2>
@@ -1785,25 +1828,59 @@ const OnboardingSteps = ({
                 </span>
               </label>
 
+              {/* Already uploaded from draft — no local files present */}
+              {(draftFilePaths?.portfolioPaths.length ?? 0) > 0 &&
+                portfolioFiles.length === 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 14px",
+                      background: "rgba(34,197,94,0.06)",
+                      border: "1.5px solid rgba(34,197,94,0.2)",
+                      borderRadius: 10,
+                      marginBottom: 12,
+                      fontSize: 13,
+                      color: "var(--color-text-secondary)",
+                      fontWeight: 500,
+                    }}
+                  >
+                    ✅ {draftFilePaths!.portfolioPaths.length} portfolio photo
+                    {draftFilePaths!.portfolioPaths.length > 1 ? "s" : ""}{" "}
+                    already uploaded from a previous session.
+                  </div>
+                )}
+
               {/* Upload zone — hidden once limit reached */}
-              {portfolioFiles.length < MAX_PORTFOLIO && (
+              {(draftFilePaths?.portfolioPaths.length ??
+                portfolioFiles.length) < MAX_PORTFOLIO && (
                 <div
                   onClick={() =>
+                    !isUploadingPortfolio &&
                     document.getElementById("portfolioInput")?.click()
                   }
                   className="file-upload-zone"
-                  style={{ marginBottom: portfolioFiles.length > 0 ? 12 : 0 }}
+                  style={{
+                    marginBottom: portfolioFiles.length > 0 ? 12 : 0,
+                    opacity: isUploadingPortfolio ? 0.6 : 1,
+                    cursor: isUploadingPortfolio ? "not-allowed" : "pointer",
+                  }}
                 >
                   <div className="file-upload-icon" />
                   <div className="file-upload-text">
-                    {portfolioFiles.length === 0
-                      ? "Click to upload portfolio images"
-                      : "Click to add more photos"}
+                    {isUploadingPortfolio
+                      ? "Uploading..."
+                      : portfolioFiles.length === 0 &&
+                          (draftFilePaths?.portfolioPaths.length ?? 0) === 0
+                        ? "Click to upload portfolio images"
+                        : "Click to add more photos"}
                   </div>
                   <div className="file-upload-hint">
                     Upload photos of your completed work. JPG or PNG, max 5MB
                     each.
-                    {portfolioFiles.length > 0 && (
+                    {(draftFilePaths?.portfolioPaths.length ??
+                      portfolioFiles.length) > 0 && (
                       <span
                         style={{
                           color: "var(--color-accent)",
@@ -1811,7 +1888,9 @@ const OnboardingSteps = ({
                           marginLeft: 6,
                         }}
                       >
-                        {portfolioFiles.length}/{MAX_PORTFOLIO} photos added
+                        {draftFilePaths?.portfolioPaths.length ??
+                          portfolioFiles.length}
+                        /{MAX_PORTFOLIO} photos added
                       </span>
                     )}
                   </div>
@@ -1819,7 +1898,8 @@ const OnboardingSteps = ({
               )}
 
               {/* Limit reached notice */}
-              {portfolioFiles.length >= MAX_PORTFOLIO && (
+              {(draftFilePaths?.portfolioPaths.length ??
+                portfolioFiles.length) >= MAX_PORTFOLIO && (
                 <div
                   style={{
                     fontSize: 13,
@@ -1847,11 +1927,15 @@ const OnboardingSteps = ({
                 multiple
                 onChange={handlePortfolioChange}
                 className="file-input"
+                disabled={isUploadingPortfolio}
               />
+
+              {/* Local file previews */}
               {portfolioFiles.length > 0 && (
                 <div className="portfolio-previews">
                   {portfolioFiles.map((file, i) => {
-                    const url = URL.createObjectURL(file);
+                    const url =
+                      portfolioPreviews[i] ?? URL.createObjectURL(file);
                     return (
                       <div key={i} className="portfolio-preview-item">
                         <img src={url} alt={`Portfolio ${i + 1}`} />
@@ -1861,6 +1945,7 @@ const OnboardingSteps = ({
                           className="portfolio-remove-btn"
                           onClick={() => removePortfolioFile(i)}
                           aria-label="Remove image"
+                          disabled={isUploadingPortfolio}
                         >
                           <X size={14} strokeWidth={2.5} />
                         </button>
@@ -1909,6 +1994,36 @@ const OnboardingSteps = ({
                 </p>
               </div>
 
+              {/* Already uploaded from draft — no local file */}
+              {!idFile && draftFilePaths?.idFilePath && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 14px",
+                    background: "rgba(34,197,94,0.06)",
+                    border: "1.5px solid rgba(34,197,94,0.2)",
+                    borderRadius: 10,
+                    marginBottom: 12,
+                    fontSize: 13,
+                    color: "var(--color-text-secondary)",
+                    fontWeight: 500,
+                  }}
+                >
+                  ✅ ID document already uploaded from a previous session.
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => document.getElementById("idInput")?.click()}
+                    style={{ marginLeft: "auto" }}
+                    disabled={isUploadingId}
+                  >
+                    Replace
+                  </button>
+                </div>
+              )}
+
               {idFile ? (
                 <div className="photo-preview-row">
                   <div className="id-file-icon">
@@ -1933,6 +2048,17 @@ const OnboardingSteps = ({
                     <span className="photo-file-size">
                       {(idFile.size / 1024).toFixed(0)} KB
                     </span>
+                    {isUploadingId && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: "var(--color-accent)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        Uploading...
+                      </span>
+                    )}
                   </div>
                   <div className="photo-preview-actions">
                     <button
@@ -1941,6 +2067,7 @@ const OnboardingSteps = ({
                       onClick={() =>
                         document.getElementById("idInput")?.click()
                       }
+                      disabled={isUploadingId}
                     >
                       Change
                     </button>
@@ -1950,25 +2077,38 @@ const OnboardingSteps = ({
                       onClick={clearIdFile}
                       aria-label="Remove ID file"
                       title="Remove ID file"
+                      disabled={isUploadingId}
                     >
                       <X size={16} strokeWidth={2.5} />
                     </button>
                   </div>
                 </div>
               ) : (
-                <div
-                  onClick={() => document.getElementById("idInput")?.click()}
-                  className="file-upload-zone"
-                >
-                  <div className="file-upload-icon" />
-                  <div className="file-upload-text">
-                    Upload a photo or scan of your ID or business registration
+                !draftFilePaths?.idFilePath && (
+                  <div
+                    onClick={() =>
+                      !isUploadingId &&
+                      document.getElementById("idInput")?.click()
+                    }
+                    className="file-upload-zone"
+                    style={{
+                      opacity: isUploadingId ? 0.6 : 1,
+                      cursor: isUploadingId ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    <div className="file-upload-icon" />
+                    <div className="file-upload-text">
+                      {isUploadingId
+                        ? "Uploading..."
+                        : "Upload a photo or scan of your ID or business registration"}
+                    </div>
+                    <div className="file-upload-hint">
+                      This is only visible to ZimServ staff for verification and
+                      safety. It will never be publicly displayed on your
+                      profile.
+                    </div>
                   </div>
-                  <div className="file-upload-hint">
-                    This is only visible to ZimServ staff for verification and
-                    safety. It will never be publicly displayed on your profile.
-                  </div>
-                </div>
+                )
               )}
               <input
                 type="file"
@@ -1976,19 +2116,28 @@ const OnboardingSteps = ({
                 accept="image/*,application/pdf"
                 onChange={handleIdChange}
                 className="file-input"
+                disabled={isUploadingId}
               />
             </div>
 
             <div className="form-actions">
-              <button onClick={prevStep} className="btn-secondary">
+              <button
+                onClick={prevStep}
+                className="btn-secondary"
+                disabled={isSubmitting}
+              >
                 Back
               </button>
               <button
                 onClick={submitProfile}
                 className="btn-primary"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isUploadingPortfolio || isUploadingId}
               >
-                {isSubmitting ? "Submitting..." : "Submit for Review"}
+                {isSubmitting
+                  ? "Submitting..."
+                  : isUploadingPortfolio || isUploadingId
+                    ? "Uploading files..."
+                    : "Submit for Review"}
               </button>
             </div>
           </div>
