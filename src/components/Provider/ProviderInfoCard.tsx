@@ -548,7 +548,6 @@ const ProviderInfoCard = ({
             onClick={() => onContactClick(handleWhatsApp)}
             disabled={!hasWhatsapp}
           >
-            <span className="pic-wa-dot" />
             <MessageCircle size={15} strokeWidth={2.5} />
             WhatsApp
           </button>

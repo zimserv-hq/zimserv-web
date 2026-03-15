@@ -9,6 +9,7 @@ import {
   Phone,
   MessageCircle,
   Clock,
+  X,
 } from "lucide-react";
 import { useScrollReveal } from "../../hooks/useScrollReveal";
 import { supabase } from "../../lib/supabaseClient";
@@ -38,11 +39,50 @@ const FeaturedProviders = () => {
   const [providers, setProviders] = useState<FeaturedProvider[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ── AUTH STATE ────────────────────────────────────────────────────────────────
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── CONTACT HANDLER ───────────────────────────────────────────────────────────
+  const handleContactClick = (e: React.MouseEvent, action: () => void) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      setShowLoginPrompt(true);
+    } else {
+      action();
+    }
+  };
+
+  const handleSignInRedirect = async () => {
+    setSigningIn(true);
+    sessionStorage.setItem("returnTo", window.location.pathname);
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: { access_type: "offline", prompt: "consent" },
+      },
+    });
+    setSigningIn(false);
+  };
+
+  // ── DATA FETCH ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchProviders = async () => {
       try {
-        console.log("[FeaturedProviders] Starting fetch...");
-
         const { data: providersData, error } = await supabase
           .from("providers")
           .select(
@@ -52,32 +92,17 @@ const FeaturedProviders = () => {
           .order("avg_rating", { ascending: false })
           .limit(8);
 
-        console.log("[FeaturedProviders] providers query result:", {
-          providersData,
-          error,
-        });
-
         if (error || !providersData) {
-          console.warn(
-            "[FeaturedProviders] No data or error, setting empty:",
-            error,
-          );
           setProviders([]);
           return;
         }
 
         const providerIds = providersData.map((p: any) => p.id);
-        console.log("[FeaturedProviders] provider IDs:", providerIds);
 
-        const { data: areasData, error: areasError } = await supabase
+        const { data: areasData } = await supabase
           .from("provider_service_areas")
           .select("provider_id, city, suburb")
           .in("provider_id", providerIds);
-
-        console.log("[FeaturedProviders] areas result:", {
-          areasData,
-          areasError,
-        });
 
         const mapped: FeaturedProvider[] = providersData.map((p: any) => {
           const displayName = p.business_name ?? "ZimServ Provider";
@@ -113,7 +138,6 @@ const FeaturedProviders = () => {
             "monthly rate": "Monthly Rate",
           };
           const pricingKey = rawPricing.toLowerCase();
-          // If it's a dollar amount or pure number, ignore it
           const looksLikePrice = /^\$?\d/.test(rawPricing);
           const pricing = looksLikePrice
             ? "Quote-based"
@@ -138,14 +162,12 @@ const FeaturedProviders = () => {
           };
         });
 
-        console.log("[FeaturedProviders] mapped providers:", mapped);
         setProviders(mapped);
       } catch (err) {
         console.error("[FeaturedProviders] Unexpected error:", err);
         setProviders([]);
       } finally {
         setLoading(false);
-        console.log("[FeaturedProviders] fetch complete, loading set to false");
       }
     };
 
@@ -424,31 +446,6 @@ const FeaturedProviders = () => {
           flex: 1;
         }
 
-        .fp-price {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          flex-shrink: 0;
-        }
-
-        .fp-price-label {
-          font-size: 10px;
-          font-weight: 600;
-          color: var(--color-text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          line-height: 1;
-        }
-
-        .fp-price-amount {
-          font-size: 18px;
-          font-weight: 800;
-          color: var(--color-accent);
-          letter-spacing: -0.5px;
-          line-height: 1.2;
-          margin-top: 2px;
-        }
-
         .fp-price-quote {
           font-size: 12px;
           font-weight: 700;
@@ -634,6 +631,136 @@ const FeaturedProviders = () => {
         .fp-view-all svg { transition: transform var(--transition-fast); }
         .fp-view-all:hover svg { transform: translateX(3px); }
 
+        /* ── LOGIN MODAL ──────────────────────────────────── */
+        .fp-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          backdrop-filter: blur(4px);
+          animation: fp-fade-in 0.2s ease;
+        }
+
+        @keyframes fp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+        .fp-modal {
+          background: var(--color-bg);
+          border-radius: var(--radius-xl);
+          padding: 40px 36px 36px;
+          max-width: 380px;
+          width: 90%;
+          text-align: center;
+          position: relative;
+          border: 1.5px solid var(--color-border);
+          box-shadow: var(--shadow-lg);
+          animation: fp-slide-up 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        @keyframes fp-slide-up {
+          from { opacity: 0; transform: translateY(20px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .fp-modal-close {
+          position: absolute;
+          top: 14px; right: 14px;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          color: var(--color-text-secondary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px;
+          border-radius: var(--radius-sm);
+          transition: color var(--transition-fast), background var(--transition-fast);
+        }
+
+        .fp-modal-close:hover {
+          color: var(--color-primary);
+          background: var(--color-bg-section);
+        }
+
+        .fp-modal-icon { font-size: 44px; margin-bottom: 14px; }
+
+        .fp-modal-title {
+          font-size: 20px;
+          font-weight: 800;
+          color: var(--color-primary);
+          letter-spacing: -0.4px;
+          margin-bottom: 8px;
+        }
+
+        .fp-modal-text {
+          font-size: 14px;
+          color: var(--color-text-secondary);
+          margin-bottom: 28px;
+          line-height: 1.6;
+        }
+
+        .fp-modal-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          width: 100%;
+        }
+
+        .fp-modal-google-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          width: 100%;
+          padding: 13px 20px;
+          border-radius: var(--radius-md);
+          font-family: var(--font-primary);
+          font-size: 15px;
+          font-weight: 700;
+          cursor: pointer;
+          background: var(--color-bg);
+          border: 1.5px solid var(--color-border);
+          color: var(--color-primary);
+          box-shadow: var(--shadow-sm);
+          transition:
+            border-color var(--transition-fast),
+            box-shadow var(--transition-fast),
+            transform var(--transition-fast);
+        }
+
+        .fp-modal-google-btn:hover {
+          border-color: #4285F4;
+          box-shadow: 0 4px 16px rgba(66,133,244,0.15);
+          transform: translateY(-1px);
+        }
+
+        .fp-modal-google-btn:active { transform: scale(0.98); }
+        .fp-modal-google-btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+        .fp-modal-google-icon { width: 20px; height: 20px; flex-shrink: 0; }
+
+        .fp-modal-cancel-btn {
+          width: 100%;
+          padding: 13px 20px;
+          border-radius: var(--radius-md);
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          background: transparent;
+          border: 1.5px solid var(--color-border);
+          color: var(--color-text-secondary);
+          transition: all var(--transition-fast);
+        }
+
+        .fp-modal-cancel-btn:hover {
+          background: var(--color-bg-section);
+          border-color: var(--color-text-secondary);
+          color: var(--color-primary);
+        }
+
         /* ── RESPONSIVE ───────────────────────────────────── */
         @media (max-width: 1200px) {
           .fp-section { padding: 72px 0; }
@@ -669,7 +796,8 @@ const FeaturedProviders = () => {
           .fp-btn-primary, .fp-btn-secondary { flex: 1; min-width: calc(50% - 4px); }
           .fp-btn-profile { flex-basis: 100%; width: 100%; }
           .fp-header-row { gap: 8px; }
-          .fp-price-amount { font-size: 16px; }
+          .fp-price-quote { font-size: 12px; }
+          .fp-modal { padding: 36px 20px 28px; }
         }
 
         @media (max-width: 480px) {
@@ -682,6 +810,65 @@ const FeaturedProviders = () => {
           *, *::before, *::after { animation: none !important; transition: none !important; }
         }
       `}</style>
+
+      {/* ── LOGIN MODAL ───────────────────────────────────────────────────────── */}
+      {showLoginPrompt && (
+        <div
+          className="fp-modal-overlay"
+          onClick={() => setShowLoginPrompt(false)}
+        >
+          <div className="fp-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="fp-modal-close"
+              onClick={() => setShowLoginPrompt(false)}
+              aria-label="Close"
+            >
+              <X size={18} strokeWidth={2.5} />
+            </button>
+
+            <div className="fp-modal-icon">🔒</div>
+            <h2 className="fp-modal-title">Sign in to Contact</h2>
+            <p className="fp-modal-text">
+              Create a free account to call or message service providers
+              directly.
+            </p>
+
+            <div className="fp-modal-actions">
+              <button
+                className="fp-modal-google-btn"
+                onClick={handleSignInRedirect}
+                disabled={signingIn}
+              >
+                <svg className="fp-modal-google-icon" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  />
+                </svg>
+                {signingIn ? "Redirecting…" : "Continue with Google"}
+              </button>
+              <button
+                className="fp-modal-cancel-btn"
+                onClick={() => setShowLoginPrompt(false)}
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="fp-section">
         <div className="fp-container">
@@ -773,15 +960,14 @@ const FeaturedProviders = () => {
           {!loading && providers.length > 0 && (
             <div className="fp-grid">
               {providers.map((provider) => (
-                <div
-                  key={provider.id}
-                  className="fp-card"
-                  onClick={() => navigate(`/providers/${provider.slug}`)}
-                  role="button"
-                  aria-label={`View ${provider.name} profile`}
-                >
-                  {/* Image with blur backdrop */}
-                  <div className="fp-img-wrap">
+                <div key={provider.id} className="fp-card">
+                  <div
+                    className="fp-img-wrap"
+                    onClick={() => navigate(`/providers/${provider.slug}`)}
+                    role="button"
+                    aria-label={`View ${provider.name} profile`}
+                    style={{ cursor: "pointer" }}
+                  >
                     {provider.image ? (
                       <img
                         src={provider.image}
@@ -801,7 +987,6 @@ const FeaturedProviders = () => {
                     )}
                   </div>
 
-                  {/* Content */}
                   <div className="fp-content">
                     <div className="fp-header-row">
                       <h3 className="fp-name">{provider.name}</h3>
@@ -838,31 +1023,38 @@ const FeaturedProviders = () => {
                     )}
 
                     <div className="fp-actions">
+                      {/* ── Contact — requires sign-in ── */}
                       <button
                         className="fp-btn fp-btn-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (provider.phone)
-                            window.location.href = `tel:${provider.phone}`;
-                        }}
+                        onClick={(e) =>
+                          handleContactClick(e, () => {
+                            if (provider.phone)
+                              window.location.href = `tel:${provider.phone}`;
+                          })
+                        }
                       >
                         <Phone size={14} strokeWidth={2.5} />
                         Contact
                       </button>
+
+                      {/* ── WhatsApp — requires sign-in ── */}
                       <button
                         className="fp-btn fp-btn-secondary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (provider.whatsapp)
-                            window.open(
-                              `https://wa.me/${provider.whatsapp.replace(/\D/g, "")}`,
-                              "_blank",
-                            );
-                        }}
+                        onClick={(e) =>
+                          handleContactClick(e, () => {
+                            if (provider.whatsapp)
+                              window.open(
+                                `https://wa.me/${provider.whatsapp.replace(/\D/g, "")}`,
+                                "_blank",
+                              );
+                          })
+                        }
                       >
                         <MessageCircle size={14} strokeWidth={2.5} />
                         WhatsApp
                       </button>
+
+                      {/* ── View Profile — always accessible ── */}
                       <button
                         className="fp-btn fp-btn-profile"
                         onClick={(e) => {

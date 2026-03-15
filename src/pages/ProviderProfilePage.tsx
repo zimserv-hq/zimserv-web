@@ -642,7 +642,6 @@ const ProviderProfilePage = () => {
           onClick={() => !signingIn && setShowLoginPrompt(false)}
         >
           <div className="pp-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="pp-modal-stripe" />
             <button
               className="pp-modal-close"
               onClick={() => setShowLoginPrompt(false)}

@@ -17,17 +17,13 @@ type DbCategory = {
 type UiCategory = {
   id: string;
   name: string;
-  slug: string;
   description: string;
   providerCount: number;
-  color: string;
   image: string;
 };
 
 const DEFAULT_IMAGE =
   "https://via.placeholder.com/800x600?text=Service+Category";
-
-const DEFAULT_COLOR = "#FF6B35";
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 const CategoriesPageSkeleton = ({ count = 8 }: { count?: number }) => (
@@ -36,19 +32,19 @@ const CategoriesPageSkeleton = ({ count = 8 }: { count?: number }) => (
       <div key={i} className="cat-sk-card">
         <div className="cat-shimmer cat-sk-img" />
         <div className="cat-sk-body">
-          <div className="cat-shimmer" style={{ height: 22, width: "55%" }} />
+          <div className="cat-shimmer" style={{ height: 15, width: "60%" }} />
           <div
             className="cat-shimmer"
-            style={{ height: 13, width: "90%", marginTop: 4 }}
+            style={{ height: 12, width: "85%", marginTop: 6 }}
           />
           <div
             className="cat-shimmer"
-            style={{ height: 13, width: "70%", marginTop: 4 }}
+            style={{ height: 12, width: "55%", marginTop: 4 }}
           />
-          <div className="cat-sk-footer">
-            <div className="cat-shimmer" style={{ height: 13, width: "40%" }} />
-            <div className="cat-shimmer cat-sk-circle" />
-          </div>
+          <div
+            className="cat-shimmer"
+            style={{ height: 11, width: "30%", marginTop: 10 }}
+          />
         </div>
       </div>
     ))}
@@ -69,6 +65,7 @@ const CategoriesPage = () => {
       try {
         setLoading(true);
 
+        // 1. Fetch all active categories
         const { data, error } = await supabase
           .from("categories")
           .select("id,name,description,status,icon_url,display_order")
@@ -83,72 +80,35 @@ const CategoriesPage = () => {
 
         const dbCategories: DbCategory[] = data || [];
 
-        const categoriesWithServices = await Promise.all(
-          dbCategories.map(async (category) => {
-            const { data: services } = await supabase
-              .from("services")
-              .select("name, is_active")
-              .eq("category_id", category.id)
-              .eq("is_active", true)
-              .order("display_order")
-              .limit(5);
-
-            const { count } = await supabase
-              .from("services")
-              .select("*", { count: "exact", head: true })
-              .eq("category_id", category.id)
-              .eq("is_active", true);
-
-            let servicesDescription = "";
-            if (services && services.length > 0) {
-              const serviceNames = services.map((s) => s.name).join(", ");
-              servicesDescription =
-                serviceNames + (count && count > 5 ? ", ..." : "");
-            } else {
-              servicesDescription = "No services yet";
-            }
-
-            return {
-              ...category,
-              servicesDescription,
-              servicesCount: count || 0,
-            };
-          }),
-        );
-
+        // 2. Fetch active providers — keyed by primary_category (text name)
+        //    primary_category_id is nullable/unpopulated for most rows,
+        //    so we count by the text name column instead.
         const { data: providerRows, error: providerError } = await supabase
           .from("providers")
-          .select("primary_category_id,status");
+          .select("primary_category")
+          .eq("status", "active");
 
-        const providerCountMap: Record<string, number> = {};
+        const providerCountByName: Record<string, number> = {};
 
         if (!providerError && providerRows) {
-          for (const row of providerRows as any[]) {
-            if (row.status !== "active") continue;
-            const catId = row.primary_category_id as string | null;
-            if (!catId) continue;
-            providerCountMap[catId] = (providerCountMap[catId] || 0) + 1;
+          for (const row of providerRows as {
+            primary_category: string | null;
+          }[]) {
+            const catName = row.primary_category;
+            if (!catName) continue;
+            providerCountByName[catName] =
+              (providerCountByName[catName] || 0) + 1;
           }
         }
 
-        const uiCats: UiCategory[] = categoriesWithServices.map((cat) => {
-          const slug = cat.name
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "");
-
-          const providerCount = providerCountMap[cat.id] || 0;
-
-          return {
-            id: cat.id,
-            name: cat.name,
-            slug,
-            description: cat.servicesDescription,
-            providerCount,
-            color: DEFAULT_COLOR,
-            image: cat.icon_url || DEFAULT_IMAGE,
-          };
-        });
+        // 3. Map to UI shape — match category by name
+        const uiCats: UiCategory[] = dbCategories.map((cat) => ({
+          id: cat.id,
+          name: cat.name,
+          description: cat.description || "Browse services in this category",
+          providerCount: providerCountByName[cat.name] || 0,
+          image: cat.icon_url || DEFAULT_IMAGE,
+        }));
 
         setCategories(uiCats);
       } catch (err) {
@@ -174,7 +134,7 @@ const CategoriesPage = () => {
           background: linear-gradient(
             90deg,
             var(--color-border) 25%,
-            var(--color-bg-section) 50%,
+            var(--color-bg) 50%,
             var(--color-border) 75%
           );
           background-size: 600px 100%;
@@ -182,33 +142,21 @@ const CategoriesPage = () => {
           border-radius: 6px;
         }
         .cat-sk-card {
+          border-radius: 18px;
+          overflow: hidden;
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-lg);
-          overflow: hidden;
         }
         .cat-sk-img {
           width: 100%;
-          height: 160px;
+          aspect-ratio: 4 / 3;
           border-radius: 0;
         }
         .cat-sk-body {
-          padding: 20px;
+          padding: 16px 18px 18px;
           display: flex;
           flex-direction: column;
-          gap: 10px;
-        }
-        .cat-sk-footer {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 4px;
-        }
-        .cat-sk-circle {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          flex-shrink: 0;
+          gap: 0;
         }
 
         /* ── PAGE ─────────────────────────────────────────── */
@@ -234,109 +182,109 @@ const CategoriesPage = () => {
           color: var(--color-primary);
           margin-bottom: 10px;
           line-height: 1.15;
-          letter-spacing: -1.2px;
+          letter-spacing: -1px;
           margin-top: -10px;
         }
         .categories-subtitle {
           font-size: 15px;
-          font-weight: 500;
           color: var(--color-text-secondary);
+          line-height: 1.65;
         }
+
+        /* ── GRID ─────────────────────────────────────────── */
         .categories-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 24px;
+          gap: 20px;
         }
+
+        /* ── CARD ─────────────────────────────────────────── */
         .category-card {
+          cursor: pointer;
+          border-radius: 18px;
+          overflow: hidden;
           background: var(--color-bg);
           border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-lg);
-          overflow: hidden;
-          cursor: pointer;
           transition:
             transform var(--transition-base),
-            border-color var(--transition-base),
-            box-shadow var(--transition-base);
-          position: relative;
+            box-shadow var(--transition-base),
+            border-color var(--transition-base);
           display: flex;
           flex-direction: column;
         }
-        .category-card::before {
-          content: '';
-          position: absolute;
-          top: 0; left: 0; right: 0;
-          height: 4px;
-          background: var(--accent-color);
-          transform: scaleX(0);
-          transform-origin: left;
-          transition: transform 0.3s ease;
-          z-index: 2;
-        }
-        .category-card:hover::before { transform: scaleX(1); }
         .category-card:hover {
           transform: translateY(-6px);
-          border-color: var(--accent-color);
-          box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+          box-shadow: var(--shadow-lg);
+          border-color: var(--color-accent-light);
         }
-        .category-image-wrap {
+        .category-card:active { transform: translateY(-2px); }
+
+        /* ── IMAGE ────────────────────────────────────────── */
+        .category-img-wrap {
           width: 100%;
-          height: 160px;
+          aspect-ratio: 4 / 3;
           overflow: hidden;
-          background: var(--color-bg-soft);
           position: relative;
+          background: var(--color-bg-soft);
           flex-shrink: 0;
         }
-        .category-image {
+        .category-img {
           width: 100%;
           height: 100%;
           object-fit: cover;
-          transition: transform 0.4s ease;
+          object-position: center;
+          display: block;
+          transition: transform 0.5s ease;
         }
-        .category-card:hover .category-image { transform: scale(1.08); }
-        .category-image-overlay {
+        .category-card:hover .category-img { transform: scale(1.07); }
+        .category-img-wrap::after {
+          content: '';
           position: absolute;
           inset: 0;
-          background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.3) 100%);
+          background: linear-gradient(180deg, transparent 40%, rgba(15,23,42,0.15) 100%);
+          opacity: 0;
+          transition: opacity var(--transition-base);
+          pointer-events: none;
         }
-        .category-content {
-          padding: 20px;
+        .category-card:hover .category-img-wrap::after { opacity: 1; }
+
+        /* ── TEXT ─────────────────────────────────────────── */
+        .category-text {
+          padding: 16px 18px 18px;
           display: flex;
           flex-direction: column;
           flex: 1;
         }
         .category-name {
           font-family: var(--font-primary);
-          font-size: 20px;
+          font-size: 15px;
           font-weight: 700;
           color: var(--color-primary);
-          margin-bottom: 6px;
+          margin-bottom: 4px;
+          letter-spacing: -0.2px;
           line-height: 1.3;
-          letter-spacing: -0.3px;
-          min-height: 52px;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
         }
-        .category-description {
-          font-size: 13px;
+        .category-desc {
+          font-size: 12.5px;
           color: var(--color-text-secondary);
           line-height: 1.5;
-          margin-bottom: 14px;
+          font-weight: 400;
+          flex: 1;
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
-          flex: 1;
         }
+
+        /* ── FOOTER ───────────────────────────────────────── */
         .category-footer {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-top: auto;
+          margin-top: 10px;
         }
         .category-count {
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
           color: var(--color-text-secondary);
         }
@@ -344,42 +292,63 @@ const CategoriesPage = () => {
           color: var(--color-accent);
           font-weight: 700;
         }
-        .category-arrow {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          background: var(--color-accent-soft);
+        .category-explore {
           display: flex;
           align-items: center;
-          justify-content: center;
+          gap: 4px;
+          font-size: 12px;
+          font-weight: 700;
           color: var(--color-accent);
-          transition: all var(--transition-fast);
+          transition:
+            transform var(--transition-fast),
+            color var(--transition-fast);
         }
-        .category-card:hover .category-arrow {
-          background: var(--color-accent);
-          color: #fff;
-          transform: translateX(4px);
-        }
+        .category-card:hover .category-explore { transform: translateX(2px); }
+        .category-explore svg { transition: transform var(--transition-fast); }
+        .category-card:hover .category-explore svg { transform: translateX(2px); }
 
         /* ── RESPONSIVE ───────────────────────────────────── */
-        @media (max-width: 1200px) {
+        @media (max-width: 1280px) {
+          .categories-page { padding: 32px 0 72px; }
+          .categories-grid { gap: 16px; }
+        }
+        @media (max-width: 1100px) {
           .categories-container { padding: 0 32px; }
-          .categories-grid { grid-template-columns: repeat(3, 1fr); gap: 20px; }
+          .categories-title { font-size: 22px; }
         }
         @media (max-width: 900px) {
-          .categories-page { padding: 32px 0 60px; }
+          .categories-page { padding: 28px 0 60px; }
           .categories-container { padding: 0 24px; }
+          .categories-grid { grid-template-columns: repeat(4, 1fr); gap: 14px; }
           .categories-title { font-size: 22px; }
-          .categories-grid { grid-template-columns: repeat(2, 1fr); }
+          .categories-subtitle { font-size: 14px; }
+          .categories-header { margin-bottom: 28px; }
+          .category-text { padding: 12px 14px 14px; }
+          .category-name { font-size: 13.5px; }
+          .category-desc { font-size: 12px; }
         }
         @media (max-width: 640px) {
-          .categories-page { padding: 24px 0 48px; }
+          .categories-page { padding: 20px 0 48px; }
           .categories-container { padding: 0 16px; }
-          .categories-title { font-size: 18px; letter-spacing: -0.8px; }
-          .categories-subtitle { font-size: 13px; }
-          .categories-grid { grid-template-columns: repeat(2, 1fr); }
-          .category-image-wrap { height: 180px; }
-          .cat-sk-img { height: 180px; }
+          .categories-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+          }
+          .categories-title { font-size: 20px; letter-spacing: -0.5px; }
+          .categories-subtitle { font-size: 14px; }
+          .categories-header { margin-bottom: 20px; }
+          .category-card { border-radius: 14px; }
+          .cat-sk-card { border-radius: 14px; }
+          .category-text { padding: 12px 12px 14px; }
+          .category-name { font-size: 13px; }
+          .category-desc { font-size: 11.5px; }
+          .category-explore { font-size: 11px; }
+          .category-count { font-size: 11px; }
+        }
+        @media (max-width: 400px) {
+          .categories-container { padding: 0 12px; }
+          .categories-grid { gap: 10px; }
+          .category-name { font-size: 12.5px; }
         }
         @media (prefers-reduced-motion: reduce) {
           *, *::before, *::after {
@@ -414,36 +383,30 @@ const CategoriesPage = () => {
                 <div
                   key={category.id}
                   className="category-card"
-                  style={
-                    { "--accent-color": category.color } as React.CSSProperties
-                  }
                   onClick={() => handleCategoryClick(category.name)}
                   role="button"
                   aria-label={`Browse ${category.name} providers`}
                 >
-                  <div className="category-image-wrap">
+                  <div className="category-img-wrap">
                     <img
                       src={category.image}
                       alt={category.name}
-                      className="category-image"
+                      className="category-img"
                       loading="lazy"
                     />
-                    <div className="category-image-overlay" />
                   </div>
 
-                  <div className="category-content">
+                  <div className="category-text">
                     <h3 className="category-name">{category.name}</h3>
-                    <p className="category-description">
-                      {category.description}
-                    </p>
+                    <p className="category-desc">{category.description}</p>
 
                     <div className="category-footer">
                       <span className="category-count">
                         <strong>{category.providerCount}</strong> providers
                       </span>
-                      <div className="category-arrow">
-                        <ArrowRight size={16} strokeWidth={2.5} />
-                      </div>
+                      <span className="category-explore">
+                        Explore <ArrowRight size={11} strokeWidth={2.5} />
+                      </span>
                     </div>
                   </div>
                 </div>

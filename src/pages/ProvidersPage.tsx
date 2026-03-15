@@ -824,16 +824,7 @@ const ProvidersPage = () => {
           align-items: flex-start;
         }
 
-        .pp-cat-badge {
-          padding: 5px 12px;
-          background: var(--color-accent);
-          color: #fff;
-          border-radius: var(--radius-full);
-          font-size: 10.5px;
-          font-weight: 700;
-          letter-spacing: 0.5px;
-          text-transform: uppercase;
-        }
+      
 
         .pp-verified-pill {
           display: flex;
@@ -844,7 +835,7 @@ const ProvidersPage = () => {
           backdrop-filter: blur(8px);
           color: #fff;
           border-radius: var(--radius-full);
-          font-size: 10.5px;
+          font-size: 11px;
           font-weight: 600;
           border: 1px solid rgba(255,255,255,0.12);
         }
@@ -1408,12 +1399,14 @@ const ProvidersPage = () => {
                     const stars = Math.round(provider.rating);
                     const priceDisplay = getPriceDisplay(provider);
                     return (
-                      <div
-                        key={provider.id}
-                        className="pp-card"
-                        onClick={() => handleViewProfile(provider.slug)}
-                      >
-                        <div className="pp-img-wrap">
+                      <div key={provider.id} className="pp-card">
+                        <div
+                          className="pp-img-wrap"
+                          onClick={() => handleViewProfile(provider.slug)}
+                          role="button"
+                          aria-label={`View ${provider.name} profile`}
+                          style={{ cursor: "pointer" }}
+                        >
                           <img
                             src={provider.image}
                             alt={provider.name}
@@ -1421,9 +1414,6 @@ const ProvidersPage = () => {
                           />
                           <div className="pp-img-scrim" />
                           <div className="pp-img-top">
-                            <span className="pp-cat-badge">
-                              {provider.category}
-                            </span>
                             {provider.verified && (
                               <span className="pp-verified-pill">
                                 <CheckCircle size={11} strokeWidth={2.5} />
