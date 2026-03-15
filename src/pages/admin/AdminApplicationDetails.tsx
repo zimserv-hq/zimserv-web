@@ -40,7 +40,12 @@ type Application = {
   description: string;
   referral_source: string | null;
   verification_file_url: string | null;
-  status: "pending" | "approved" | "rejected";
+  status:
+    | "pending"
+    | "approved"
+    | "invite_sent"
+    | "invite_expired"
+    | "rejected";
   created_at: string;
   reviewed_at: string | null;
   reviewed_by: string | null;
@@ -266,10 +271,8 @@ const AdminApplicationDetails = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileLoading, setFileLoading] = useState<"download" | null>(null);
 
-  // ── NEW: track whether a provider profile already exists ─────────────────
   const [hasProviderProfile, setHasProviderProfile] = useState(false);
 
-  // Category assignment state
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
   const [isAssigningCategory, setIsAssigningCategory] = useState(false);
@@ -300,11 +303,11 @@ const AdminApplicationDetails = () => {
 
       setApplication(data);
 
-      // ── Check if a provider profile already exists for this email ────────
+      // ── Check if provider profile already exists ─────────────────────────
       const { data: providerProfile } = await supabase
         .from("providers")
         .select("id")
-        .eq("email", data.email)
+        .eq("email", data.email.toLowerCase())
         .maybeSingle();
 
       setHasProviderProfile(!!providerProfile);
@@ -319,40 +322,72 @@ const AdminApplicationDetails = () => {
   const isCustomCategory = (app: Application) =>
     app.primary_category === "Other" && !!app.suggested_category;
 
-  // ── Expired resend: pending + reviewed_at set + NO existing provider profile
-  const isExpiredResend = (app: Application) =>
-    app.status === "pending" && !!app.reviewed_at && !hasProviderProfile;
+  // ── Status helpers ───────────────────────────────────────────────────────
+  const isExpiredResend = (app: Application) => app.status === "invite_expired";
 
-  // ── Already registered: pending + reviewed_at set + provider profile EXISTS
-  const isAlreadyRegistered = (app: Application) =>
-    app.status === "pending" && !!app.reviewed_at && hasProviderProfile;
+  const isAlreadyRegistered = () => hasProviderProfile;
+
+  const canTakeAction = (app: Application) =>
+    !isAlreadyRegistered() &&
+    ["pending", "approved", "invite_expired"].includes(app.status);
+
+  // ── Status label ─────────────────────────────────────────────────────────
+  const getStatusLabel = (status: Application["status"]) => {
+    switch (status) {
+      case "pending":
+        return "Pending Review";
+      case "approved":
+        return "Approved";
+      case "invite_sent":
+        return "Invite Sent";
+      case "invite_expired":
+        return "Invite Expired";
+      case "rejected":
+        return "Rejected";
+      default:
+        return status;
+    }
+  };
 
   // ── Core approval ─────────────────────────────────────────────────────────
+  // Status update is fully owned by the edge function.
+  // Frontend only triggers the function and refreshes after.
   const runApproval = async (app: Application) => {
     setIsProcessing(true);
     try {
-      const { data, error } = await supabase
+      // ── Race condition guard ─────────────────────────────────────────────
+      const { data: fresh, error: freshError } = await supabase
         .from("provider_applications")
-        .update({ status: "approved", reviewed_at: new Date().toISOString() })
+        .select("status")
         .eq("id", app.id)
-        .select(`*, categories ( name )`)
         .single();
 
-      if (error) {
-        showError("Update failed", "Failed to approve application.");
+      if (freshError || !fresh) {
+        showError("Fetch failed", "Could not verify application state.");
         return;
       }
 
-      setApplication(data);
-      setShowApproveModal(false);
-      setShowCategoryModal(false);
+      const actionableStatuses = ["pending", "approved", "invite_expired"];
+      if (!actionableStatuses.includes(fresh.status)) {
+        showError(
+          "Already processed",
+          "This application was already actioned by another admin.",
+        );
+        await fetchApplication();
+        return;
+      }
 
+      // ── Delegate to edge function ────────────────────────────────────────
+      // The function will:
+      //   1. Check auth.users for existing user
+      //   2. Send the invite (or regenerate link for existing auth user)
+      //   3. Update status to "invite_sent" only after invite succeeds
       const { error: fnError } = await supabase.functions.invoke(
         "send-provider-invite",
         {
           body: {
             applicationId: app.id,
-            email: app.email,
+            email: app.email.toLowerCase(),
             fullName: app.full_name,
           },
         },
@@ -361,14 +396,21 @@ const AdminApplicationDetails = () => {
       if (fnError) {
         showError(
           "Invite failed",
-          "Application approved but failed to send invitation email. Please send manually.",
+          "Could not send invitation email. Application status was not changed. Please try again.",
         );
-      } else {
-        showSuccess(
-          "Application approved",
-          `Invitation email sent to ${app.email}.`,
-        );
+        return;
       }
+
+      // Refresh to get updated status set by edge function
+      await fetchApplication();
+
+      setShowApproveModal(false);
+      setShowCategoryModal(false);
+
+      showSuccess(
+        isExpiredResend(app) ? "Invite resent" : "Application approved",
+        `Invitation email sent to ${app.email}.`,
+      );
     } catch (err) {
       showError("Unexpected error", "An unexpected error occurred.");
     } finally {
@@ -484,7 +526,10 @@ const AdminApplicationDetails = () => {
     try {
       const { data, error } = await supabase
         .from("provider_applications")
-        .update({ status: "rejected", reviewed_at: new Date().toISOString() })
+        .update({
+          status: "rejected",
+          reviewed_at: new Date().toISOString(),
+        })
         .eq("id", application.id)
         .select(`*, categories ( name )`)
         .single();
@@ -573,7 +618,7 @@ const AdminApplicationDetails = () => {
         </button>
 
         {/* ── Already Registered Banner ────────────────────────────────── */}
-        {isAlreadyRegistered(application) && (
+        {isAlreadyRegistered() && (
           <div className="resend-banner registered-banner">
             <div className="resend-banner-left">
               <UserCheck
@@ -595,7 +640,7 @@ const AdminApplicationDetails = () => {
         )}
 
         {/* ── Expired Invite Resend Banner ─────────────────────────────── */}
-        {isExpiredResend(application) && (
+        {isExpiredResend(application) && !isAlreadyRegistered() && (
           <div className="resend-banner">
             <div className="resend-banner-left">
               <RefreshCw size={18} strokeWidth={2.5} className="resend-icon" />
@@ -603,7 +648,8 @@ const AdminApplicationDetails = () => {
                 <div className="resend-title">Invite Link Expired</div>
                 <div className="resend-subtitle">
                   This provider's invite link expired before they completed
-                  registration. Approve again to send a fresh 24-hour invite.
+                  registration. Click Resend Invite to send a fresh 24-hour
+                  invite link.
                 </div>
               </div>
             </div>
@@ -647,32 +693,38 @@ const AdminApplicationDetails = () => {
                   )}
                 </div>
               </div>
-              <span className={`status-badge ${application.status}`}>
+              <span
+                className={`status-badge ${application.status.replace(/_/g, "-")}`}
+              >
                 {application.status === "pending" && (
                   <Clock size={14} strokeWidth={2.5} />
                 )}
-                {application.status === "approved" && (
+                {(application.status === "approved" ||
+                  application.status === "invite_sent") && (
                   <CheckCircle size={14} strokeWidth={2.5} />
+                )}
+                {application.status === "invite_expired" && (
+                  <RefreshCw size={14} strokeWidth={2.5} />
                 )}
                 {application.status === "rejected" && (
                   <XCircle size={14} strokeWidth={2.5} />
                 )}
-                {application.status}
+                {getStatusLabel(application.status)}
               </span>
             </div>
           </div>
 
-          {/* Only show action buttons if NOT already registered */}
-          {application.status === "pending" &&
-            !isAlreadyRegistered(application) && (
-              <div className="header-actions">
-                <button
-                  className="action-btn-large approve"
-                  onClick={() => setShowApproveModal(true)}
-                >
-                  <CheckCircle size={18} strokeWidth={2.5} />
-                  {isExpiredResend(application) ? "Resend Invite" : "Approve"}
-                </button>
+          {/* Action buttons — only when action is possible */}
+          {canTakeAction(application) && (
+            <div className="header-actions">
+              <button
+                className="action-btn-large approve"
+                onClick={() => setShowApproveModal(true)}
+              >
+                <CheckCircle size={18} strokeWidth={2.5} />
+                {isExpiredResend(application) ? "Resend Invite" : "Approve"}
+              </button>
+              {application.status !== "invite_sent" && (
                 <button
                   className="action-btn-large reject"
                   onClick={() => setShowRejectModal(true)}
@@ -680,8 +732,9 @@ const AdminApplicationDetails = () => {
                   <XCircle size={18} strokeWidth={2.5} />
                   Reject
                 </button>
-              </div>
-            )}
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Tabs ────────────────────────────────────────────────────────── */}
@@ -880,6 +933,7 @@ const AdminApplicationDetails = () => {
                   Application Timeline
                 </h2>
                 <div className="timeline">
+                  {/* Node 1: Application submitted */}
                   <div className="timeline-item">
                     <div className="timeline-dot">
                       <FileText size={12} strokeWidth={3} />
@@ -904,33 +958,37 @@ const AdminApplicationDetails = () => {
                     </div>
                   </div>
 
+                  {/* Node 2: Reviewed / actioned */}
                   {application.reviewed_at && (
                     <div className="timeline-item">
                       <div className="timeline-dot">
-                        {application.status === "approved" ? (
+                        {application.status === "invite_sent" ? (
                           <CheckCircle size={12} strokeWidth={3} />
-                        ) : application.status === "pending" &&
-                          hasProviderProfile ? (
-                          <UserCheck size={12} strokeWidth={3} />
-                        ) : application.status === "pending" ? (
+                        ) : application.status === "invite_expired" ? (
                           <RefreshCw size={12} strokeWidth={3} />
-                        ) : (
+                        ) : application.status === "rejected" ? (
                           <XCircle size={12} strokeWidth={3} />
+                        ) : hasProviderProfile ? (
+                          <UserCheck size={12} strokeWidth={3} />
+                        ) : (
+                          <CheckCircle size={12} strokeWidth={3} />
                         )}
                       </div>
-                      {application.status === "pending" && (
+                      {(application.status === "invite_expired" ||
+                        hasProviderProfile) && (
                         <div className="timeline-line" />
                       )}
                       <div className="timeline-content">
                         <div className="timeline-title">
-                          {application.status === "approved"
-                            ? "Application Approved"
-                            : application.status === "pending" &&
-                                hasProviderProfile
-                              ? "Invite Sent — Provider Registered"
-                              : application.status === "pending"
-                                ? "Invite Expired — Awaiting Resend"
-                                : "Application Rejected"}
+                          {application.status === "invite_sent"
+                            ? "Invite Sent — Awaiting Onboarding"
+                            : application.status === "invite_expired"
+                              ? "Invite Expired — Awaiting Resend"
+                              : application.status === "rejected"
+                                ? "Application Rejected"
+                                : hasProviderProfile
+                                  ? "Invite Sent — Provider Registered"
+                                  : "Application Approved"}
                         </div>
                         <div className="timeline-date">
                           {new Date(application.reviewed_at).toLocaleString(
@@ -948,8 +1006,35 @@ const AdminApplicationDetails = () => {
                     </div>
                   )}
 
-                  {/* ── Extra timeline node if provider registered ── */}
-                  {application.status === "pending" && hasProviderProfile && (
+                  {/* Node 3: Invite expired — awaiting resend */}
+                  {application.status === "invite_expired" &&
+                    !hasProviderProfile && (
+                      <div className="timeline-item">
+                        <div
+                          className="timeline-dot"
+                          style={{
+                            background: "rgba(245,158,11,0.12)",
+                            borderColor: "#d97706",
+                          }}
+                        >
+                          <Clock size={12} strokeWidth={3} />
+                        </div>
+                        <div className="timeline-content">
+                          <div
+                            className="timeline-title"
+                            style={{ color: "#d97706" }}
+                          >
+                            Awaiting Resend
+                          </div>
+                          <div className="timeline-date">
+                            Admin action required — resend invite to provider.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                  {/* Node 3 (alt): Provider completed onboarding */}
+                  {hasProviderProfile && (
                     <div className="timeline-item">
                       <div
                         className="timeline-dot"

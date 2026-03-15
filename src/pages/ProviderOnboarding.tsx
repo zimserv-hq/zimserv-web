@@ -1264,6 +1264,59 @@ const ProviderOnboarding = () => {
         draftFilePaths={draftFilePaths}
         loadError={loadError}
       />
+
+      {/*
+      
+      {import.meta.env.DEV && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 20,
+            right: 20,
+            zIndex: 9999,
+            background: "#1a1a2e",
+            border: "1.5px solid #ff6b35",
+            borderRadius: 10,
+            padding: "10px 14px",
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          <span
+            style={{
+              color: "#ff6b35",
+              fontSize: 12,
+              fontWeight: 700,
+              marginRight: 4,
+            }}
+          >
+            DEV
+          </span>
+          {[1, 2, 3, 4, 5].map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setStep(s);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                border: "none",
+                background: currentStep === s ? "#ff6b35" : "#2a2a3e",
+                color: currentStep === s ? "#fff" : "#aaa",
+                fontWeight: 700,
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}*/}
     </>
   );
 };
