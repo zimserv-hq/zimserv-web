@@ -44,7 +44,6 @@ export type Application = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// A pending application with a reviewed_at means the invite expired and was reset
 const isResend = (app: Application) =>
   app.status === "pending" && !!app.reviewed_at;
 
@@ -151,13 +150,11 @@ const AdminApplications = () => {
         .select(`*, categories(name)`)
         .order("created_at", { ascending: false });
       if (error) {
-        console.error("Error fetching applications:", error);
         showError("Load failed", "Failed to load applications.");
         return;
       }
       setApplications(data || []);
     } catch (err) {
-      console.error("Unexpected error:", err);
       showError("Unexpected error", "An unexpected error occurred.");
     } finally {
       setLoading(false);
@@ -203,56 +200,102 @@ const AdminApplications = () => {
     if (!selectedApplication) return;
     setIsUpdating(true);
     try {
-      const isResendAction = modalAction === "resend";
-      const newStatus = modalAction === "reject" ? "rejected" : "approved";
+      // ── Reject path ────────────────────────────────────────────────────
+      if (modalAction === "reject") {
+        const { error } = await supabase
+          .from("provider_applications")
+          .update({ status: "rejected", reviewed_at: new Date().toISOString() })
+          .eq("id", selectedApplication.id);
 
-      const { data, error } = await supabase
-        .from("provider_applications")
-        .update({ status: newStatus, reviewed_at: new Date().toISOString() })
-        .eq("id", selectedApplication.id)
-        .select()
-        .single();
-
-      if (error) {
-        showError("Update failed", "Failed to update application status.");
-        return;
-      }
-
-      if (modalAction === "approve" || isResendAction) {
-        const { error: functionError } = await supabase.functions.invoke(
-          "send-provider-invite",
-          {
-            body: {
-              applicationId: selectedApplication.id,
-              email: selectedApplication.email,
-              fullName: selectedApplication.full_name,
-            },
-          },
-        );
-        if (functionError) {
-          showError(
-            "Invite failed",
-            `Application ${isResendAction ? "updated" : "approved"} but failed to send invitation email. Please try again.`,
-          );
-        } else {
-          showSuccess(
-            isResendAction ? "Invite resent" : "Application approved",
-            `Invitation email sent to ${selectedApplication.email}.`,
-          );
+        if (error) {
+          showError("Update failed", "Failed to reject application.");
+          return;
         }
-      } else {
+
+        setApplications((prev) =>
+          prev.map((app) =>
+            app.id === selectedApplication.id
+              ? {
+                  ...app,
+                  status: "rejected",
+                  reviewed_at: new Date().toISOString(),
+                }
+              : app,
+          ),
+        );
         showSuccess(
           "Application rejected",
           "The application has been rejected.",
         );
+        setShowStatusModal(false);
+        setSelectedApplication(null);
+        return;
       }
 
+      // ── Approve / Resend path ──────────────────────────────────────────
+      // Step 1: Set to "approved"
+      const { error: approveError } = await supabase
+        .from("provider_applications")
+        .update({ status: "approved", reviewed_at: new Date().toISOString() })
+        .eq("id", selectedApplication.id);
+
+      if (approveError) {
+        showError("Update failed", "Failed to approve application.");
+        return;
+      }
+
+      // Step 2: Call edge function
+      const { error: functionError } = await supabase.functions.invoke(
+        "send-provider-invite",
+        {
+          body: {
+            applicationId: selectedApplication.id,
+            email: selectedApplication.email,
+            fullName: selectedApplication.full_name,
+          },
+        },
+      );
+
+      // Step 3a: Failed — roll back to "pending"
+      if (functionError) {
+        await supabase
+          .from("provider_applications")
+          .update({ status: "pending", reviewed_at: null })
+          .eq("id", selectedApplication.id);
+
+        setApplications((prev) =>
+          prev.map((app) =>
+            app.id === selectedApplication.id
+              ? { ...app, status: "pending", reviewed_at: null }
+              : app,
+          ),
+        );
+
+        showError(
+          "Invite failed",
+          "Could not send invitation email. Application was not approved. Please try again.",
+        );
+        setShowStatusModal(false);
+        setSelectedApplication(null);
+        return;
+      }
+
+      // Step 3b: Success — stays "approved"
       setApplications((prev) =>
         prev.map((app) =>
           app.id === selectedApplication.id
-            ? { ...app, status: newStatus, reviewed_at: data.reviewed_at }
+            ? {
+                ...app,
+                status: "approved",
+                reviewed_at: new Date().toISOString(),
+              }
             : app,
         ),
+      );
+
+      showSuccess(
+        modalAction === "resend" ? "Invite resent" : "Application approved",
+        `Invitation email sent to ${selectedApplication.email}.`,
       );
       setShowStatusModal(false);
       setSelectedApplication(null);
@@ -289,7 +332,6 @@ const AdminApplications = () => {
     rejected: applications.filter((a) => a.status === "rejected").length,
   };
 
-  // ── Render action buttons ─────────────────────────────────────────────────
   const renderActionButtons = (app: Application) => (
     <div className="actions-cell">
       <button className="action-btn view" onClick={() => handleView(app)}>
@@ -380,7 +422,6 @@ const AdminApplications = () => {
         .filter-option { padding: 12px 14px; cursor: pointer; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary); transition: all 0.15s ease; }
         .filter-option:hover { background: var(--hover-bg); color: var(--orange-primary); transform: translateX(4px); }
         .filter-option.active { background: var(--orange-light-bg); color: var(--orange-primary); font-weight: 600; }
-
         .table-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px var(--card-shadow); }
         .table-container { overflow-x: auto; }
         .applications-table { width: 100%; border-collapse: collapse; min-width: 800px; }
@@ -393,11 +434,9 @@ const AdminApplications = () => {
         .applicant-cell { display: flex; flex-direction: column; gap: 4px; }
         .applicant-name { font-weight: 600; color: var(--text-primary); }
         .applicant-email { font-size: 13px; color: var(--text-secondary); }
-
         .category-cell { display: flex; flex-direction: column; gap: 3px; }
         .category-name { font-weight: 600; color: var(--text-primary); }
         .category-custom-badge { font-size: 11px; font-weight: 700; background: var(--orange-light-bg); color: var(--orange-primary); padding: 2px 7px; border-radius: 999px; display: inline-block; width: fit-content; }
-
         .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
         .status-badge.pending  { background: #fef3c7; color: #92400e; }
         .status-badge.approved { background: #d1fae5; color: #065f46; }
@@ -405,19 +444,17 @@ const AdminApplications = () => {
         .dark-mode .status-badge.pending  { background: rgba(251,191,36,0.2);  color: #fbbf24; }
         .dark-mode .status-badge.approved { background: rgba(16,185,129,0.2);  color: #10b981; }
         .dark-mode .status-badge.rejected { background: rgba(239,68,68,0.2);   color: #ef4444; }
-
         .actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
         .action-btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; white-space: nowrap; }
-        .action-btn.view { background: var(--hover-bg); color: var(--text-primary); border: 1.5px solid var(--border-color); }
+        .action-btn.view    { background: var(--hover-bg); color: var(--text-primary); border: 1.5px solid var(--border-color); }
         .action-btn.view:hover { background: var(--border-color); transform: translateY(-2px); }
         .action-btn.approve { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; box-shadow: 0 2px 8px rgba(16,185,129,0.3); }
         .action-btn.approve:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,185,129,0.4); }
-        .action-btn.resend { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; box-shadow: 0 2px 8px rgba(245,158,11,0.3); }
+        .action-btn.resend  { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; box-shadow: 0 2px 8px rgba(245,158,11,0.3); }
         .action-btn.resend:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(245,158,11,0.4); }
         .action-btn.reject  { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; box-shadow: 0 2px 8px rgba(239,68,68,0.3); }
         .action-btn.reject:hover  { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
         .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
-
         .mobile-cards { display: none; flex-direction: column; gap: 12px; }
         .app-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 16px; transition: all 0.15s ease; }
         .app-card:hover { border-color: var(--border-hover); box-shadow: 0 2px 12px var(--card-shadow); }
@@ -432,15 +469,12 @@ const AdminApplications = () => {
         .app-card-stat-value { font-size: 13px; font-weight: 700; color: var(--text-primary); }
         .app-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
         .app-card-actions .action-btn { flex: 1; justify-content: center; padding: 10px 8px; font-size: 13px; }
-
         .expired-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; background: #fff3cd; color: #b45309; padding: 3px 8px; border-radius: 999px; margin-left: 6px; }
         .dark-mode .expired-badge { background: rgba(245,158,11,0.2); color: #f59e0b; }
-
         .empty-state { padding: 60px 40px; text-align: center; color: var(--text-secondary); }
         .empty-icon   { margin-bottom: 16px; opacity: 0.5; }
         .empty-text   { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
         .empty-subtext { font-size: 14px; opacity: 0.7; }
-
         .modal-overlay { position: fixed; inset: 0; background: var(--modal-overlay); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(8px); animation: fadeIn 0.2s ease; }
         @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
         .modal-content { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; padding: 28px; max-width: 460px; width: 90%; box-shadow: 0 24px 80px var(--modal-shadow); animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1); }
@@ -455,8 +489,8 @@ const AdminApplications = () => {
         .btn-confirm { color: #fff; }
         .btn-confirm.approve { background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 16px rgba(16,185,129,0.3); }
         .btn-confirm.approve:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.4); }
-        .btn-confirm.resend { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 16px rgba(245,158,11,0.3); }
-        .btn-confirm.resend:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,158,11,0.4); }
+        .btn-confirm.resend  { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 16px rgba(245,158,11,0.3); }
+        .btn-confirm.resend:hover  { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,158,11,0.4); }
         .btn-confirm.reject  { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 4px 16px rgba(239,68,68,0.3); }
         .btn-confirm.reject:hover  { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.4); }
         .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -809,7 +843,7 @@ const AdminApplications = () => {
           )}
         </div>
 
-        {/* Modal */}
+        {/* ── Modal ── */}
         {showStatusModal && selectedApplication && (
           <div
             className="modal-overlay"
@@ -852,14 +886,18 @@ const AdminApplications = () => {
                   <>
                     Are you sure you want to <strong>reject</strong> the
                     application from{" "}
-                    <strong>{selectedApplication.full_name}</strong>?
+                    <strong>{selectedApplication.full_name}</strong>? This
+                    action can be reversed later.
                   </>
                 )}
               </p>
               <div className="modal-actions">
                 <button
                   className="btn-modal btn-cancel"
-                  onClick={() => setShowStatusModal(false)}
+                  onClick={() => {
+                    setShowStatusModal(false);
+                    setSelectedApplication(null);
+                  }}
                   disabled={isUpdating}
                 >
                   Cancel
@@ -870,7 +908,7 @@ const AdminApplications = () => {
                   disabled={isUpdating}
                 >
                   {isUpdating
-                    ? "Processing..."
+                    ? "Processing…"
                     : modalAction === "approve"
                       ? "Approve & Send Invite"
                       : modalAction === "resend"

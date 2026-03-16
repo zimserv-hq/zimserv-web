@@ -270,9 +270,7 @@ const AdminApplicationDetails = () => {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileLoading, setFileLoading] = useState<"download" | null>(null);
-
   const [hasProviderProfile, setHasProviderProfile] = useState(false);
-
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
   const [isAssigningCategory, setIsAssigningCategory] = useState(false);
@@ -284,6 +282,28 @@ const AdminApplicationDetails = () => {
 
   useEffect(() => {
     if (id) fetchApplication();
+  }, [id]);
+
+  // ── FIX 3: Real-time subscription so details auto-updates when list page approves ──
+  useEffect(() => {
+    if (!id) return;
+    const channel = supabase
+      .channel(`application-${id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "provider_applications",
+          filter: `id=eq.${id}`,
+        },
+        () => fetchApplication(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [id]);
 
   async function fetchApplication() {
@@ -303,7 +323,6 @@ const AdminApplicationDetails = () => {
 
       setApplication(data);
 
-      // ── Check if provider profile already exists ─────────────────────────
       const { data: providerProfile } = await supabase
         .from("providers")
         .select("id")
@@ -322,16 +341,14 @@ const AdminApplicationDetails = () => {
   const isCustomCategory = (app: Application) =>
     app.primary_category === "Other" && !!app.suggested_category;
 
-  // ── Status helpers ───────────────────────────────────────────────────────
   const isExpiredResend = (app: Application) => app.status === "invite_expired";
-
   const isAlreadyRegistered = () => hasProviderProfile;
 
+  // ── FIX 1: Removed "approved" — buttons hide immediately after approval ──
   const canTakeAction = (app: Application) =>
     !isAlreadyRegistered() &&
-    ["pending", "approved", "invite_expired"].includes(app.status);
+    ["pending", "invite_expired"].includes(app.status);
 
-  // ── Status label ─────────────────────────────────────────────────────────
   const getStatusLabel = (status: Application["status"]) => {
     switch (status) {
       case "pending":
@@ -350,12 +367,10 @@ const AdminApplicationDetails = () => {
   };
 
   // ── Core approval ─────────────────────────────────────────────────────────
-  // Status update is fully owned by the edge function.
-  // Frontend only triggers the function and refreshes after.
   const runApproval = async (app: Application) => {
     setIsProcessing(true);
     try {
-      // ── Race condition guard ─────────────────────────────────────────────
+      // ── Race condition guard ───────────────────────────────────────────
       const { data: fresh, error: freshError } = await supabase
         .from("provider_applications")
         .select("status")
@@ -367,7 +382,8 @@ const AdminApplicationDetails = () => {
         return;
       }
 
-      const actionableStatuses = ["pending", "approved", "invite_expired"];
+      // ── FIX 2: Removed "approved" — prevents double-approving ─────────
+      const actionableStatuses = ["pending", "invite_expired"];
       if (!actionableStatuses.includes(fresh.status)) {
         showError(
           "Already processed",
@@ -377,11 +393,18 @@ const AdminApplicationDetails = () => {
         return;
       }
 
-      // ── Delegate to edge function ────────────────────────────────────────
-      // The function will:
-      //   1. Check auth.users for existing user
-      //   2. Send the invite (or regenerate link for existing auth user)
-      //   3. Update status to "invite_sent" only after invite succeeds
+      // ── Step 1: Set to "approved" ────────────────────────────────────
+      const { error: approveError } = await supabase
+        .from("provider_applications")
+        .update({ status: "approved", reviewed_at: new Date().toISOString() })
+        .eq("id", app.id);
+
+      if (approveError) {
+        showError("Update failed", "Could not update application status.");
+        return;
+      }
+
+      // ── Step 2: Call edge function ────────────────────────────────────
       const { error: fnError } = await supabase.functions.invoke(
         "send-provider-invite",
         {
@@ -393,17 +416,23 @@ const AdminApplicationDetails = () => {
         },
       );
 
+      // ── Step 3a: Failed — roll back to "pending" ─────────────────────
       if (fnError) {
+        await supabase
+          .from("provider_applications")
+          .update({ status: "pending", reviewed_at: null })
+          .eq("id", app.id);
+
         showError(
           "Invite failed",
-          "Could not send invitation email. Application status was not changed. Please try again.",
+          "Could not send invitation email. Application was not approved. Please try again.",
         );
+        await fetchApplication();
         return;
       }
 
-      // Refresh to get updated status set by edge function
+      // ── Step 3b: Success — stays "approved", refresh UI ──────────────
       await fetchApplication();
-
       setShowApproveModal(false);
       setShowCategoryModal(false);
 
@@ -421,13 +450,11 @@ const AdminApplicationDetails = () => {
   // ── Approve handler ───────────────────────────────────────────────────────
   const handleApprove = async () => {
     if (!application) return;
-
     if (isCustomCategory(application)) {
       setShowApproveModal(false);
       setShowCategoryModal(true);
       return;
     }
-
     await runApproval(application);
   };
 
@@ -526,10 +553,7 @@ const AdminApplicationDetails = () => {
     try {
       const { data, error } = await supabase
         .from("provider_applications")
-        .update({
-          status: "rejected",
-          reviewed_at: new Date().toISOString(),
-        })
+        .update({ status: "rejected", reviewed_at: new Date().toISOString() })
         .eq("id", application.id)
         .select(`*, categories ( name )`)
         .single();
@@ -617,7 +641,7 @@ const AdminApplicationDetails = () => {
           Back to Applications
         </button>
 
-        {/* ── Already Registered Banner ────────────────────────────────── */}
+        {/* ── Already Registered Banner ──────────────────────────────────── */}
         {isAlreadyRegistered() && (
           <div className="resend-banner registered-banner">
             <div className="resend-banner-left">
@@ -639,7 +663,7 @@ const AdminApplicationDetails = () => {
           </div>
         )}
 
-        {/* ── Expired Invite Resend Banner ─────────────────────────────── */}
+        {/* ── Expired Invite Resend Banner ───────────────────────────────── */}
         {isExpiredResend(application) && !isAlreadyRegistered() && (
           <div className="resend-banner">
             <div className="resend-banner-left">
@@ -714,7 +738,6 @@ const AdminApplicationDetails = () => {
             </div>
           </div>
 
-          {/* Action buttons — only when action is possible */}
           {canTakeAction(application) && (
             <div className="header-actions">
               <button
@@ -724,15 +747,13 @@ const AdminApplicationDetails = () => {
                 <CheckCircle size={18} strokeWidth={2.5} />
                 {isExpiredResend(application) ? "Resend Invite" : "Approve"}
               </button>
-              {application.status !== "invite_sent" && (
-                <button
-                  className="action-btn-large reject"
-                  onClick={() => setShowRejectModal(true)}
-                >
-                  <XCircle size={18} strokeWidth={2.5} />
-                  Reject
-                </button>
-              )}
+              <button
+                className="action-btn-large reject"
+                onClick={() => setShowRejectModal(true)}
+              >
+                <XCircle size={18} strokeWidth={2.5} />
+                Reject
+              </button>
             </div>
           )}
         </div>
@@ -757,7 +778,7 @@ const AdminApplicationDetails = () => {
           </div>
 
           <div className="tab-content">
-            {/* ── Details Tab ───────────────────────────────────────────── */}
+            {/* ── Details Tab ─────────────────────────────────────────────── */}
             {activeTab === "details" && (
               <div className="content-grid">
                 {/* Left column */}
@@ -925,7 +946,7 @@ const AdminApplicationDetails = () => {
               </div>
             )}
 
-            {/* ── Timeline Tab ──────────────────────────────────────────── */}
+            {/* ── Timeline Tab ────────────────────────────────────────────── */}
             {activeTab === "timeline" && (
               <div className="card">
                 <h2 className="card-title">
@@ -933,7 +954,7 @@ const AdminApplicationDetails = () => {
                   Application Timeline
                 </h2>
                 <div className="timeline">
-                  {/* Node 1: Application submitted */}
+                  {/* Node 1: Submitted */}
                   <div className="timeline-item">
                     <div className="timeline-dot">
                       <FileText size={12} strokeWidth={3} />
@@ -958,7 +979,7 @@ const AdminApplicationDetails = () => {
                     </div>
                   </div>
 
-                  {/* Node 2: Reviewed / actioned */}
+                  {/* Node 2: Reviewed */}
                   {application.reviewed_at && (
                     <div className="timeline-item">
                       <div className="timeline-dot">
@@ -1006,7 +1027,7 @@ const AdminApplicationDetails = () => {
                     </div>
                   )}
 
-                  {/* Node 3: Invite expired — awaiting resend */}
+                  {/* Node 3: Expired */}
                   {application.status === "invite_expired" &&
                     !hasProviderProfile && (
                       <div className="timeline-item">
@@ -1033,7 +1054,7 @@ const AdminApplicationDetails = () => {
                       </div>
                     )}
 
-                  {/* Node 3 (alt): Provider completed onboarding */}
+                  {/* Node 3 alt: Onboarding completed */}
                   {hasProviderProfile && (
                     <div className="timeline-item">
                       <div
@@ -1065,7 +1086,7 @@ const AdminApplicationDetails = () => {
           </div>
         </div>
 
-        {/* ── Standard Modals ─────────────────────────────────────────────── */}
+        {/* ── Standard Modals ───────────────────────────────────────────────── */}
         <ConfirmationModal
           isOpen={showApproveModal}
           onClose={() => setShowApproveModal(false)}
@@ -1097,7 +1118,7 @@ const AdminApplicationDetails = () => {
           isLoading={isProcessing}
         />
 
-        {/* ── Category Assignment Modal ────────────────────────────────────── */}
+        {/* ── Category Assignment Modal ──────────────────────────────────────── */}
         {showCategoryModal && (
           <div className="modal-overlay">
             <div className="modal-box">
@@ -1107,48 +1128,53 @@ const AdminApplicationDetails = () => {
                 <strong style={{ color: "var(--orange-primary)" }}>
                   {application.suggested_category}
                 </strong>
-                . Choose how to categorise them before approving.
+                . Choose how to proceed:
               </p>
 
-              <button
-                className="cat-btn cat-btn-green"
+              <div
+                className="category-option"
                 onClick={handleApproveWithNewCategory}
-                disabled={isAssigningCategory}
               >
-                <CheckCircle size={18} strokeWidth={2.5} />
-                Use "{application.suggested_category}" as-is &amp; approve
-              </button>
+                <div className="category-option-icon">
+                  <CheckCircle size={20} strokeWidth={2.5} />
+                </div>
+                <div className="category-option-content">
+                  <div className="category-option-title">
+                    Use "{application.suggested_category}"
+                  </div>
+                  <div className="category-option-desc">
+                    Add this as a new category and assign it to the provider
+                  </div>
+                </div>
+                {isAssigningCategory && (
+                  <div className="category-option-loading">…</div>
+                )}
+              </div>
 
-              <div className="cat-existing-box">
-                <p className="cat-existing-label">
-                  Or use your own category name:
-                </p>
+              <div className="category-divider">or enter a different name</div>
+
+              <div className="custom-name-row">
                 <input
-                  type="text"
-                  className="cat-input"
-                  placeholder="e.g. Drone Services, Solar Installation…"
+                  className="custom-name-input"
+                  placeholder="Enter category name…"
                   value={customCategoryName}
-                  maxLength={80}
                   onChange={(e) => setCustomCategoryName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleApproveWithCustomName();
                   }}
                 />
                 <button
-                  className="cat-btn cat-btn-orange"
+                  className="custom-name-btn"
                   onClick={handleApproveWithCustomName}
                   disabled={isAssigningCategory || !customCategoryName.trim()}
                 >
-                  Create &amp; Approve
+                  {isAssigningCategory ? "…" : "Use This"}
                 </button>
               </div>
 
               <button
-                className="cat-btn cat-btn-cancel"
-                onClick={() => {
-                  setShowCategoryModal(false);
-                  setCustomCategoryName("");
-                }}
+                className="modal-cancel-btn"
+                onClick={() => setShowCategoryModal(false)}
                 disabled={isAssigningCategory}
               >
                 Cancel
@@ -1176,57 +1202,59 @@ const pageStyles = `
   :root { --sk-base: #f0f0f0; --sk-hi: #e4e4e4; }
   .dark-mode { --sk-base: #374151; --sk-hi: #4b5563; }
 
-  .sk-header-card { display: flex; gap: 24px; align-items: flex-start; padding: 28px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; margin-bottom: 32px; }
-  .sk-avatar { width: 120px; height: 120px; border-radius: 16px; flex-shrink: 0; }
-  .sk-tabs-bar { display: flex; gap: 32px; padding: 0 20px; height: 56px; align-items: center; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px 16px 0 0; border-bottom: none; }
-  .sk-content-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; padding: 28px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 0 0 16px 16px; border-top: 1.5px solid var(--border-color); }
-  .sk-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 14px; padding: 24px; }
+  .sk-header-card { display:flex; gap:24px; align-items:flex-start; padding:28px; background:var(--card-bg); border:1.5px solid var(--border-color); border-radius:16px; margin-bottom:32px; }
+  .sk-avatar { width:120px; height:120px; border-radius:16px; flex-shrink:0; }
+  .sk-tabs-bar { display:flex; gap:32px; padding:0 20px; height:56px; align-items:center; background:var(--card-bg); border:1.5px solid var(--border-color); border-radius:16px 16px 0 0; border-bottom:none; }
+  .sk-content-grid { display:grid; grid-template-columns:2fr 1fr; gap:24px; padding:28px; background:var(--card-bg); border:1.5px solid var(--border-color); border-radius:0 0 16px 16px; border-top:1.5px solid var(--border-color); }
+  .sk-card { background:var(--card-bg); border:1.5px solid var(--border-color); border-radius:14px; padding:24px; }
 
-  @media (max-width: 1024px) { .sk-content-grid { grid-template-columns: 1fr; } }
-  @media (max-width: 768px)  { .sk-header-card  { flex-direction: column; align-items: center; } }
+  @media (max-width: 1024px) { .sk-content-grid { grid-template-columns:1fr; } }
+  @media (max-width: 768px)  { .sk-header-card  { flex-direction:column; align-items:center; } }
 
-  .provider-details { padding: 28px; max-width: 1600px; margin: 0 auto; background: var(--bg-primary); min-height: 100vh; }
-  .back-button { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 12px; border: 1.5px solid var(--border-color); background: var(--card-bg); color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); margin-bottom: 24px; }
-  .back-button:hover { background: var(--hover-bg); border-color: var(--border-hover); transform: translateX(-4px); }
+  .provider-details { padding:28px; max-width:1600px; margin:0 auto; background:var(--bg-primary); min-height:100vh; }
+  .back-button { display:inline-flex; align-items:center; gap:8px; padding:12px 20px; border-radius:12px; border:1.5px solid var(--border-color); background:var(--card-bg); color:var(--text-primary); font-size:14px; font-weight:600; cursor:pointer; transition:all 0.3s cubic-bezier(0.4,0,0.2,1); margin-bottom:24px; }
+  .back-button:hover { background:var(--hover-bg); border-color:var(--border-hover); transform:translateX(-4px); }
 
-  /* Resend invite banner */
-  .resend-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; background: rgba(251,191,36,0.1); border: 1.5px solid rgba(251,191,36,0.35); border-radius: 14px; margin-bottom: 20px; flex-wrap: wrap; }
-  .resend-banner-left { display: flex; align-items: flex-start; gap: 12px; flex: 1; }
-  .resend-icon { color: #92400e; flex-shrink: 0; margin-top: 2px; }
-  .dark-mode .resend-icon { color: #fbbf24; }
-  .resend-title { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 3px; }
-  .dark-mode .resend-title { color: #fbbf24; }
-  .resend-subtitle { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
-  .resend-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: none; background: #f59e0b; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0; }
-  .resend-btn:hover { background: #d97706; transform: translateY(-1px); }
+  .resend-banner { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 20px; background:rgba(251,191,36,0.1); border:1.5px solid rgba(251,191,36,0.35); border-radius:14px; margin-bottom:20px; flex-wrap:wrap; }
+  .resend-banner-left { display:flex; align-items:flex-start; gap:12px; flex:1; }
+  .resend-icon { color:#92400e; flex-shrink:0; margin-top:2px; }
+  .dark-mode .resend-icon { color:#fbbf24; }
+  .resend-title { font-size:14px; font-weight:700; color:#92400e; margin-bottom:3px; }
+  .dark-mode .resend-title { color:#fbbf24; }
+  .resend-subtitle { font-size:13px; color:var(--text-secondary); line-height:1.5; }
+  .resend-btn { display:inline-flex; align-items:center; gap:8px; padding:10px 18px; border-radius:10px; border:none; background:#f59e0b; color:#fff; font-size:13px; font-weight:700; cursor:pointer; transition:all 0.2s ease; white-space:nowrap; flex-shrink:0; }
+  .resend-btn:hover { background:#d97706; transform:translateY(-1px); }
 
-  /* Already registered banner variant */
-  .registered-banner { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); }
-  .registered-icon { color: #065f46; flex-shrink: 0; margin-top: 2px; }
-  .dark-mode .registered-icon { color: #10b981; }
-  .registered-title { font-size: 14px; font-weight: 700; color: #065f46; margin-bottom: 3px; }
-  .dark-mode .registered-title { color: #10b981; }
+  .registered-banner { background:rgba(16,185,129,0.08); border-color:rgba(16,185,129,0.3); }
+  .registered-icon { color:#065f46; flex-shrink:0; margin-top:2px; }
+  .dark-mode .registered-icon { color:#10b981; }
+  .registered-title { font-size:14px; font-weight:700; color:#065f46; margin-bottom:3px; }
+  .dark-mode .registered-title { color:#10b981; }
 
-  .details-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; padding: 28px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; box-shadow: 0 2px 8px var(--card-shadow); }
-  .header-left { display: flex; gap: 24px; align-items: flex-start; flex: 1; }
-  .applicant-avatar { width: 120px; height: 120px; border-radius: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--orange-light-bg); color: var(--orange-primary); border: 2px solid var(--border-color); box-shadow: 0 4px 16px var(--card-shadow); }
-  .provider-info h1 { font-size: 32px; font-weight: 800; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 12px; letter-spacing: -0.8px; }
-  .provider-meta { display: flex; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
-  .meta-item { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text-secondary); font-weight: 500; }
+  .details-header { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:32px; padding:28px; background:var(--card-bg); border:1.5px solid var(--border-color); border-radius:16px; box-shadow:0 2px 8px var(--card-shadow); }
+  .header-left { display:flex; gap:24px; align-items:flex-start; flex:1; }
+  .applicant-avatar { width:120px; height:120px; border-radius:16px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:var(--orange-light-bg); color:var(--orange-primary); border:2px solid var(--border-color); box-shadow:0 4px 16px var(--card-shadow); }
+  .provider-info h1 { font-size:32px; font-weight:800; color:var(--text-primary); margin-bottom:12px; display:flex; align-items:center; gap:12px; letter-spacing:-0.8px; }
+  .provider-meta { display:flex; gap:20px; margin-bottom:16px; flex-wrap:wrap; }
+  .meta-item { display:flex; align-items:center; gap:8px; font-size:15px; color:var(--text-secondary); font-weight:500; }
 
-  .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; text-transform: capitalize; }
-  .status-badge.pending  { background: #fef3c7; color: #92400e; }
-  .status-badge.approved { background: #d1fae5; color: #065f46; }
-  .status-badge.rejected { background: #fee2e2; color: #991b1b; }
-  .dark-mode .status-badge.pending  { background: rgba(251,191,36,0.2); color: #fbbf24; }
-  .dark-mode .status-badge.approved { background: rgba(16,185,129,0.2); color: #10b981; }
-  .dark-mode .status-badge.rejected { background: rgba(239,68,68,0.2);  color: #ef4444; }
+  .status-badge { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:20px; font-size:13px; font-weight:700; }
+  .status-badge.pending        { background:#fef3c7; color:#92400e; }
+  .status-badge.approved       { background:#d1fae5; color:#065f46; }
+  .status-badge.invite-sent    { background:#d1fae5; color:#065f46; }
+  .status-badge.invite-expired { background:#fff3cd; color:#b45309; }
+  .status-badge.rejected       { background:#fee2e2; color:#991b1b; }
+  .dark-mode .status-badge.pending        { background:rgba(251,191,36,0.2);  color:#fbbf24; }
+  .dark-mode .status-badge.approved       { background:rgba(16,185,129,0.2);  color:#10b981; }
+  .dark-mode .status-badge.invite-sent    { background:rgba(16,185,129,0.2);  color:#10b981; }
+  .dark-mode .status-badge.invite-expired { background:rgba(245,158,11,0.2);  color:#f59e0b; }
+  .dark-mode .status-badge.rejected       { background:rgba(239,68,68,0.2);   color:#ef4444; }
 
-  .header-actions { display: flex; gap: 12px; }
-  .action-btn-large { display: inline-flex; align-items: center; gap: 10px; padding: 13px 24px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); border: none; }
-  .action-btn-large.approve { background: linear-gradient(135deg,#10b981 0%,#059669 100%); color:#fff; box-shadow:0 4px 16px rgba(16,185,129,0.3); }
+  .header-actions { display:flex; gap:12px; }
+  .action-btn-large { display:inline-flex; align-items:center; gap:10px; padding:13px 24px; border-radius:12px; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.3s cubic-bezier(0.4,0,0.2,1); border:none; }
+  .action-btn-large.approve { background:linear-gradient(135deg,#10b981 0%,#059669 100%); color:#fff; box-shadow:0 4px 16px rgba(16,185,129,0.3); }
   .action-btn-large.approve:hover { transform:translateY(-2px); box-shadow:0 6px 24px rgba(16,185,129,0.4); }
-  .action-btn-large.reject  { background: linear-gradient(135deg,#ef4444 0%,#dc2626 100%); color:#fff; box-shadow:0 4px 16px rgba(239,68,68,0.3); }
+  .action-btn-large.reject  { background:linear-gradient(135deg,#ef4444 0%,#dc2626 100%); color:#fff; box-shadow:0 4px 16px rgba(239,68,68,0.3); }
   .action-btn-large.reject:hover  { transform:translateY(-2px); box-shadow:0 6px 24px rgba(239,68,68,0.4); }
   .action-btn-large:disabled { opacity:0.5; cursor:not-allowed; transform:none !important; }
 
@@ -1279,18 +1307,21 @@ const pageStyles = `
   .modal-box { background:var(--card-bg); border-radius:16px; padding:32px; max-width:500px; width:100%; border:1.5px solid var(--border-color); box-shadow:0 20px 60px rgba(0,0,0,0.2); display:flex; flex-direction:column; gap:12px; }
   .modal-title { font-size:20px; font-weight:700; color:var(--text-primary); margin:0 0 4px; }
   .modal-subtitle { font-size:14px; color:var(--text-secondary); line-height:1.6; margin:0; }
-  .cat-btn { width:100%; padding:14px 20px; border:none; border-radius:12px; font-size:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; transition:all 0.2s ease; font-family:inherit; }
-  .cat-btn:disabled { opacity:0.5; cursor:not-allowed; }
-  .cat-btn-green { background:linear-gradient(135deg,#10b981,#059669); color:#fff; }
-  .cat-btn-green:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 4px 16px rgba(16,185,129,0.3); }
-  .cat-btn-orange { background:var(--orange-primary); color:#fff; }
-  .cat-btn-orange:hover:not(:disabled) { background:#e85a28; transform:translateY(-1px); }
-  .cat-btn-cancel { background:transparent; color:var(--text-secondary); border:1.5px solid var(--border-color); }
-  .cat-btn-cancel:hover:not(:disabled) { background:var(--hover-bg); }
-  .cat-existing-box { border:1.5px solid var(--border-color); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:10px; }
-  .cat-existing-label { font-size:13px; font-weight:600; color:var(--text-secondary); margin:0; }
-  .cat-input { width:100%; padding:10px 14px; border:1.5px solid var(--border-color); border-radius:8px; background:var(--card-bg); color:var(--text-primary); font-size:14px; font-family:inherit; box-sizing:border-box; }
-  .cat-input:focus { outline:none; border-color:var(--orange-primary); }
+  .category-option { display:flex; align-items:center; gap:14px; padding:16px; border:1.5px solid var(--border-color); border-radius:12px; cursor:pointer; transition:all 0.2s ease; }
+  .category-option:hover { border-color:var(--orange-primary); background:var(--orange-light-bg); }
+  .category-option-icon { color:var(--orange-primary); flex-shrink:0; }
+  .category-option-title { font-size:14px; font-weight:700; color:var(--text-primary); margin-bottom:3px; }
+  .category-option-desc { font-size:13px; color:var(--text-secondary); }
+  .category-option-loading { font-size:18px; color:var(--text-secondary); }
+  .category-divider { text-align:center; font-size:13px; color:var(--text-tertiary); font-weight:500; padding:4px 0; }
+  .custom-name-row { display:flex; gap:8px; }
+  .custom-name-input { flex:1; padding:10px 14px; border:1.5px solid var(--border-color); border-radius:10px; background:var(--card-bg); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none; }
+  .custom-name-input:focus { border-color:var(--orange-primary); }
+  .custom-name-btn { padding:10px 18px; border:none; border-radius:10px; background:var(--orange-primary); color:#fff; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; transition:all 0.2s ease; }
+  .custom-name-btn:hover:not(:disabled) { background:#e85a28; }
+  .custom-name-btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .modal-cancel-btn { padding:10px; border:none; background:transparent; color:var(--text-secondary); font-size:14px; cursor:pointer; border-radius:8px; transition:all 0.15s ease; }
+  .modal-cancel-btn:hover:not(:disabled) { background:var(--hover-bg); }
 
   .timeline { position:relative; }
   .timeline-item { position:relative; padding-left:40px; padding-bottom:28px; }
@@ -1303,14 +1334,14 @@ const pageStyles = `
 
   :root {
     --bg-primary:#f8f9fa; --text-primary:#111827; --text-secondary:#6b7280;
-    --card-bg:#ffffff; --border-color:#e5e7eb; --border-hover:#d1d5db;
-    --hover-bg:#f3f4f6; --chip-bg:#f9fafb; --tabs-bg:#fafbfc;
+    --text-tertiary:#9ca3af; --card-bg:#ffffff; --border-color:#e5e7eb;
+    --border-hover:#d1d5db; --hover-bg:#f3f4f6; --chip-bg:#f9fafb; --tabs-bg:#fafbfc;
     --card-shadow:rgba(0,0,0,0.05); --orange-primary:#FF6B35; --orange-light-bg:#FFF4ED;
   }
   .dark-mode {
     --bg-primary:#111827; --text-primary:#f9fafb; --text-secondary:#d1d5db;
-    --card-bg:#1f2937; --border-color:#374151; --border-hover:#4b5563;
-    --hover-bg:#374151; --chip-bg:#374151; --tabs-bg:#1f2937;
+    --text-tertiary:#9ca3af; --card-bg:#1f2937; --border-color:#374151;
+    --border-hover:#4b5563; --hover-bg:#374151; --chip-bg:#374151; --tabs-bg:#1f2937;
     --card-shadow:rgba(0,0,0,0.3); --orange-primary:#FF8A5B; --orange-light-bg:rgba(255,107,53,0.15);
   }
 
