@@ -25,6 +25,7 @@ import SEO from "../components/SEO";
 const CITIES = [
   "Harare",
   "Bulawayo",
+  "Beitbridge",
   "Chitungwiza",
   "Mutare",
   "Gweru",
