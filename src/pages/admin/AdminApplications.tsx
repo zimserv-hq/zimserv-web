@@ -35,7 +35,14 @@ export type Application = {
   description: string;
   referral_source: string | null;
   verification_file_url: string | null;
-  status: "pending" | "approved" | "rejected";
+  status:
+    | "pending"
+    | "approved"
+    | "rejected"
+    | "invite_sent"
+    | "invite_expired"
+    | "onboarding";
+  last_invited_at: string | null;
   created_at: string;
   reviewed_at: string | null;
   reviewed_by: string | null;
@@ -44,8 +51,7 @@ export type Application = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const isResend = (app: Application) =>
-  app.status === "pending" && !!app.reviewed_at;
+const isResend = (app: Application) => app.status === "invite_expired";
 
 // ── Skeleton Components ───────────────────────────────────────────────────────
 
@@ -125,7 +131,13 @@ const AdminApplications = () => {
   const [loading, setLoading] = useState(true);
   const [showFilter, setShowFilter] = useState(false);
   const [filterStatus, setFilterStatus] = useState<
-    "All" | "pending" | "approved" | "rejected"
+    | "All"
+    | "pending"
+    | "approved"
+    | "rejected"
+    | "invite_sent"
+    | "invite_expired"
+    | "onboarding"
   >("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -135,7 +147,6 @@ const AdminApplications = () => {
   const [modalAction, setModalAction] = useState<
     "approve" | "reject" | "resend"
   >("approve");
-
   const filterDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -233,7 +244,7 @@ const AdminApplications = () => {
       }
 
       // ── Approve / Resend path ──────────────────────────────────────────
-      // Step 1: Set to "approved"
+      // Step 1: Set to "approved" (edge fn will flip to "invite_sent")
       const { error: approveError } = await supabase
         .from("provider_applications")
         .update({ status: "approved", reviewed_at: new Date().toISOString() })
@@ -244,7 +255,7 @@ const AdminApplications = () => {
         return;
       }
 
-      // Step 2: Call edge function
+      // Step 2: Call edge function — sets status to "invite_sent" on success
       const { error: functionError } = await supabase.functions.invoke(
         "send-provider-invite",
         {
@@ -280,14 +291,15 @@ const AdminApplications = () => {
         return;
       }
 
-      // Step 3b: Success — stays "approved"
+      // Step 3b: Success — edge fn set status to "invite_sent"; reflect locally
       setApplications((prev) =>
         prev.map((app) =>
           app.id === selectedApplication.id
             ? {
                 ...app,
-                status: "approved",
+                status: "invite_sent",
                 reviewed_at: new Date().toISOString(),
+                last_invited_at: new Date().toISOString(),
               }
             : app,
         ),
@@ -328,8 +340,42 @@ const AdminApplications = () => {
   const stats = {
     total: applications.length,
     pending: applications.filter((a) => a.status === "pending").length,
-    approved: applications.filter((a) => a.status === "approved").length,
+    approved: applications.filter((a) =>
+      ["approved", "invite_sent", "invite_expired", "onboarding"].includes(
+        a.status,
+      ),
+    ).length,
     rejected: applications.filter((a) => a.status === "rejected").length,
+  };
+
+  const getStatusBadgeIcon = (status: Application["status"]) => {
+    switch (status) {
+      case "pending":
+        return <Clock size={12} strokeWidth={2.5} />;
+      case "approved":
+        return <CheckCircle size={12} strokeWidth={2.5} />;
+      case "invite_sent":
+        return <Send size={12} strokeWidth={2.5} />;
+      case "invite_expired":
+        return <Clock size={12} strokeWidth={2.5} />;
+      case "onboarding":
+        return <Clock size={12} strokeWidth={2.5} />;
+      case "rejected":
+        return <XCircle size={12} strokeWidth={2.5} />;
+    }
+  };
+
+  const getStatusLabel = (status: Application["status"]) => {
+    switch (status) {
+      case "invite_sent":
+        return "Invite Sent";
+      case "invite_expired":
+        return "Invite Expired";
+      case "onboarding":
+        return "Onboarding";
+      default:
+        return status;
+    }
   };
 
   const renderActionButtons = (app: Application) => (
@@ -338,9 +384,9 @@ const AdminApplications = () => {
         <Eye size={14} strokeWidth={2.5} />
         View
       </button>
-      {app.status === "pending" && (
+      {(app.status === "pending" || app.status === "invite_expired") && (
         <>
-          {isResend(app) ? (
+          {app.status === "invite_expired" ? (
             <button
               className="action-btn resend"
               onClick={() => handleApprove(app)}
@@ -402,138 +448,84 @@ const AdminApplications = () => {
         .skeleton-actions { display: flex; gap: 8px; }
         .skeleton-btn     { height: 32px; width: 72px; border-radius: 8px; }
 
-        .admin-applications { padding: 28px; max-width: 1600px; margin: 0 auto; background: var(--bg-primary); min-height: 100vh; width: 100%; overflow-x: hidden; }
-        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 24px; }
-        .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
-        .toolbar-left { flex: 1; display: flex; gap: 12px; }
-        .search-container { position: relative; flex: 1; max-width: 500px; }
-        .search-input { width: 100%; padding: 13px 16px 13px 48px; border-radius: 12px; border: 1.5px solid var(--border-color); background: var(--search-bg); color: var(--text-primary); font-size: 14px; font-weight: 500; outline: none; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
-        .search-input::placeholder { color: var(--text-tertiary); }
-        .search-input:focus { border-color: var(--orange-primary); background: var(--card-bg); box-shadow: 0 0 0 4px var(--orange-shadow); transform: translateY(-1px); }
-        .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
-        .clear-search { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 6px; display: flex; align-items: center; border-radius: 6px; transition: all 0.2s ease; }
-        .clear-search:hover { background: var(--hover-bg); color: var(--text-primary); }
+        .admin-applications { padding: 24px; max-width: 1400px; margin: 0 auto; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+        .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+        .search-wrapper { position: relative; flex: 1; min-width: 200px; }
+        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--color-text-secondary); pointer-events: none; }
+        .search-input { width: 100%; padding: 10px 12px 10px 38px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-primary); font-family: var(--font-primary); font-size: 14px; }
+        .search-input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-soft); }
         .filter-wrapper { position: relative; }
-        .filter-btn { padding: 13px 20px; border-radius: 12px; border: 1.5px solid var(--border-color); background: var(--filter-btn-bg); color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); white-space: nowrap; }
-        .filter-btn:hover { background: var(--filter-btn-hover); border-color: var(--border-hover); transform: translateY(-2px); }
-        .filter-btn.active { background: var(--orange-light-bg); border-color: var(--orange-primary); color: var(--orange-primary); }
-        .filter-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 12px; box-shadow: 0 12px 48px var(--dropdown-shadow); padding: 8px; min-width: 180px; z-index: 100; animation: slideDown 0.2s cubic-bezier(0.4,0,0.2,1); }
-        @keyframes slideDown { from { opacity:0; transform: translateY(-8px); } to { opacity:1; transform: translateY(0); } }
-        .filter-option { padding: 12px 14px; cursor: pointer; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary); transition: all 0.15s ease; }
-        .filter-option:hover { background: var(--hover-bg); color: var(--orange-primary); transform: translateX(4px); }
-        .filter-option.active { background: var(--orange-light-bg); color: var(--orange-primary); font-weight: 600; }
-        .table-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px var(--card-shadow); }
-        .table-container { overflow-x: auto; }
-        .applications-table { width: 100%; border-collapse: collapse; min-width: 800px; }
-        .applications-table thead { background: var(--hover-bg); border-bottom: 1.5px solid var(--border-color); }
-        .applications-table th { padding: 16px 20px; text-align: left; font-size: 13px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
-        .applications-table td { padding: 18px 20px; border-bottom: 1px solid var(--border-color); font-size: 14px; color: var(--text-primary); }
-        .applications-table tbody tr { transition: background 0.15s ease; }
-        .applications-table tbody tr:hover { background: var(--hover-bg); }
-        .applications-table tbody tr:last-child td { border-bottom: none; }
-        .applicant-cell { display: flex; flex-direction: column; gap: 4px; }
-        .applicant-name { font-weight: 600; color: var(--text-primary); }
-        .applicant-email { font-size: 13px; color: var(--text-secondary); }
-        .category-cell { display: flex; flex-direction: column; gap: 3px; }
-        .category-name { font-weight: 600; color: var(--text-primary); }
-        .category-custom-badge { font-size: 11px; font-weight: 700; background: var(--orange-light-bg); color: var(--orange-primary); padding: 2px 7px; border-radius: 999px; display: inline-block; width: fit-content; }
-        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
-        .status-badge.pending  { background: #fef3c7; color: #92400e; }
-        .status-badge.approved { background: #d1fae5; color: #065f46; }
-        .status-badge.rejected { background: #fee2e2; color: #991b1b; }
-        .dark-mode .status-badge.pending  { background: rgba(251,191,36,0.2);  color: #fbbf24; }
-        .dark-mode .status-badge.approved { background: rgba(16,185,129,0.2);  color: #10b981; }
-        .dark-mode .status-badge.rejected { background: rgba(239,68,68,0.2);   color: #ef4444; }
-        .actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
-        .action-btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; white-space: nowrap; }
-        .action-btn.view    { background: var(--hover-bg); color: var(--text-primary); border: 1.5px solid var(--border-color); }
-        .action-btn.view:hover { background: var(--border-color); transform: translateY(-2px); }
-        .action-btn.approve { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; box-shadow: 0 2px 8px rgba(16,185,129,0.3); }
-        .action-btn.approve:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,185,129,0.4); }
-        .action-btn.resend  { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; box-shadow: 0 2px 8px rgba(245,158,11,0.3); }
-        .action-btn.resend:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(245,158,11,0.4); }
-        .action-btn.reject  { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; box-shadow: 0 2px 8px rgba(239,68,68,0.3); }
-        .action-btn.reject:hover  { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
-        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
-        .mobile-cards { display: none; flex-direction: column; gap: 12px; }
-        .app-card { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 12px; padding: 16px; transition: all 0.15s ease; }
-        .app-card:hover { border-color: var(--border-hover); box-shadow: 0 2px 12px var(--card-shadow); }
-        .app-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
-        .app-card-name  { font-size: 15px; font-weight: 700; color: var(--text-primary); margin: 0 0 3px 0; }
-        .app-card-email { font-size: 13px; color: var(--text-secondary); margin: 0 0 8px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .app-card-meta  { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-        .app-card-meta-item { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text-secondary); font-weight: 500; }
-        .app-card-stats { display: flex; justify-content: space-between; padding: 12px 0; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); margin-bottom: 12px; gap: 8px; }
-        .app-card-stat { flex: 1; text-align: center; }
-        .app-card-stat-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-        .app-card-stat-value { font-size: 13px; font-weight: 700; color: var(--text-primary); }
-        .app-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-        .app-card-actions .action-btn { flex: 1; justify-content: center; padding: 10px 8px; font-size: 13px; }
-        .expired-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; background: #fff3cd; color: #b45309; padding: 3px 8px; border-radius: 999px; margin-left: 6px; }
-        .dark-mode .expired-badge { background: rgba(245,158,11,0.2); color: #f59e0b; }
-        .empty-state { padding: 60px 40px; text-align: center; color: var(--text-secondary); }
-        .empty-icon   { margin-bottom: 16px; opacity: 0.5; }
-        .empty-text   { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
-        .empty-subtext { font-size: 14px; opacity: 0.7; }
-        .modal-overlay { position: fixed; inset: 0; background: var(--modal-overlay); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(8px); animation: fadeIn 0.2s ease; }
-        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
-        .modal-content { background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 16px; padding: 28px; max-width: 460px; width: 90%; box-shadow: 0 24px 80px var(--modal-shadow); animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1); }
-        @keyframes slideUp { from { opacity:0; transform: translateY(20px) scale(0.95); } to { opacity:1; transform: translateY(0) scale(1); } }
-        .modal-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 16px; display: flex; align-items: center; gap: 12px; }
-        .modal-text { color: var(--text-secondary); line-height: 1.6; margin-bottom: 28px; font-size: 15px; }
-        .modal-text strong { color: var(--text-primary); font-weight: 600; }
+        .filter-btn { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-primary); font-family: var(--font-primary); font-size: 14px; font-weight: 600; cursor: pointer; transition: all var(--transition-fast); white-space: nowrap; }
+        .filter-btn:hover, .filter-btn.active { border-color: var(--color-accent); color: var(--color-accent); }
+        .filter-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--color-bg); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 100; min-width: 160px; overflow: hidden; }
+        .filter-option { padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background var(--transition-fast); color: var(--color-primary); }
+        .filter-option:hover { background: var(--color-bg-section); }
+        .filter-option.active { color: var(--color-accent); font-weight: 700; background: var(--color-accent-soft); }
+        .table-wrapper { background: var(--color-bg); border: 1.5px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+        .apps-table { width: 100%; border-collapse: collapse; }
+        .apps-table th { padding: 14px 20px; text-align: left; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-secondary); border-bottom: 1.5px solid var(--color-border); background: var(--color-bg-section); white-space: nowrap; }
+        .apps-table td { padding: 16px 20px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+        .apps-table tr:last-child td { border-bottom: none; }
+        .apps-table tr:hover td { background: var(--color-bg-section); }
+        .applicant-name { font-weight: 700; font-size: 14px; color: var(--color-primary); margin-bottom: 3px; }
+        .applicant-email { font-size: 13px; color: var(--color-text-secondary); }
+        .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: capitalize; white-space: nowrap; }
+        .status-badge.pending       { background: #FEF3C7; color: #92400E; }
+        .status-badge.approved      { background: #D1FAE5; color: #065F46; }
+        .status-badge.invite_sent   { background: #DBEAFE; color: #1E40AF; }
+        .status-badge.invite_expired{ background: #FEF3C7; color: #92400E; }
+        .status-badge.rejected      { background: #FEE2E2; color: #991B1B; }
+        .status-badge.onboarding { background: #EDE9FE; color: #5B21B6; }
+        .expired-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #FEF3C7; color: #92400E; }
+        .actions-cell { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .action-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; border: 1.5px solid; cursor: pointer; transition: all var(--transition-fast); font-family: var(--font-primary); white-space: nowrap; }
+        .action-btn.view    { border-color: var(--color-border); color: var(--color-text-secondary); background: transparent; }
+        .action-btn.view:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-soft); }
+        .action-btn.approve { border-color: #10b981; color: #10b981; background: transparent; }
+        .action-btn.approve:hover { background: #D1FAE5; }
+        .action-btn.resend  { border-color: #f59e0b; color: #f59e0b; background: transparent; }
+        .action-btn.resend:hover  { background: #FEF3C7; }
+        .action-btn.reject  { border-color: #ef4444; color: #ef4444; background: transparent; }
+        .action-btn.reject:hover  { background: #FEE2E2; }
+        .empty-state { padding: 80px 20px; text-align: center; }
+        .empty-icon { color: var(--color-text-secondary); opacity: 0.4; margin-bottom: 16px; }
+        .empty-text { font-size: 18px; font-weight: 700; color: var(--color-primary); margin-bottom: 8px; }
+        .empty-subtext { color: var(--color-text-secondary); font-size: 14px; }
+        .mobile-cards { display: none; gap: 16px; flex-direction: column; }
+        .app-card { background: var(--color-bg); border: 1.5px solid var(--color-border); border-radius: var(--radius-lg); padding: 20px; }
+        .app-card-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+        .app-card-name  { font-weight: 700; font-size: 15px; color: var(--color-primary); margin-bottom: 3px; }
+        .app-card-email { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 8px; }
+        .app-card-meta  { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+        .app-card-meta-item { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--color-text-secondary); }
+        .app-card-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; padding: 14px; background: var(--color-bg-section); border-radius: var(--radius-md); }
+        .app-card-stat-label { font-size: 11px; font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+        .app-card-stat-value { font-size: 13px; font-weight: 700; color: var(--color-primary); }
+        .app-card-actions .actions-cell { flex-wrap: wrap; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .modal-content { background: var(--color-bg); border-radius: var(--radius-lg); padding: 32px; max-width: 480px; width: 100%; box-shadow: var(--shadow-xl); }
+        .modal-title { display: flex; align-items: center; gap: 10px; font-family: 'Fraunces', serif; font-size: 20px; font-weight: 800; color: var(--color-primary); margin-bottom: 14px; }
+        .modal-text { color: var(--color-text-secondary); font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
         .modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
-        .btn-modal { padding: 12px 24px; border: none; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
-        .btn-cancel { background: var(--btn-cancel-bg); color: var(--text-primary); }
-        .btn-cancel:hover { background: var(--btn-cancel-hover); }
-        .btn-confirm { color: #fff; }
-        .btn-confirm.approve { background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 16px rgba(16,185,129,0.3); }
-        .btn-confirm.approve:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.4); }
-        .btn-confirm.resend  { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 16px rgba(245,158,11,0.3); }
-        .btn-confirm.resend:hover  { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,158,11,0.4); }
-        .btn-confirm.reject  { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 4px 16px rgba(239,68,68,0.3); }
-        .btn-confirm.reject:hover  { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.4); }
-        .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        :root {
-          --bg-primary: #f8f9fa; --text-primary: #111827; --text-secondary: #6b7280;
-          --text-tertiary: #9ca3af; --card-bg: #ffffff; --border-color: #e5e7eb;
-          --border-hover: #d1d5db; --hover-bg: #f3f4f6; --search-bg: #f9fafb;
-          --filter-btn-bg: #ffffff; --filter-btn-hover: #f9fafb;
-          --card-shadow: rgba(0,0,0,0.08); --dropdown-shadow: rgba(0,0,0,0.15);
-          --orange-primary: #ff6b35; --orange-light-bg: #fff4ed;
-          --orange-shadow: rgba(255,107,53,0.1);
-          --modal-overlay: rgba(0,0,0,0.5); --modal-shadow: rgba(0,0,0,0.3);
-          --btn-cancel-bg: #f3f4f6; --btn-cancel-hover: #e5e7eb;
-        }
-        .dark-mode {
-          --bg-primary: #111827; --text-primary: #f9fafb; --text-secondary: #d1d5db;
-          --text-tertiary: #9ca3af; --card-bg: #1f2937; --border-color: #374151;
-          --border-hover: #4b5563; --hover-bg: #374151; --search-bg: #374151;
-          --filter-btn-bg: #1f2937; --filter-btn-hover: #374151;
-          --card-shadow: rgba(0,0,0,0.4); --dropdown-shadow: rgba(0,0,0,0.6);
-          --orange-primary: #ff8a5b; --orange-light-bg: rgba(255,107,53,0.15);
-          --orange-shadow: rgba(255,138,91,0.15);
-          --modal-overlay: rgba(0,0,0,0.7); --modal-shadow: rgba(0,0,0,0.6);
-          --btn-cancel-bg: #374151; --btn-cancel-hover: #4b5563;
-        }
-
-        @media (max-width: 1024px) { .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; } }
-        @media (max-width: 768px) {
-          .admin-applications { padding: 20px 16px; }
-          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
-          .toolbar { flex-direction: column; align-items: stretch; }
-          .toolbar-left { flex-direction: column; }
-          .search-container { max-width: 100%; }
-          .filter-btn { width: 100%; justify-content: center; }
-          .table-card { display: none; }
+        .btn-modal { padding: 10px 24px; border-radius: var(--radius-full); font-weight: 700; font-size: 14px; border: none; cursor: pointer; font-family: var(--font-primary); transition: all var(--transition-fast); }
+        .btn-modal:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-cancel { background: var(--color-bg-section); color: var(--color-text-secondary); border: 1.5px solid var(--color-border); }
+        .btn-cancel:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
+        .btn-confirm.approve { background: #10b981; color: #fff; }
+        .btn-confirm.approve:hover:not(:disabled) { background: #059669; }
+        .btn-confirm.resend  { background: #f59e0b; color: #fff; }
+        .btn-confirm.resend:hover:not(:disabled)  { background: #d97706; }
+        .btn-confirm.reject  { background: #ef4444; color: #fff; }
+        .btn-confirm.reject:hover:not(:disabled)  { background: #dc2626; }
+        @media (max-width: 900px) {
+          .stats-grid { grid-template-columns: repeat(2, 1fr); }
+          .table-wrapper { display: none; }
           .mobile-cards { display: flex; }
-          .modal-actions { flex-direction: column-reverse; }
-          .btn-modal { width: 100%; }
         }
         @media (max-width: 480px) {
-          .admin-applications { padding: 12px 10px; }
-          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+          .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+          .admin-applications { padding: 16px; }
         }
       `}</style>
 
@@ -541,31 +533,27 @@ const AdminApplications = () => {
         <PageHeader
           title="Applications"
           subtitle="Review and manage provider applications"
-          icon={FileText}
         />
 
-        {/* Stats */}
+        {/* ── Stats ── */}
         <div className="stats-grid">
           {loading ? (
-            <>
-              <SkeletonStatCard />
-              <SkeletonStatCard />
-              <SkeletonStatCard />
-              <SkeletonStatCard />
-            </>
+            Array.from({ length: 4 }).map((_, i) => (
+              <SkeletonStatCard key={i} />
+            ))
           ) : (
             <>
               <StatCard
-                label="Total Applications"
+                label="Total"
                 value={stats.total}
                 icon={FileText}
-                iconColor="orange"
+                iconColor="blue"
               />
               <StatCard
-                label="Pending Review"
+                label="Pending"
                 value={stats.pending}
                 icon={Clock}
-                iconColor="blue"
+                iconColor="yellow"
               />
               <StatCard
                 label="Approved"
@@ -583,167 +571,126 @@ const AdminApplications = () => {
           )}
         </div>
 
-        {/* Toolbar */}
+        {/* ── Toolbar ── */}
         <div className="toolbar">
-          <div className="toolbar-left">
-            <div className="search-container">
-              <input
-                type="text"
-                placeholder="Search by name, email, category, city..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="search-input"
-              />
-              <Search size={18} className="search-icon" strokeWidth={2.5} />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="clear-search"
-                >
-                  <X size={16} strokeWidth={2.5} />
-                </button>
+          <div className="search-wrapper">
+            <Search size={16} className="search-icon" />
+            <input
+              className="search-input"
+              placeholder="Search by name, email, category or city…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="filter-wrapper" ref={filterDropdownRef}>
+            <button
+              className={`filter-btn${showFilter ? " active" : ""}`}
+              onClick={() => setShowFilter((v) => !v)}
+            >
+              <Filter size={15} strokeWidth={2.5} />
+              {filterStatus === "All"
+                ? "Filter"
+                : getStatusLabel(filterStatus as Application["status"])}
+              {filterStatus !== "All" && (
+                <X
+                  size={14}
+                  strokeWidth={2.5}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFilterStatus("All");
+                    setShowFilter(false);
+                  }}
+                />
               )}
-            </div>
-
-            <div className="filter-wrapper" ref={filterDropdownRef}>
-              <button
-                className={`filter-btn ${filterStatus !== "All" ? "active" : ""}`}
-                onClick={() => setShowFilter(!showFilter)}
-              >
-                <Filter size={18} strokeWidth={2.5} />
-                {filterStatus === "All" ? "Filter" : filterStatus}
-              </button>
-              {showFilter && (
-                <div className="filter-dropdown">
-                  {(["All", "pending", "approved", "rejected"] as const).map(
-                    (s) => (
-                      <div
-                        key={s}
-                        className={`filter-option ${filterStatus === s ? "active" : ""}`}
-                        onClick={() => {
-                          setFilterStatus(s);
-                          setShowFilter(false);
-                        }}
-                      >
-                        {s === "All"
-                          ? "All Applications"
-                          : s.charAt(0).toUpperCase() + s.slice(1)}
-                      </div>
-                    ),
-                  )}
-                </div>
-              )}
-            </div>
+            </button>
+            {showFilter && (
+              <div className="filter-dropdown">
+                {(
+                  [
+                    "All",
+                    "pending",
+                    "approved",
+                    "invite_sent",
+                    "invite_expired",
+                    "rejected",
+                  ] as const
+                ).map((s) => (
+                  <div
+                    key={s}
+                    className={`filter-option${filterStatus === s ? " active" : ""}`}
+                    onClick={() => {
+                      setFilterStatus(s);
+                      setShowFilter(false);
+                    }}
+                  >
+                    {s === "All"
+                      ? "All"
+                      : getStatusLabel(s as Application["status"])}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── Desktop Table ── */}
-        <div className="table-card">
-          <div className="table-container">
-            {loading ? (
-              <table className="applications-table">
-                <thead>
-                  <tr>
-                    <th>Applicant</th>
-                    <th>Category</th>
-                    <th>City</th>
-                    <th>Applied</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+        <div className="table-wrapper">
+          <table className="apps-table">
+            <thead>
+              <tr>
+                <th>Applicant</th>
+                <th>Category</th>
+                <th>City</th>
+                <th>Applied</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
+              ) : filteredApplications.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <div className="empty-state">
+                      <FileText size={48} className="empty-icon" />
+                      <div className="empty-text">No applications found</div>
+                      <div className="empty-subtext">
+                        {searchQuery || filterStatus !== "All"
+                          ? "Try adjusting your filters"
+                          : "New applications will appear here"}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredApplications.map((app) => (
+                  <tr key={app.id}>
+                    <td>
+                      <div className="applicant-name">{app.full_name}</div>
+                      <div className="applicant-email">{app.email}</div>
+                    </td>
+                    <td>{getCategoryName(app)}</td>
+                    <td>{app.city}</td>
+                    <td>
+                      {new Date(app.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </td>
+                    <td>
+                      <span className={`status-badge ${app.status}`}>
+                        {getStatusBadgeIcon(app.status)}
+                        {getStatusLabel(app.status)}
+                      </span>
+                    </td>
+                    <td>{renderActionButtons(app)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <SkeletonRow key={i} />
-                  ))}
-                </tbody>
-              </table>
-            ) : filteredApplications.length === 0 ? (
-              <div className="empty-state">
-                <FileText size={48} className="empty-icon" />
-                <div className="empty-text">No applications found</div>
-                <div className="empty-subtext">
-                  {searchQuery || filterStatus !== "All"
-                    ? "Try adjusting your filters"
-                    : "New applications will appear here"}
-                </div>
-              </div>
-            ) : (
-              <table className="applications-table">
-                <thead>
-                  <tr>
-                    <th>Applicant</th>
-                    <th>Category</th>
-                    <th>City</th>
-                    <th>Applied</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredApplications.map((app) => (
-                    <tr key={app.id}>
-                      <td>
-                        <div className="applicant-cell">
-                          <span className="applicant-name">
-                            {app.full_name}
-                          </span>
-                          <span className="applicant-email">{app.email}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="category-cell">
-                          <span className="category-name">
-                            {app.suggested_category &&
-                            app.primary_category === "Other"
-                              ? app.suggested_category
-                              : (app.categories?.name ??
-                                app.primary_category ??
-                                "—")}
-                          </span>
-                          {app.suggested_category &&
-                            app.primary_category === "Other" && (
-                              <span className="category-custom-badge">
-                                Custom
-                              </span>
-                            )}
-                        </div>
-                      </td>
-                      <td>{app.city}</td>
-                      <td>
-                        {new Date(app.created_at).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </td>
-                      <td>
-                        <span className={`status-badge ${app.status}`}>
-                          {app.status === "pending" && (
-                            <Clock size={14} strokeWidth={2.5} />
-                          )}
-                          {app.status === "approved" && (
-                            <CheckCircle size={14} strokeWidth={2.5} />
-                          )}
-                          {app.status === "rejected" && (
-                            <XCircle size={14} strokeWidth={2.5} />
-                          )}
-                          {app.status}
-                        </span>
-                        {isResend(app) && (
-                          <span className="expired-badge">
-                            <Clock size={10} strokeWidth={2.5} />
-                            Invite Expired
-                          </span>
-                        )}
-                      </td>
-                      <td>{renderActionButtons(app)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* ── Mobile Cards ── */}
@@ -776,23 +723,9 @@ const AdminApplications = () => {
                       }}
                     >
                       <span className={`status-badge ${app.status}`}>
-                        {app.status === "pending" && (
-                          <Clock size={12} strokeWidth={2.5} />
-                        )}
-                        {app.status === "approved" && (
-                          <CheckCircle size={12} strokeWidth={2.5} />
-                        )}
-                        {app.status === "rejected" && (
-                          <XCircle size={12} strokeWidth={2.5} />
-                        )}
-                        {app.status}
+                        {getStatusBadgeIcon(app.status)}
+                        {getStatusLabel(app.status)}
                       </span>
-                      {isResend(app) && (
-                        <span className="expired-badge">
-                          <Clock size={10} strokeWidth={2.5} />
-                          Invite Expired
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -800,9 +733,7 @@ const AdminApplications = () => {
                 <div className="app-card-meta">
                   <div className="app-card-meta-item">
                     <Briefcase size={13} strokeWidth={2} />
-                    {app.suggested_category && app.primary_category === "Other"
-                      ? `${app.suggested_category} (Custom)`
-                      : (app.categories?.name ?? app.primary_category ?? "—")}
+                    {getCategoryName(app)}
                   </div>
                   <div className="app-card-meta-item">
                     <MapPin size={13} strokeWidth={2} />
@@ -878,7 +809,7 @@ const AdminApplications = () => {
                   <>
                     The previous invite for{" "}
                     <strong>{selectedApplication.full_name}</strong> has
-                    expired. Send a fresh 24-hour invite link to{" "}
+                    expired. Send a fresh 72-hour invite link to{" "}
                     <strong>{selectedApplication.email}</strong>?
                   </>
                 )}

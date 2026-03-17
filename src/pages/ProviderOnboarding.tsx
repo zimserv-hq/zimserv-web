@@ -53,9 +53,7 @@ export interface OnboardingData {
 }
 
 // ── Draft type (what gets persisted to Supabase) ─────────────────────────────
-// File objects cannot be serialised — we store storage paths instead
 export interface OnboardingDraftPatch {
-  // Step 2
   businessName?: string;
   phoneNumber?: string;
   whatsappNumber?: string;
@@ -67,24 +65,24 @@ export interface OnboardingDraftPatch {
   callAvailable?: boolean;
   whatsappAvailable?: boolean;
   emergencyAvailable?: boolean;
-  profilePhotoPath?: string; // storage path, not File
-
-  // Step 3
+  profilePhotoPath?: string;
   selectedServices?: ServiceEntry[];
   pricingModel?: string;
-
-  // Step 4
   areas?: string[];
-
-  // Step 5
-  portfolioPaths?: string[]; // storage paths, not File[]
-  idFilePath?: string; // storage path, not File
+  portfolioPaths?: string[];
+  idFilePath?: string;
 }
 
-// ── Step persistence key ─────────────────────────────────────────────────────
+// ── Token validation state ───────────────────────────────────────────────────
+type InviteStatus =
+  | "checking" // validating token on mount
+  | "valid" // token is good, show the form
+  | "expired" // token exists but past expires_at
+  | "used" // token already consumed
+  | "invalid"; // token not found / malformed
+
 const STEP_KEY = "zimserv_onboarding_step";
 
-// ── Slug generator ───────────────────────────────────────────────────────────
 const generateSlug = (businessName: string, fullName: string): string => {
   const rawName = (businessName || fullName).trim();
   return rawName
@@ -93,7 +91,6 @@ const generateSlug = (businessName: string, fullName: string): string => {
     .replace(/^-|-$/g, "");
 };
 
-// ── Image compression helper ─────────────────────────────────────────────────
 const compressImage = async (file: File): Promise<File> => {
   if (!file.type.startsWith("image/")) return file;
   try {
@@ -107,7 +104,6 @@ const compressImage = async (file: File): Promise<File> => {
   }
 };
 
-// ── Batched parallel upload helper ───────────────────────────────────────────
 const batchedUpload = async <T,>(
   items: T[],
   fn: (item: T) => Promise<string | null>,
@@ -124,7 +120,7 @@ const batchedUpload = async <T,>(
 
 const ProviderOnboarding = () => {
   const [searchParams] = useSearchParams();
-  const applicationId = searchParams.get("application_id");
+  const token = searchParams.get("token");
   const navigate = useNavigate();
   const { showSuccess, showError, showInfo } = useToast();
 
@@ -139,8 +135,12 @@ const ProviderOnboarding = () => {
   };
 
   const [currentStep, setCurrentStep] = useState<number>(getInitialStep);
-  const [isCheckingSession, setIsCheckingSession] = useState(true);
-  const [inviteExpired, setInviteExpired] = useState(false);
+
+  // ── NEW: token-based invite state ────────────────────────────────────────
+  const [inviteStatus, setInviteStatus] = useState<InviteStatus>("checking");
+  const [_validatedEmail, setValidatedEmail] = useState<string>("");
+  const [validatedApplicationId, setValidatedApplicationId] =
+    useState<string>("");
 
   const [formData, setFormData] = useState<OnboardingData>({
     email: "",
@@ -168,8 +168,6 @@ const ProviderOnboarding = () => {
     idFile: null,
   });
 
-  // Stores uploaded file paths from eager uploads so final submit can
-  // reference them without re-uploading
   const [draftFilePaths, setDraftFilePaths] = useState<{
     profilePhotoPath?: string;
     portfolioPaths: string[];
@@ -204,17 +202,14 @@ const ProviderOnboarding = () => {
   };
 
   // ── Preload application data ─────────────────────────────────────────────
-  const preloadFromApplication = async (
-    applicationId: string,
-    email: string,
-  ) => {
+  const preloadFromApplication = async (appId: string, email: string) => {
     try {
       setLoadError(null);
 
       const { data, error } = await supabase
         .from("provider_applications")
         .select("*")
-        .eq("id", applicationId)
+        .eq("id", appId)
         .eq("email", email.toLowerCase())
         .single();
 
@@ -223,7 +218,7 @@ const ProviderOnboarding = () => {
         setLoadError("Could not load your application details.");
         showError(
           "Application not found",
-          "We could not find your application with this email. Please contact support.",
+          "We could not find your application. Please contact support.",
         );
         return;
       }
@@ -248,21 +243,18 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── Save step draft to Supabase ──────────────────────────────────────────
-  // Upserts on user_id — safe to call after every step advance
+  // ── Save step draft ──────────────────────────────────────────────────────
+  // Uses application_id as the key since no auth user exists yet
   const saveStepDraft = async (
     step: number,
     patch: OnboardingDraftPatch,
   ): Promise<void> => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!validatedApplicationId) return;
 
       const { error } = await supabase.from("provider_drafts").upsert(
         {
-          user_id: user.id,
+          application_id: validatedApplicationId,
           step_reached: step,
           business_name: patch.businessName,
           phone_number: patch.phoneNumber,
@@ -283,7 +275,7 @@ const ProviderOnboarding = () => {
           id_file_path: patch.idFilePath,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "user_id" },
+        { onConflict: "application_id" },
       );
 
       if (error) {
@@ -295,17 +287,16 @@ const ProviderOnboarding = () => {
   };
 
   // ── Restore draft from Supabase ──────────────────────────────────────────
-  const restoreDraft = async (userId: string): Promise<void> => {
+  const restoreDraft = async (appId: string): Promise<void> => {
     try {
       const { data: draft, error } = await supabase
         .from("provider_drafts")
         .select("*")
-        .eq("user_id", userId)
+        .eq("application_id", appId)
         .single();
 
       if (error || !draft) return;
 
-      // Restore all serialisable fields into formData
       setFormData((prev) => ({
         ...prev,
         businessName: draft.business_name ?? prev.businessName,
@@ -325,14 +316,12 @@ const ProviderOnboarding = () => {
         areas: draft.areas ?? prev.areas,
       }));
 
-      // Restore file paths so final submit can use them without re-uploading
       setDraftFilePaths({
         profilePhotoPath: draft.profile_photo_path ?? undefined,
         portfolioPaths: draft.portfolio_paths ?? [],
         idFilePath: draft.id_file_path ?? undefined,
       });
 
-      // Jump to the saved step if further than current
       if (draft.step_reached > 1) {
         setStep(draft.step_reached);
         showInfo?.(
@@ -346,115 +335,75 @@ const ProviderOnboarding = () => {
   };
 
   // ── Delete draft after successful final submit ───────────────────────────
-  const deleteDraft = async (userId: string): Promise<void> => {
+  const deleteDraft = async (appId: string): Promise<void> => {
     try {
-      const { error } = await supabase
+      await supabase
         .from("provider_drafts")
         .delete()
-        .eq("user_id", userId);
-
-      if (error) {
-        console.warn("Draft delete failed (non-critical):", error.message);
-      }
+        .eq("application_id", appId);
     } catch (e) {
       console.warn("Draft delete threw (non-critical):", e);
     }
   };
 
-  // ── 1️⃣ FIRST: Handle invite hash tokens from email link ─────────────────
+  // ── 1️⃣ FIRST: Validate the ?token= on mount ─────────────────────────────
+  // Replaces the old hash-based invite flow entirely.
   useEffect(() => {
-    const handleInviteHash = async () => {
-      const hash = window.location.hash;
-      if (!hash) return;
-
-      const params = new URLSearchParams(hash.replace("#", ""));
-
-      if (
-        params.get("error") === "access_denied" ||
-        params.get("error_code") === "otp_expired"
-      )
-        return;
-
-      const accessToken = params.get("access_token");
-      const refreshToken = params.get("refresh_token");
-      const type = params.get("type");
-
-      if (type !== "invite" || !accessToken || !refreshToken) return;
-
-      console.log("📧 Invite hash detected — establishing session...");
-
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-
-      if (sessionError) {
-        console.error(
-          "❌ Failed to set session from invite hash:",
-          sessionError,
-        );
-        showError(
-          "Invite link expired",
-          "Your invite link has expired. Please contact support for a new one.",
-        );
+    const validateToken = async () => {
+      // No token in URL — show invalid immediately
+      if (!token) {
+        setInviteStatus("invalid");
         return;
       }
 
-      window.history.replaceState(
-        null,
-        "",
-        `/provider/onboarding${applicationId ? `?application_id=${applicationId}` : ""}`,
-      );
-
-      console.log("✅ Session established from invite link");
-    };
-
-    handleInviteHash();
-  }, []);
-
-  // ── 2️⃣ SECOND: Check session, restore draft, decide starting step ────────
-  useEffect(() => {
-    const checkExistingSession = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const { data, error } = await supabase.functions.invoke(
+          "validate-invite",
+          { body: { token } },
+        );
 
-        if (session?.user) {
-          const userEmail = session.user.email ?? "";
-          const passwordSet = session.user.user_metadata?.password_set === true;
-
-          if (!passwordSet) {
-            // First visit via invite link — always start at step 1
-            setStep(1);
-          } else {
-            // Returning user — restore draft first, then decide step
-            await restoreDraft(session.user.id);
-
-            // If session storage has no step saved, default to step 2
-            const stored = getInitialStep();
-            if (stored <= 1) {
-              setStep(2);
-            }
-          }
-
-          // Preload application data (may be overridden by draft restore above,
-          // but application data fills fields the draft may not have yet)
-          if (applicationId && userEmail) {
-            await preloadFromApplication(applicationId, userEmail);
-          }
+        if (error || !data) {
+          console.error("validate-invite error:", error);
+          setInviteStatus("invalid");
+          return;
         }
+
+        if (!data.valid) {
+          // Map the reason to a specific status for tailored UI messaging
+          const reasonMap: Record<string, InviteStatus> = {
+            expired: "expired",
+            already_used: "used",
+            invalid: "invalid",
+            server_error: "invalid",
+          };
+          setInviteStatus(reasonMap[data.reason] ?? "invalid");
+          return;
+        }
+
+        // Token is valid — store validated context and proceed
+        setValidatedEmail(data.email);
+        setValidatedApplicationId(data.applicationId);
+
+        // Pre-fill email from token so Step 1 is already populated
+        setFormData((prev) => ({ ...prev, email: data.email }));
+
+        // Restore any previously saved draft progress
+        await restoreDraft(data.applicationId);
+
+        // Preload application fields (name, phone, city, category)
+        await preloadFromApplication(data.applicationId, data.email);
+
+        setInviteStatus("valid");
       } catch (err) {
-        console.error("Error checking session on mount:", err);
-      } finally {
-        setIsCheckingSession(false);
+        console.error("Unexpected error validating invite:", err);
+        setInviteStatus("invalid");
       }
     };
 
-    checkExistingSession();
-  }, []);
+    validateToken();
+  }, [token]);
 
-  // ── 3️⃣ THIRD: Clear step on page unload ────────────────────────────────
+  // ── 2️⃣ SECOND: Clear step on page unload ────────────────────────────────
   useEffect(() => {
     const handleUnload = () => {
       sessionStorage.removeItem(STEP_KEY);
@@ -463,53 +412,9 @@ const ProviderOnboarding = () => {
     return () => window.removeEventListener("beforeunload", handleUnload);
   }, []);
 
-  // ── 4️⃣ FOURTH: Handle expired invite link ───────────────────────────────
-  useEffect(() => {
-    const handleExpiredInvite = async () => {
-      const hash = window.location.hash;
-      if (!hash) return;
-
-      const params = new URLSearchParams(hash.replace("#", ""));
-      const type = params.get("type");
-      const error = params.get("error");
-      const errorCode = params.get("error_code");
-
-      const isExpired =
-        (type === "invite" && error === "access_denied") ||
-        errorCode === "otp_expired";
-
-      if (!isExpired || !applicationId) return;
-
-      console.log("⏰ Invite link expired — resetting application to pending");
-      setInviteExpired(true);
-
-      try {
-        const { error: resetError } = await supabase
-          .from("provider_applications")
-          .update({ status: "pending" })
-          .eq("id", applicationId);
-
-        if (resetError) {
-          console.error("Failed to reset application status:", resetError);
-        } else {
-          console.log("✅ Application reset to pending");
-        }
-      } catch (err) {
-        console.error("Unexpected error resetting application:", err);
-      }
-
-      window.history.replaceState(
-        null,
-        "",
-        `/provider/onboarding?application_id=${applicationId}`,
-      );
-    };
-
-    handleExpiredInvite();
-  }, [applicationId]);
-
   // ── Step 1: Account submit ───────────────────────────────────────────────
-  // No draft save needed here — Supabase auth session is the persistence
+  // With custom tokens there is no pre-existing auth session.
+  // We create the auth user here using the service-role via a new edge function.
   const handleAccountSubmit = async (
     email: string,
     password: string,
@@ -517,63 +422,45 @@ const ProviderOnboarding = () => {
     setLoadError(null);
 
     try {
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
+      const { data, error } = await supabase.functions.invoke(
+        "complete-provider-registration",
+        {
+          body: {
+            token,
+            email,
+            password,
+            applicationId: validatedApplicationId,
+          },
+        },
+      );
 
-      if (sessionError) {
-        console.error("Error getting session:", sessionError);
+      if (error || !data?.success) {
+        const msg = data?.error ?? error?.message ?? "Unknown error";
+        console.error("Registration error:", msg);
+        setLoadError("Could not create your account. Please try again.");
+        showError("Registration failed", msg);
+        return false;
       }
 
-      if (!session) {
-        setLoadError(
-          "Your invitation session has expired. Please click the invite link again.",
-        );
+      // Sign the new user in immediately with the password they just set
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) {
+        console.error("Sign-in after registration failed:", signInError);
         showError(
-          "Session expired",
-          "Your invite session is no longer active. Please reopen the link from your email.",
+          "Sign-in failed",
+          "Your account was created but we couldn't sign you in. Try the login page.",
         );
         return false;
       }
 
-      const { error: updateError } = await supabase.auth.updateUser({
-        password,
-        data: { password_set: true },
-      });
-
-      if (updateError) {
-        const msg = String(updateError.message || "").toLowerCase();
-
-        if (msg.includes("different from the old")) {
-          await supabase.auth.updateUser({ data: { password_set: true } });
-          showSuccess(
-            "Account secured",
-            "Your password was already set. Continuing to your profile.",
-          );
-        } else {
-          console.error(
-            "Auth updateUser error during onboarding:",
-            updateError,
-          );
-          setLoadError("Could not set your password. Please try again.");
-          showError(
-            "Password error",
-            updateError.message ||
-              "We were unable to set your password. Please try again.",
-          );
-          return false;
-        }
-      } else {
-        showSuccess(
-          "Account secured",
-          "Your password has been set successfully.",
-        );
-      }
-
-      if (applicationId) {
-        await preloadFromApplication(applicationId, email);
-      }
+      showSuccess(
+        "Account secured",
+        "Your password has been set successfully.",
+      );
 
       setStep(2);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -581,15 +468,12 @@ const ProviderOnboarding = () => {
     } catch (err) {
       console.error("Unexpected error in handleAccountSubmit:", err);
       setLoadError("Unexpected error while creating your account.");
-      showError(
-        "Unexpected error",
-        "Something went wrong while creating your account. Please try again.",
-      );
+      showError("Unexpected error", "Something went wrong. Please try again.");
       return false;
     }
   };
 
-  // ── File upload helper with retry + exponential backoff ──────────────────
+  // ── File upload helper ───────────────────────────────────────────────────
   const uploadFile = async (
     file: File,
     _providerId: string,
@@ -603,10 +487,7 @@ const ProviderOnboarding = () => {
       try {
         const { error } = await supabase.storage
           .from("provider-media")
-          .upload(fileName, file, {
-            upsert: false,
-            cacheControl: "3600",
-          });
+          .upload(fileName, file, { upsert: false, cacheControl: "3600" });
 
         if (!error) return fileName;
 
@@ -630,8 +511,6 @@ const ProviderOnboarding = () => {
   };
 
   // ── Step 2: Save profile draft ───────────────────────────────────────────
-  // Called by OnboardingSteps after validateProfileAndContinue passes.
-  // Uploads the profile photo eagerly so the path is stored in the draft.
   const handleSaveProfileDraft = async (
     profilePatch: Omit<OnboardingDraftPatch, "profilePhotoPath">,
     profilePhotoFile: File | null,
@@ -654,7 +533,7 @@ const ProviderOnboarding = () => {
     await saveStepDraft(2, { ...profilePatch, profilePhotoPath });
   };
 
-  // ── Step 3: Save services draft ──────────────────────────────────────────
+  // ── Step 3–4 draft saves ─────────────────────────────────────────────────
   const handleSaveServicesDraft = async (
     selectedServices: ServiceEntry[],
     pricingModel: string,
@@ -662,14 +541,11 @@ const ProviderOnboarding = () => {
     await saveStepDraft(3, { selectedServices, pricingModel });
   };
 
-  // ── Step 4: Save areas draft ─────────────────────────────────────────────
   const handleSaveAreasDraft = async (areas: string[]): Promise<void> => {
     await saveStepDraft(4, { areas });
   };
 
   // ── Step 5: Eager file upload handlers ──────────────────────────────────
-  // Files are uploaded immediately on selection; paths saved to draft.
-  // Final submit reads these paths instead of re-uploading.
   const handleUploadPortfolio = async (files: File[]): Promise<void> => {
     const compressed = await Promise.all(files.map(compressImage));
     const paths = await batchedUpload(
@@ -682,10 +558,7 @@ const ProviderOnboarding = () => {
 
     setDraftFilePaths((prev) => {
       const merged = [...prev.portfolioPaths, ...validPaths];
-      saveStepDraft(5, {
-        portfolioPaths: merged,
-        idFilePath: prev.idFilePath,
-      });
+      saveStepDraft(5, { portfolioPaths: merged, idFilePath: prev.idFilePath });
       return { ...prev, portfolioPaths: merged };
     });
   };
@@ -731,9 +604,7 @@ const ProviderOnboarding = () => {
         "send-profile-received-email",
         { body: { email, fullName } },
       );
-      if (error) {
-        console.error("Failed to send profile received email:", error);
-      }
+      if (error) console.error("Failed to send profile received email:", error);
     } catch (err) {
       console.error("Unexpected error sending profile received email:", err);
     }
@@ -757,7 +628,6 @@ const ProviderOnboarding = () => {
       }
 
       const slug = generateSlug(profileData.businessName, profileData.fullName);
-
       const yearsInt =
         typeof profileData.experience === "string"
           ? parseInt(profileData.experience, 10) || null
@@ -765,6 +635,7 @@ const ProviderOnboarding = () => {
 
       const providerPayload = {
         user_id: user.id,
+        application_id: validatedApplicationId,
         slug,
         status: "pending_review",
         activated_at: new Date().toISOString(),
@@ -792,15 +663,11 @@ const ProviderOnboarding = () => {
         .single();
 
       if (providerError || !providerInsert) {
-        // Slug collision — retry once with random suffix
+        // Slug collision retry
         if (
           providerError?.code === "23505" &&
           providerError.message.includes("slug")
         ) {
-          console.warn(
-            "[handleSubmitProfile] slug collision — retrying with suffix...",
-          );
-
           const suffix = Math.random().toString(36).slice(2, 6);
           const retrySlug = `${generateSlug(profileData.businessName, profileData.fullName)}-${suffix}`;
 
@@ -811,7 +678,6 @@ const ProviderOnboarding = () => {
             .single();
 
           if (retryError || !retryInsert) {
-            console.error("Retry insert failed:", retryError);
             showError(
               "Submission failed",
               "We could not save your profile. Please try again.",
@@ -820,26 +686,22 @@ const ProviderOnboarding = () => {
           }
 
           await insertRelatedData(profileData, retryInsert.id as string);
+          await markTokenUsed();
           await sendProfileReceivedEmail(
             profileData.email,
             profileData.fullName,
           );
-          await deleteDraft(user.id);
-          showSuccess(
-            "Profile submitted!",
-            "Check your email for instructions on how to access your dashboard.",
-          );
+          await deleteDraft(validatedApplicationId);
+          showSuccess("Profile submitted!", "Check your email for next steps.");
           sessionStorage.removeItem(STEP_KEY);
           navigate("/provider/login");
           return;
         }
 
-        // Phone number duplicate
         if (providerError?.code === "23505") {
-          console.error("Duplicate provider phone number:", providerError);
           showError(
             "Phone already registered",
-            "This phone number is already linked to a provider account. Try logging in or contact support.",
+            "This phone number is already linked to a provider account.",
           );
           return;
         }
@@ -847,22 +709,18 @@ const ProviderOnboarding = () => {
         console.error("Error inserting provider:", providerError);
         showError(
           "Submission failed",
-          "We could not save your main profile. Please try again.",
+          "We could not save your profile. Please try again.",
         );
         return;
       }
 
       const providerId = providerInsert.id as string;
       await insertRelatedData(profileData, providerId);
+      await markTokenUsed();
       await sendProfileReceivedEmail(profileData.email, profileData.fullName);
+      await deleteDraft(validatedApplicationId);
 
-      // ── Draft cleanup — only after all data is safely in the DB ──────────
-      await deleteDraft(user.id);
-
-      showSuccess(
-        "Profile submitted!",
-        "Check your email for instructions on how to access your dashboard.",
-      );
+      showSuccess("Profile submitted!", "Check your email for next steps.");
       sessionStorage.removeItem(STEP_KEY);
       navigate("/provider/login");
     } catch (err) {
@@ -874,14 +732,24 @@ const ProviderOnboarding = () => {
     }
   };
 
+  // ── Mark invite token as used after successful submission ────────────────
+  const markTokenUsed = async (): Promise<void> => {
+    if (!token) return;
+    try {
+      await supabase.functions.invoke("validate-invite", {
+        body: { token, markUsed: true },
+      });
+    } catch (err) {
+      console.warn("Failed to mark token as used (non-critical):", err);
+    }
+  };
+
   // ── Insert services, areas, media ────────────────────────────────────────
-  // Files are already uploaded — we use stored paths from draftFilePaths
-  // instead of re-uploading. Falls back to File objects if paths are missing.
   const insertRelatedData = async (
     profileData: OnboardingData,
     providerId: string,
   ) => {
-    // Services — single batch insert
+    // Services
     if (profileData.selectedServices.length > 0) {
       const servicesPayload = profileData.selectedServices.map((svc) => ({
         provider_id: providerId,
@@ -893,13 +761,11 @@ const ProviderOnboarding = () => {
         is_custom: svc.isCustom,
         service_keywords: [],
       }));
-
-      const { error: servicesError } = await supabase
+      const { error } = await supabase
         .from("provider_services")
         .insert(servicesPayload);
-
-      if (servicesError) {
-        console.error("Error inserting provider_services:", servicesError);
+      if (error) {
+        console.error("Error inserting provider_services:", error);
         showError(
           "Services not saved",
           "We saved your profile but had trouble saving your services.",
@@ -907,20 +773,18 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // Service areas — single batch insert
+    // Service areas
     if (profileData.areas.length > 0) {
       const areasPayload = profileData.areas.map((suburb) => ({
         provider_id: providerId,
         city: profileData.city,
         suburb,
       }));
-
-      const { error: areasError } = await supabase
+      const { error } = await supabase
         .from("provider_service_areas")
         .insert(areasPayload);
-
-      if (areasError) {
-        console.error("Error inserting provider_service_areas:", areasError);
+      if (error) {
+        console.error("Error inserting provider_service_areas:", error);
         showError(
           "Areas not saved",
           "We saved your profile but had trouble saving your service areas.",
@@ -928,10 +792,8 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // ── Profile photo ──────────────────────────────────────────────────────
-    // Use eagerly uploaded path if available, otherwise upload now
+    // Profile photo
     let profilePhotoPath = draftFilePaths.profilePhotoPath ?? null;
-
     if (!profilePhotoPath && profileData.profilePhoto) {
       const compressed = await compressImage(profileData.profilePhoto);
       profilePhotoPath = await uploadFile(
@@ -940,180 +802,141 @@ const ProviderOnboarding = () => {
         `providers/${providerId}/profile`,
       );
     }
-
     if (profilePhotoPath) {
-      // Move from drafts/ folder to providers/ folder for clean storage
       const finalPath = `providers/${providerId}/profile/${crypto.randomUUID()}.${profilePhotoPath.split(".").pop()}`;
       await supabase.storage
         .from("provider-media")
         .copy(profilePhotoPath, finalPath)
         .catch(() => {
-          // If copy fails, use the draft path as-is
           console.warn("Profile photo copy failed — using draft path");
         });
-
       const resolvedPath = finalPath ?? profilePhotoPath;
       const { data: urlData } = supabase.storage
         .from("provider-media")
         .getPublicUrl(resolvedPath);
-      const publicUrl = urlData.publicUrl;
-
-      const { error: mediaError } = await supabase
-        .from("provider_media")
-        .insert({
-          provider_id: providerId,
-          media_type: "profile_photo",
-          file_path: resolvedPath,
-        });
-      if (mediaError) {
-        console.error("Error inserting profile_photo media:", mediaError);
-      }
-
-      const { error: profileImgError } = await supabase
+      await supabase.from("provider_media").insert({
+        provider_id: providerId,
+        media_type: "profile_photo",
+        file_path: resolvedPath,
+      });
+      await supabase
         .from("providers")
-        .update({ profile_image_url: publicUrl })
+        .update({ profile_image_url: urlData.publicUrl })
         .eq("id", providerId);
-      if (profileImgError) {
-        console.error("Error updating profile_image_url:", profileImgError);
-        showError(
-          "Profile photo not linked",
-          "Your photo was uploaded but could not be set as your profile image.",
-        );
-      }
     }
 
-    // ── Portfolio images ───────────────────────────────────────────────────
-    // Use eagerly uploaded paths; fall back to File objects if paths are empty
+    // Portfolio images
     const portfolioPaths = draftFilePaths.portfolioPaths;
-
     if (portfolioPaths.length > 0) {
-      const portfolioPayload = portfolioPaths.map((file_path) => ({
+      const payload = portfolioPaths.map((file_path) => ({
         provider_id: providerId,
         media_type: "portfolio",
         file_path,
       }));
-
-      const { error: portfolioError } = await supabase
-        .from("provider_media")
-        .insert(portfolioPayload);
-      if (portfolioError) {
-        console.error("Error inserting portfolio media:", portfolioError);
+      const { error } = await supabase.from("provider_media").insert(payload);
+      if (error)
         showError(
           "Portfolio not fully saved",
           "Some portfolio images could not be saved.",
         );
-      }
     } else if (profileData.portfolioFiles.length > 0) {
-      // Fallback: upload now (e.g. draft paths were lost)
       const compressed = await Promise.all(
         profileData.portfolioFiles.map(compressImage),
       );
       const paths = await batchedUpload(
         compressed,
-        (file: File) =>
+        (file) =>
           uploadFile(file, providerId, `providers/${providerId}/portfolio`),
         3,
       );
-      const portfolioPayload = paths
+      const payload = paths
         .filter((p): p is string => p !== null)
         .map((file_path) => ({
           provider_id: providerId,
           media_type: "portfolio",
           file_path,
         }));
-
-      if (portfolioPayload.length > 0) {
-        const { error: portfolioError } = await supabase
-          .from("provider_media")
-          .insert(portfolioPayload);
-        if (portfolioError) {
-          console.error("Error inserting portfolio media:", portfolioError);
-          showError(
-            "Portfolio not fully saved",
-            "Some portfolio images could not be saved.",
-          );
-        }
-      }
+      if (payload.length > 0)
+        await supabase.from("provider_media").insert(payload);
     }
 
-    // ── License files — batched parallel upload, no compression (may be PDFs)
+    // License files
     if (profileData.licenseFiles.length > 0) {
       const paths = await batchedUpload(
         profileData.licenseFiles,
-        (file: File) =>
+        (file) =>
           uploadFile(file, providerId, `providers/${providerId}/licenses`),
         3,
       );
-
-      const licensePayload = paths
+      const payload = paths
         .filter((p): p is string => p !== null)
-        .map((file_path: string) => ({
+        .map((file_path) => ({
           provider_id: providerId,
           media_type: "license",
           file_path,
         }));
-
-      if (licensePayload.length > 0) {
-        const { error: licenseError } = await supabase
-          .from("provider_media")
-          .insert(licensePayload);
-        if (licenseError) {
-          console.error("Error inserting license media:", licenseError);
-          showError(
-            "Licenses not fully saved",
-            "Some license documents could not be saved.",
-          );
-        }
-      }
+      if (payload.length > 0)
+        await supabase.from("provider_media").insert(payload);
     }
 
-    // ── ID document ────────────────────────────────────────────────────────
-    // Use eagerly uploaded path; fall back to File object if path is missing
+    // ID document
     const idFilePath = draftFilePaths.idFilePath ?? null;
-
     if (idFilePath) {
-      const { error: idError } = await supabase.from("provider_media").insert({
+      await supabase.from("provider_media").insert({
         provider_id: providerId,
         media_type: "id_document",
         file_path: idFilePath,
       });
-      if (idError) {
-        console.error("Error inserting id_document media:", idError);
-        showError(
-          "ID not saved",
-          "Your ID document was uploaded but could not be saved.",
-        );
-      }
     } else if (profileData.idFile) {
-      // Fallback: upload now
       const path = await uploadFile(
         profileData.idFile,
         providerId,
         `providers/${providerId}/ID`,
       );
-      if (path) {
-        const { error: idError } = await supabase
-          .from("provider_media")
-          .insert({
-            provider_id: providerId,
-            media_type: "id_document",
-            file_path: path,
-          });
-        if (idError) {
-          console.error("Error inserting id_document media:", idError);
-          showError(
-            "ID not saved",
-            "Your ID document was uploaded but could not be saved.",
-          );
-        }
-      }
+      if (path)
+        await supabase.from("provider_media").insert({
+          provider_id: providerId,
+          media_type: "id_document",
+          file_path: path,
+        });
     }
   };
 
   const stepLabels = ["Account", "Profile", "Services", "Areas", "Portfolio"];
 
-  // ── Expired invite screen ────────────────────────────────────────────────
-  if (inviteExpired) {
+  // ── Token status screens ─────────────────────────────────────────────────
+  if (inviteStatus === "checking") {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--color-bg-section)",
+          flexDirection: "column",
+          gap: "16px",
+        }}
+      >
+        <div
+          style={{
+            width: "40px",
+            height: "40px",
+            border: "3px solid var(--color-border)",
+            borderTop: "3px solid var(--color-accent)",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+        <p style={{ color: "var(--color-text-secondary)", fontSize: "15px" }}>
+          Verifying your invite link...
+        </p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  if (inviteStatus === "expired") {
     return (
       <div
         style={{
@@ -1172,10 +995,9 @@ const ProviderOnboarding = () => {
               marginBottom: 28,
             }}
           >
-            Your invitation link was only valid for <strong>24 hours</strong>{" "}
-            and has now expired. Don't worry — the ZimServ team has been
-            notified and will review your application and send you a fresh
-            invite link shortly.
+            Your invitation link was only valid for <strong>72 hours</strong>{" "}
+            and has now expired. Don't worry — contact an admin and they can
+            resend a fresh link instantly.
           </p>
           <div
             style={{
@@ -1188,16 +1010,20 @@ const ProviderOnboarding = () => {
               lineHeight: 1.6,
             }}
           >
-            📬 Keep an eye on your inbox. The new invite will arrive within 24
-            hours.
+            📬 Contact us at{" "}
+            <a
+              href="mailto:support@zimserv.co.zw"
+              style={{ color: "var(--color-accent)" }}
+            >
+              support@zimserv.co.zw
+            </a>
           </div>
         </div>
       </div>
     );
   }
 
-  // ── Checking session screen ──────────────────────────────────────────────
-  if (isCheckingSession) {
+  if (inviteStatus === "used") {
     return (
       <div
         style={{
@@ -1207,29 +1033,163 @@ const ProviderOnboarding = () => {
           justifyContent: "center",
           background: "var(--color-bg-section)",
           fontFamily: "var(--font-primary)",
-          flexDirection: "column",
-          gap: "16px",
+          padding: "40px 20px",
         }}
       >
         <div
           style={{
-            width: "40px",
-            height: "40px",
-            border: "3px solid var(--color-border)",
-            borderTop: "3px solid var(--color-accent)",
-            borderRadius: "50%",
-            animation: "spin 0.8s linear infinite",
+            maxWidth: 480,
+            textAlign: "center",
+            background: "var(--color-bg)",
+            border: "1.5px solid var(--color-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "48px 40px",
+            boxShadow: "var(--shadow-lg)",
           }}
-        />
-        <p style={{ color: "var(--color-text-secondary)", fontSize: "15px" }}>
-          Checking your session...
-        </p>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        >
+          <div
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: "50%",
+              background: "#D1FAE5",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 24px",
+              fontSize: 36,
+            }}
+          >
+            ✅
+          </div>
+          <h1
+            style={{
+              fontFamily: "Fraunces, serif",
+              fontSize: 24,
+              fontWeight: 800,
+              color: "var(--color-primary)",
+              marginBottom: 12,
+            }}
+          >
+            Already Registered
+          </h1>
+          <p
+            style={{
+              color: "var(--color-text-secondary)",
+              fontSize: 15,
+              lineHeight: 1.7,
+              marginBottom: 28,
+            }}
+          >
+            This invite link has already been used to complete registration. Try
+            logging in to your provider account instead.
+          </p>
+          <button
+            onClick={() => navigate("/provider/login")}
+            style={{
+              background: "var(--color-accent)",
+              color: "#fff",
+              padding: "12px 28px",
+              borderRadius: 8,
+              border: "none",
+              fontWeight: 600,
+              fontSize: 15,
+              cursor: "pointer",
+            }}
+          >
+            Go to Login →
+          </button>
+        </div>
       </div>
     );
   }
 
-  // ── Main onboarding UI ───────────────────────────────────────────────────
+  if (inviteStatus === "invalid") {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--color-bg-section)",
+          fontFamily: "var(--font-primary)",
+          padding: "40px 20px",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 480,
+            textAlign: "center",
+            background: "var(--color-bg)",
+            border: "1.5px solid var(--color-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "48px 40px",
+            boxShadow: "var(--shadow-lg)",
+          }}
+        >
+          <div
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: "50%",
+              background: "#FEE2E2",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 24px",
+              fontSize: 36,
+            }}
+          >
+            🔗
+          </div>
+          <h1
+            style={{
+              fontFamily: "Fraunces, serif",
+              fontSize: 24,
+              fontWeight: 800,
+              color: "var(--color-primary)",
+              marginBottom: 12,
+            }}
+          >
+            Invalid Invite Link
+          </h1>
+          <p
+            style={{
+              color: "var(--color-text-secondary)",
+              fontSize: 15,
+              lineHeight: 1.7,
+              marginBottom: 28,
+            }}
+          >
+            This link doesn't look right or may have already been used. Please
+            use the link directly from your invitation email, or contact support
+            for a fresh one.
+          </p>
+          <div
+            style={{
+              padding: "14px 20px",
+              background: "rgba(255,107,53,0.08)",
+              border: "1.5px solid rgba(255,107,53,0.2)",
+              borderRadius: 10,
+              fontSize: 13,
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            📬{" "}
+            <a
+              href="mailto:support@zimserv.co.zw"
+              style={{ color: "var(--color-accent)" }}
+            >
+              support@zimserv.co.zw
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Main onboarding UI (inviteStatus === "valid") ────────────────────────
   return (
     <>
       <SEO
@@ -1264,59 +1224,6 @@ const ProviderOnboarding = () => {
         draftFilePaths={draftFilePaths}
         loadError={loadError}
       />
-
-      {/*
-      
-      {import.meta.env.DEV && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 20,
-            right: 20,
-            zIndex: 9999,
-            background: "#1a1a2e",
-            border: "1.5px solid #ff6b35",
-            borderRadius: 10,
-            padding: "10px 14px",
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              color: "#ff6b35",
-              fontSize: 12,
-              fontWeight: 700,
-              marginRight: 4,
-            }}
-          >
-            DEV
-          </span>
-          {[1, 2, 3, 4, 5].map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                setStep(s);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 6,
-                border: "none",
-                background: currentStep === s ? "#ff6b35" : "#2a2a3e",
-                color: currentStep === s ? "#fff" : "#aaa",
-                fontWeight: 700,
-                cursor: "pointer",
-                fontSize: 13,
-              }}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}*/}
     </>
   );
 };
