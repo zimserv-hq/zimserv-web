@@ -37,6 +37,7 @@ const CITIES = [
   "Victoria Falls",
   "Hwange",
   "Norton",
+  "Zvishavane",
 ];
 
 const BENEFITS = [
