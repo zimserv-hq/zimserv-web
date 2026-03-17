@@ -10,7 +10,6 @@ import OnboardingSteps from "../components/Onboarding/OnboardingSteps";
 import { supabase } from "../lib/supabaseClient";
 import { useToast } from "../contexts/ToastContext";
 
-// ── ServiceEntry type ────────────────────────────────────────────────────────
 export type ServiceEntry = {
   name: string;
   price: string;
@@ -52,7 +51,7 @@ export interface OnboardingData {
   idFile: File | null;
 }
 
-// ── Draft type (what gets persisted to Supabase) ─────────────────────────────
+// What we persist in provider_drafts (paths instead of File objects)
 export interface OnboardingDraftPatch {
   businessName?: string;
   phoneNumber?: string;
@@ -73,15 +72,8 @@ export interface OnboardingDraftPatch {
   idFilePath?: string;
 }
 
-// ── Token validation state ───────────────────────────────────────────────────
-type InviteStatus =
-  | "checking" // validating token on mount
-  | "valid" // token is good, show the form
-  | "expired" // token exists but past expires_at
-  | "used" // token already consumed
-  | "invalid"; // token not found / malformed
-
-const STEP_KEY = "zimserv_onboarding_step";
+// include "checking" here to fix the TS error
+type InviteStatus = "checking" | "valid" | "expired" | "used" | "invalid";
 
 const generateSlug = (businessName: string, fullName: string): string => {
   const rawName = (businessName || fullName).trim();
@@ -124,23 +116,16 @@ const ProviderOnboarding = () => {
   const navigate = useNavigate();
   const { showSuccess, showError, showInfo } = useToast();
 
-  const getInitialStep = () => {
-    try {
-      const saved = sessionStorage.getItem(STEP_KEY);
-      const parsed = saved ? parseInt(saved, 10) : 1;
-      return Number.isNaN(parsed) ? 1 : parsed;
-    } catch {
-      return 1;
-    }
-  };
+  // current step now comes from DB (provider_drafts.step_reached)
+  const [currentStep, setCurrentStep] = useState<number>(1);
 
-  const [currentStep, setCurrentStep] = useState<number>(getInitialStep);
-
-  // ── NEW: token-based invite state ────────────────────────────────────────
   const [inviteStatus, setInviteStatus] = useState<InviteStatus>("checking");
   const [_validatedEmail, setValidatedEmail] = useState<string>("");
   const [validatedApplicationId, setValidatedApplicationId] =
     useState<string>("");
+
+  // separate flag so we can show loading UI until draft+application are loaded
+  const [initializing, setInitializing] = useState<boolean>(true);
 
   const [formData, setFormData] = useState<OnboardingData>({
     email: "",
@@ -177,12 +162,8 @@ const ProviderOnboarding = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const setStep = (step: number) => {
-    setCurrentStep(step);
-    try {
-      sessionStorage.setItem(STEP_KEY, String(step));
-    } catch {
-      // ignore
-    }
+    const safeStep = Math.min(Math.max(step, 1), 5);
+    setCurrentStep(safeStep);
   };
 
   const updateFormData = (data: Partial<OnboardingData>) => {
@@ -201,7 +182,6 @@ const ProviderOnboarding = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // ── Preload application data ─────────────────────────────────────────────
   const preloadFromApplication = async (appId: string, email: string) => {
     try {
       setLoadError(null);
@@ -243,18 +223,23 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── Save step draft ──────────────────────────────────────────────────────
-  // Uses application_id as the key since no auth user exists yet
+  // Save draft keyed by user_id (like old working version)
   const saveStepDraft = async (
     step: number,
     patch: OnboardingDraftPatch,
   ): Promise<void> => {
     try {
-      if (!validatedApplicationId) return;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        console.warn("[saveStepDraft] no authenticated user, skipping");
+        return;
+      }
 
       const { error } = await supabase.from("provider_drafts").upsert(
         {
-          application_id: validatedApplicationId,
+          user_id: user.id,
           step_reached: step,
           business_name: patch.businessName,
           phone_number: patch.phoneNumber,
@@ -275,7 +260,7 @@ const ProviderOnboarding = () => {
           id_file_path: patch.idFilePath,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "application_id" },
+        { onConflict: "user_id" },
       );
 
       if (error) {
@@ -286,16 +271,27 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── Restore draft from Supabase ──────────────────────────────────────────
-  const restoreDraft = async (appId: string): Promise<void> => {
+  // Restore draft by user_id and set step from step_reached
+  const restoreDraft = async (): Promise<void> => {
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        console.log("[restoreDraft] no authenticated user, skipping");
+        return;
+      }
+
       const { data: draft, error } = await supabase
         .from("provider_drafts")
         .select("*")
-        .eq("application_id", appId)
+        .eq("user_id", user.id)
         .single();
 
-      if (error || !draft) return;
+      if (error || !draft) {
+        console.log("[restoreDraft] no draft found", { error, draft });
+        return;
+      }
 
       setFormData((prev) => ({
         ...prev,
@@ -322,37 +318,39 @@ const ProviderOnboarding = () => {
         idFilePath: draft.id_file_path ?? undefined,
       });
 
-      if (draft.step_reached > 1) {
+      if (draft.step_reached && draft.step_reached > 1) {
         setStep(draft.step_reached);
         showInfo?.(
           "Progress restored",
           `We resumed your onboarding from step ${draft.step_reached}.`,
         );
+      } else {
+        setStep(1);
       }
     } catch (e) {
       console.warn("Draft restore threw (non-critical):", e);
     }
   };
 
-  // ── Delete draft after successful final submit ───────────────────────────
-  const deleteDraft = async (appId: string): Promise<void> => {
+  // Delete draft by user_id after successful final submit
+  const deleteDraft = async (): Promise<void> => {
     try {
-      await supabase
-        .from("provider_drafts")
-        .delete()
-        .eq("application_id", appId);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      await supabase.from("provider_drafts").delete().eq("user_id", user.id);
     } catch (e) {
       console.warn("Draft delete threw (non-critical):", e);
     }
   };
 
-  // ── 1️⃣ FIRST: Validate the ?token= on mount ─────────────────────────────
-  // Replaces the old hash-based invite flow entirely.
   useEffect(() => {
     const validateToken = async () => {
-      // No token in URL — show invalid immediately
       if (!token) {
         setInviteStatus("invalid");
+        setInitializing(false);
         return;
       }
 
@@ -365,11 +363,11 @@ const ProviderOnboarding = () => {
         if (error || !data) {
           console.error("validate-invite error:", error);
           setInviteStatus("invalid");
+          setInitializing(false);
           return;
         }
 
         if (!data.valid) {
-          // Map the reason to a specific status for tailored UI messaging
           const reasonMap: Record<string, InviteStatus> = {
             expired: "expired",
             already_used: "used",
@@ -377,44 +375,51 @@ const ProviderOnboarding = () => {
             server_error: "invalid",
           };
           setInviteStatus(reasonMap[data.reason] ?? "invalid");
+          setInitializing(false);
           return;
         }
 
-        // Token is valid — store validated context and proceed
         setValidatedEmail(data.email);
-        setValidatedApplicationId(data.applicationId);
-
-        // Pre-fill email from token so Step 1 is already populated
+        const appIdFromFn = data.applicationId ?? data.application_id;
+        setValidatedApplicationId(appIdFromFn);
         setFormData((prev) => ({ ...prev, email: data.email }));
 
-        // Restore any previously saved draft progress
-        await restoreDraft(data.applicationId);
+        // Check if user is already signed in
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-        // Preload application fields (name, phone, city, category)
-        await preloadFromApplication(data.applicationId, data.email);
+        if (user) {
+          // Returning user – restore draft and at least skip Account (step 1)
+          await restoreDraft();
+          await preloadFromApplication(appIdFromFn, data.email);
 
+          // If restoreDraft already set a higher step, keep it; otherwise force 2.
+          // Since setStep clamps 1–5 and restoreDraft already called setStep,
+          // just forcing 2 here is enough for the “no draft” case.
+          if (currentStep < 2) {
+            setStep(2);
+          }
+
+          setInviteStatus("valid");
+          setInitializing(false);
+          return;
+        }
+
+        // First-time user – only preload application, they start on step 1
+        await preloadFromApplication(appIdFromFn, data.email);
         setInviteStatus("valid");
+        setInitializing(false);
       } catch (err) {
         console.error("Unexpected error validating invite:", err);
         setInviteStatus("invalid");
+        setInitializing(false);
       }
     };
 
     validateToken();
   }, [token]);
 
-  // ── 2️⃣ SECOND: Clear step on page unload ────────────────────────────────
-  useEffect(() => {
-    const handleUnload = () => {
-      sessionStorage.removeItem(STEP_KEY);
-    };
-    window.addEventListener("beforeunload", handleUnload);
-    return () => window.removeEventListener("beforeunload", handleUnload);
-  }, []);
-
-  // ── Step 1: Account submit ───────────────────────────────────────────────
-  // With custom tokens there is no pre-existing auth session.
-  // We create the auth user here using the service-role via a new edge function.
   const handleAccountSubmit = async (
     email: string,
     password: string,
@@ -442,7 +447,7 @@ const ProviderOnboarding = () => {
         return false;
       }
 
-      // Sign the new user in immediately with the password they just set
+      // Sign in so we have a user to update
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -455,6 +460,29 @@ const ProviderOnboarding = () => {
           "Your account was created but we couldn't sign you in. Try the login page.",
         );
         return false;
+      }
+
+      // After sign-in, set display name = full name from application
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (!user || userError) {
+        console.warn("Could not load user to set display name:", userError);
+      } else {
+        // fullName is already in formData from preloadFromApplication
+        const fullName = formData.fullName;
+        if (fullName.trim()) {
+          const { error: metaError } = await supabase.auth.updateUser({
+            data: {
+              display_name: fullName,
+            },
+          });
+          if (metaError) {
+            console.warn("Failed to set display_name:", metaError);
+          }
+        }
       }
 
       showSuccess(
@@ -473,7 +501,6 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── File upload helper ───────────────────────────────────────────────────
   const uploadFile = async (
     file: File,
     _providerId: string,
@@ -510,7 +537,6 @@ const ProviderOnboarding = () => {
     return null;
   };
 
-  // ── Step 2: Save profile draft ───────────────────────────────────────────
   const handleSaveProfileDraft = async (
     profilePatch: Omit<OnboardingDraftPatch, "profilePhotoPath">,
     profilePhotoFile: File | null,
@@ -533,7 +559,6 @@ const ProviderOnboarding = () => {
     await saveStepDraft(2, { ...profilePatch, profilePhotoPath });
   };
 
-  // ── Step 3–4 draft saves ─────────────────────────────────────────────────
   const handleSaveServicesDraft = async (
     selectedServices: ServiceEntry[],
     pricingModel: string,
@@ -545,7 +570,6 @@ const ProviderOnboarding = () => {
     await saveStepDraft(4, { areas });
   };
 
-  // ── Step 5: Eager file upload handlers ──────────────────────────────────
   const handleUploadPortfolio = async (files: File[]): Promise<void> => {
     const compressed = await Promise.all(files.map(compressImage));
     const paths = await batchedUpload(
@@ -597,7 +621,6 @@ const ProviderOnboarding = () => {
     });
   };
 
-  // ── Send "profile received" email ────────────────────────────────────────
   const sendProfileReceivedEmail = async (email: string, fullName: string) => {
     try {
       const { error } = await supabase.functions.invoke(
@@ -610,7 +633,6 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── Step 5: Full profile submit ──────────────────────────────────────────
   const handleSubmitProfile = async (profileData: OnboardingData) => {
     try {
       const {
@@ -635,7 +657,6 @@ const ProviderOnboarding = () => {
 
       const providerPayload = {
         user_id: user.id,
-        application_id: validatedApplicationId,
         slug,
         status: "pending_review",
         activated_at: new Date().toISOString(),
@@ -663,13 +684,15 @@ const ProviderOnboarding = () => {
         .single();
 
       if (providerError || !providerInsert) {
-        // Slug collision retry
         if (
           providerError?.code === "23505" &&
           providerError.message.includes("slug")
         ) {
           const suffix = Math.random().toString(36).slice(2, 6);
-          const retrySlug = `${generateSlug(profileData.businessName, profileData.fullName)}-${suffix}`;
+          const retrySlug = `${generateSlug(
+            profileData.businessName,
+            profileData.fullName,
+          )}-${suffix}`;
 
           const { data: retryInsert, error: retryError } = await supabase
             .from("providers")
@@ -691,9 +714,8 @@ const ProviderOnboarding = () => {
             profileData.email,
             profileData.fullName,
           );
-          await deleteDraft(validatedApplicationId);
+          await deleteDraft();
           showSuccess("Profile submitted!", "Check your email for next steps.");
-          sessionStorage.removeItem(STEP_KEY);
           navigate("/provider/login");
           return;
         }
@@ -718,10 +740,9 @@ const ProviderOnboarding = () => {
       await insertRelatedData(profileData, providerId);
       await markTokenUsed();
       await sendProfileReceivedEmail(profileData.email, profileData.fullName);
-      await deleteDraft(validatedApplicationId);
+      await deleteDraft();
 
       showSuccess("Profile submitted!", "Check your email for next steps.");
-      sessionStorage.removeItem(STEP_KEY);
       navigate("/provider/login");
     } catch (err) {
       console.error("Error submitting provider profile:", err);
@@ -732,7 +753,6 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── Mark invite token as used after successful submission ────────────────
   const markTokenUsed = async (): Promise<void> => {
     if (!token) return;
     try {
@@ -744,12 +764,10 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // ── Insert services, areas, media ────────────────────────────────────────
   const insertRelatedData = async (
     profileData: OnboardingData,
     providerId: string,
   ) => {
-    // Services
     if (profileData.selectedServices.length > 0) {
       const servicesPayload = profileData.selectedServices.map((svc) => ({
         provider_id: providerId,
@@ -773,7 +791,6 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // Service areas
     if (profileData.areas.length > 0) {
       const areasPayload = profileData.areas.map((suburb) => ({
         provider_id: providerId,
@@ -792,7 +809,6 @@ const ProviderOnboarding = () => {
       }
     }
 
-    // Profile photo
     let profilePhotoPath = draftFilePaths.profilePhotoPath ?? null;
     if (!profilePhotoPath && profileData.profilePhoto) {
       const compressed = await compressImage(profileData.profilePhoto);
@@ -803,7 +819,9 @@ const ProviderOnboarding = () => {
       );
     }
     if (profilePhotoPath) {
-      const finalPath = `providers/${providerId}/profile/${crypto.randomUUID()}.${profilePhotoPath.split(".").pop()}`;
+      const finalPath = `providers/${providerId}/profile/${crypto
+        .randomUUID()
+        .toString()}.${profilePhotoPath.split(".").pop()}`;
       await supabase.storage
         .from("provider-media")
         .copy(profilePhotoPath, finalPath)
@@ -825,7 +843,6 @@ const ProviderOnboarding = () => {
         .eq("id", providerId);
     }
 
-    // Portfolio images
     const portfolioPaths = draftFilePaths.portfolioPaths;
     if (portfolioPaths.length > 0) {
       const payload = portfolioPaths.map((file_path) => ({
@@ -860,7 +877,6 @@ const ProviderOnboarding = () => {
         await supabase.from("provider_media").insert(payload);
     }
 
-    // License files
     if (profileData.licenseFiles.length > 0) {
       const paths = await batchedUpload(
         profileData.licenseFiles,
@@ -879,7 +895,6 @@ const ProviderOnboarding = () => {
         await supabase.from("provider_media").insert(payload);
     }
 
-    // ID document
     const idFilePath = draftFilePaths.idFilePath ?? null;
     if (idFilePath) {
       await supabase.from("provider_media").insert({
@@ -904,8 +919,8 @@ const ProviderOnboarding = () => {
 
   const stepLabels = ["Account", "Profile", "Services", "Areas", "Portfolio"];
 
-  // ── Token status screens ─────────────────────────────────────────────────
-  if (inviteStatus === "checking") {
+  // Loading guard: don't render onboarding UI until invite + drafts are loaded
+  if (inviteStatus === "checking" || initializing) {
     return (
       <div
         style={{
@@ -915,23 +930,32 @@ const ProviderOnboarding = () => {
           justifyContent: "center",
           background: "var(--color-bg-section)",
           flexDirection: "column",
-          gap: "16px",
+          gap: "8px",
         }}
       >
-        <div
-          style={{
-            width: "40px",
-            height: "40px",
-            border: "3px solid var(--color-border)",
-            borderTop: "3px solid var(--color-accent)",
-            borderRadius: "50%",
-            animation: "spin 0.8s linear infinite",
-          }}
-        />
-        <p style={{ color: "var(--color-text-secondary)", fontSize: "15px" }}>
-          Verifying your invite link...
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 15 }}>
+          Loading your invite...
         </p>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  if (inviteStatus === "valid" && !validatedApplicationId) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--color-bg-section)",
+          flexDirection: "column",
+          gap: "8px",
+        }}
+      >
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 15 }}>
+          Loading your invite...
+        </p>
       </div>
     );
   }
@@ -1189,7 +1213,6 @@ const ProviderOnboarding = () => {
     );
   }
 
-  // ── Main onboarding UI (inviteStatus === "valid") ────────────────────────
   return (
     <>
       <SEO

@@ -435,15 +435,18 @@ const OnboardingSteps = ({
 
     if (onAccountSubmit) {
       setIsCreatingAccount(true);
-      const ok = await onAccountSubmit(email, password);
-      setIsCreatingAccount(false);
-      if (!ok) return;
-      // ✅ Don't call nextStep() here — handleAccountSubmit in
-      // ProviderOnboarding.tsx already calls setStep(2) on success.
-      return;
+      try {
+        const ok = await onAccountSubmit(email, password);
+        if (!ok) return;
+        // Do NOT call nextStep() here – handleAccountSubmit in
+        // ProviderOnboarding.tsx already calls setStep(2) on success.
+        return;
+      } finally {
+        setIsCreatingAccount(false);
+      }
     }
 
-    // Only reached if no onAccountSubmit prop provided (shouldn't happen in prod)
+    // Fallback: only if no onAccountSubmit provided (shouldn't happen)
     nextStep();
   };
 
