@@ -124,21 +124,20 @@ const SkeletonCard = () => (
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Extended filter type (not part of Application["status"]) ─────────────────
+type FilterStatus = "All" | Application["status"] | "approved_not_onboarded";
+
 const AdminApplications = () => {
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
   const [applications, setApplications] = useState<Application[]>([]);
+  // ── NEW: tracks which application IDs already have a providers row ──────────
+  const [onboardedApplicationIds, setOnboardedApplicationIds] = useState<
+    Set<string>
+  >(new Set());
   const [loading, setLoading] = useState(true);
   const [showFilter, setShowFilter] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<
-    | "All"
-    | "pending"
-    | "approved"
-    | "rejected"
-    | "invite_sent"
-    | "invite_expired"
-    | "onboarding"
-  >("All");
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [selectedApplication, setSelectedApplication] =
@@ -153,18 +152,30 @@ const AdminApplications = () => {
     fetchApplications();
   }, []);
 
+  // ── CHANGED: also fetches providers to know who has completed onboarding ────
   async function fetchApplications() {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("provider_applications")
-        .select(`*, categories(name)`)
-        .order("created_at", { ascending: false });
-      if (error) {
+      const [
+        { data: appsData, error: appsError },
+        { data: providersData, error: providersError },
+      ] = await Promise.all([
+        supabase
+          .from("provider_applications")
+          .select(`*, categories(name)`)
+          .order("created_at", { ascending: false }),
+        supabase.from("providers").select("email"), // ← match on email
+      ]);
+
+      if (appsError || providersError) {
         showError("Load failed", "Failed to load applications.");
         return;
       }
-      setApplications(data || []);
+
+      setApplications(appsData || []);
+      setOnboardedApplicationIds(
+        new Set((providersData ?? []).map((p) => p.email)), // ← store emails
+      );
     } catch (err) {
       showError("Unexpected error", "An unexpected error occurred.");
     } finally {
@@ -244,7 +255,6 @@ const AdminApplications = () => {
       }
 
       // ── Approve / Resend path ──────────────────────────────────────────
-      // Step 1: Set to "approved" (edge fn will flip to "invite_sent")
       const { error: approveError } = await supabase
         .from("provider_applications")
         .update({ status: "approved", reviewed_at: new Date().toISOString() })
@@ -255,7 +265,6 @@ const AdminApplications = () => {
         return;
       }
 
-      // Step 2: Call edge function — sets status to "invite_sent" on success
       const { error: functionError } = await supabase.functions.invoke(
         "send-provider-invite",
         {
@@ -267,7 +276,6 @@ const AdminApplications = () => {
         },
       );
 
-      // Step 3a: Failed — roll back to "pending"
       if (functionError) {
         await supabase
           .from("provider_applications")
@@ -291,7 +299,6 @@ const AdminApplications = () => {
         return;
       }
 
-      // Step 3b: Success — edge fn set status to "invite_sent"; reflect locally
       setApplications((prev) =>
         prev.map((app) =>
           app.id === selectedApplication.id
@@ -318,10 +325,26 @@ const AdminApplications = () => {
     }
   };
 
+  // ── CHANGED: handles the new approved_not_onboarded filter case ─────────────
   const getFilteredApplications = () => {
     let filtered = applications;
-    if (filterStatus !== "All")
-      filtered = filtered.filter((app) => app.status === filterStatus);
+
+    if (filterStatus !== "All") {
+      if (filterStatus === "approved_not_onboarded") {
+        filtered = filtered.filter(
+          (app) =>
+            [
+              "approved",
+              "invite_sent",
+              "invite_expired",
+              "onboarding",
+            ].includes(app.status) && !onboardedApplicationIds.has(app.email), // ← compare by email
+        );
+      } else {
+        filtered = filtered.filter((app) => app.status === filterStatus);
+      }
+    }
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(
@@ -365,7 +388,8 @@ const AdminApplications = () => {
     }
   };
 
-  const getStatusLabel = (status: Application["status"]) => {
+  // ── CHANGED: accepts FilterStatus so the filter btn label works correctly ───
+  const getStatusLabel = (status: FilterStatus) => {
     switch (status) {
       case "invite_sent":
         return "Invite Sent";
@@ -373,6 +397,8 @@ const AdminApplications = () => {
         return "Invite Expired";
       case "onboarding":
         return "Onboarding";
+      case "approved_not_onboarded":
+        return "Approved (not onboarded)";
       default:
         return status;
     }
@@ -420,6 +446,7 @@ const AdminApplications = () => {
       <style>{`
         *, *::before, *::after { box-sizing: border-box; }
 
+
         @keyframes shimmer {
           0%   { background-position: -600px 0; }
           100% { background-position:  600px 0; }
@@ -432,6 +459,7 @@ const AdminApplications = () => {
         }
         :root { --skeleton-base: #f0f0f0; --skeleton-highlight: #e0e0e0; }
         .dark-mode { --skeleton-base: #374151; --skeleton-highlight: #4b5563; }
+
 
         .skeleton-stat-card { border-radius: 16px; padding: 24px; border: 1.5px solid var(--border-color); background: var(--card-bg); min-height: 110px; display: flex; flex-direction: column; justify-content: space-between; }
         .skeleton-stat-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -448,6 +476,7 @@ const AdminApplications = () => {
         .skeleton-actions { display: flex; gap: 8px; }
         .skeleton-btn     { height: 32px; width: 72px; border-radius: 8px; }
 
+
         .admin-applications { padding: 24px; max-width: 1400px; margin: 0 auto; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
         .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
@@ -458,7 +487,7 @@ const AdminApplications = () => {
         .filter-wrapper { position: relative; }
         .filter-btn { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border: 1.5px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-primary); font-family: var(--font-primary); font-size: 14px; font-weight: 600; cursor: pointer; transition: all var(--transition-fast); white-space: nowrap; }
         .filter-btn:hover, .filter-btn.active { border-color: var(--color-accent); color: var(--color-accent); }
-        .filter-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--color-bg); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 100; min-width: 160px; overflow: hidden; }
+        .filter-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--color-bg); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 100; min-width: 200px; overflow: hidden; }
         .filter-option { padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background var(--transition-fast); color: var(--color-primary); }
         .filter-option:hover { background: var(--color-bg-section); }
         .filter-option.active { color: var(--color-accent); font-weight: 700; background: var(--color-accent-soft); }
@@ -588,9 +617,7 @@ const AdminApplications = () => {
               onClick={() => setShowFilter((v) => !v)}
             >
               <Filter size={15} strokeWidth={2.5} />
-              {filterStatus === "All"
-                ? "Filter"
-                : getStatusLabel(filterStatus as Application["status"])}
+              {filterStatus === "All" ? "Filter" : getStatusLabel(filterStatus)}
               {filterStatus !== "All" && (
                 <X
                   size={14}
@@ -608,10 +635,12 @@ const AdminApplications = () => {
                 {(
                   [
                     "All",
+                    "approved_not_onboarded",
                     "pending",
                     "approved",
                     "invite_sent",
                     "invite_expired",
+                    "onboarding",
                     "rejected",
                   ] as const
                 ).map((s) => (
@@ -623,9 +652,7 @@ const AdminApplications = () => {
                       setShowFilter(false);
                     }}
                   >
-                    {s === "All"
-                      ? "All"
-                      : getStatusLabel(s as Application["status"])}
+                    {s === "All" ? "All" : getStatusLabel(s)}
                   </div>
                 ))}
               </div>

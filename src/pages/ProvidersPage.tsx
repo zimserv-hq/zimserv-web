@@ -829,7 +829,7 @@ const ProvidersPage = () => {
 
         .pp-img-wrap {
           position: relative;
-          aspect-ratio: 4 / 3;
+          aspect-ratio: 4 /3;
           overflow: hidden;
           flex-shrink: 0;
         }

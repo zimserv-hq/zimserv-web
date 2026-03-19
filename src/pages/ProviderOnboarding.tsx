@@ -88,7 +88,7 @@ const compressImage = async (file: File): Promise<File> => {
   try {
     return await imageCompression(file, {
       maxSizeMB: 1,
-      maxWidthOrHeight: 1920,
+      maxWidthOrHeight: 800,
       useWebWorker: true,
     });
   } catch {

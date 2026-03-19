@@ -13,6 +13,7 @@ import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 import type { Value as PhoneValue } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import "./OnboardingSteps.css";
+import ImageCropModal from "./ImageCropModal";
 
 interface OnboardingStepsProps {
   currentStep: number;
@@ -164,6 +165,10 @@ const OnboardingSteps = ({
   const [profilePhoto, setProfilePhoto] = useState<File | null>(
     formData.profilePhoto ?? null,
   );
+
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [pendingFileName, setPendingFileName] = useState<string>("");
+
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(
     null,
   );
@@ -645,6 +650,7 @@ const OnboardingSteps = ({
   const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       showError(
         "Invalid file type",
@@ -656,9 +662,29 @@ const OnboardingSteps = ({
       showError("File too large", "Profile photo must be under 5MB.");
       return;
     }
+
+    // Open crop modal instead of setting directly
+    const objectUrl = URL.createObjectURL(file);
+    setCropImageSrc(objectUrl);
+    setPendingFileName(file.name);
+
+    // Reset input so the same file can be re-selected after cancel
+    e.target.value = "";
+  };
+
+  const handleCropConfirm = (croppedFile: File, previewUrl: string) => {
     if (profilePhotoPreview) URL.revokeObjectURL(profilePhotoPreview);
-    setProfilePhotoPreview(URL.createObjectURL(file));
-    setProfilePhoto(file);
+    setProfilePhotoPreview(previewUrl);
+    setProfilePhoto(croppedFile);
+    if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+    setCropImageSrc(null);
+    setPendingFileName("");
+  };
+
+  const handleCropCancel = () => {
+    if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+    setCropImageSrc(null);
+    setPendingFileName("");
   };
 
   const removeProfilePhoto = () => {
@@ -1405,6 +1431,16 @@ const OnboardingSteps = ({
                 {isSavingProfile ? "Saving..." : "Continue to Services"}
               </button>
             </div>
+
+            {/* ── Crop Modal ── */}
+            {cropImageSrc && (
+              <ImageCropModal
+                imageSrc={cropImageSrc}
+                originalFileName={pendingFileName}
+                onConfirm={handleCropConfirm}
+                onCancel={handleCropCancel}
+              />
+            )}
 
             {/* Photo preview modal */}
             {showPhotoModal && profilePhotoPreview && (
