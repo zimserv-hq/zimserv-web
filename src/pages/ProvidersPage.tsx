@@ -30,6 +30,8 @@ type DbProvider = {
   total_reviews: number | null;
   profile_image_url: string | null;
   pricing_model: string | null;
+  phone_number: string | null; // ✅ new
+  whatsapp_number: string | null; // ✅ new
 };
 
 type DbService = {
@@ -68,6 +70,8 @@ type UiProvider = {
   priceValue: number;
   services: ProviderService[];
   matchedService?: ProviderService | null;
+  phone: string; // ✅ new
+  whatsapp: string; // ✅ new
 };
 
 type DbCategory = {
@@ -219,7 +223,7 @@ const ProvidersPage = () => {
         const { data: providersData, error: providersError } = await supabase
           .from("providers")
           .select(
-            "id, slug, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model",
+            "id, slug, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model, phone_number, whatsapp_number",
           )
           .eq("status", "active");
 
@@ -283,6 +287,8 @@ const ProvidersPage = () => {
               priceValue: p.years_experience ?? 0,
               services: providerServices,
               matchedService: null,
+              phone: p.phone_number ?? "",
+              whatsapp: p.whatsapp_number ?? p.phone_number ?? "",
             };
           });
 
@@ -829,7 +835,7 @@ const ProvidersPage = () => {
 
         .pp-img-wrap {
           position: relative;
-          aspect-ratio: 4 /3;
+          aspect-ratio: 4 / 3;
           overflow: hidden;
           flex-shrink: 0;
         }
@@ -1544,31 +1550,41 @@ const ProvidersPage = () => {
                             <button
                               className="pp-btn pp-btn-whatsapp"
                               onClick={(e) =>
-                                handleContactClick(e, () =>
+                                handleContactClick(e, () => {
+                                  const raw =
+                                    provider.whatsapp || provider.phone || "";
+                                  const num = raw.replace(/\D/g, "");
+                                  if (!num) return;
+
+                                  const title = `${provider.name} / ${provider.category}`;
+                                  const prefill = `I'm interested in your ${title} service on ${window.location.href}`;
+                                  const encoded = encodeURIComponent(prefill);
+
                                   window.open(
-                                    `https://wa.me/263${provider.id}`,
+                                    `https://wa.me/${num}?text=${encoded}`,
                                     "_blank",
-                                  ),
-                                )
+                                  );
+                                })
                               }
                             >
                               <MessageCircle size={15} strokeWidth={2} />
                               WhatsApp
                             </button>
+
                             <button
                               className="pp-btn pp-btn-call"
                               onClick={(e) =>
-                                handleContactClick(e, () =>
-                                  window.open(
-                                    `tel:+263${provider.id}`,
-                                    "_self",
-                                  ),
-                                )
+                                handleContactClick(e, () => {
+                                  const raw = provider.phone || "";
+                                  if (!raw) return;
+                                  window.open(`tel:${raw}`, "_self");
+                                })
                               }
                             >
                               <Phone size={15} strokeWidth={2} />
                               Call
                             </button>
+
                             <button
                               className="pp-btn-profile"
                               onClick={(e) => {
