@@ -24,6 +24,7 @@ import {
 import PageHeader from "../../components/Admin/PageHeader";
 import { supabase } from "../../lib/supabaseClient";
 import { useLoadScript } from "@react-google-maps/api";
+import ImageCropModal from "../../components/Onboarding/ImageCropModal";
 
 // ── Keep outside component to avoid re-renders ───────────────────────────────
 const MAPS_LIBRARIES: "places"[] = ["places"];
@@ -353,6 +354,8 @@ const ProviderProfile = () => {
   const [newServicePrice, setNewServicePrice] = useState("");
   const [isUploadingGallery, setIsUploadingGallery] = useState(false);
   const [galleryError, setGalleryError] = useState("");
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [pendingFileName, setPendingFileName] = useState<string>("");
 
   // ── Service areas state ───────────────────────────────────────────────────
   const [serviceAreas, setServiceAreas] = useState<ServiceAreaRow[]>([]);
@@ -901,20 +904,43 @@ const ProviderProfile = () => {
     }));
   };
 
-  const handleProfileImageUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleProfileImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !providerId) return;
     e.target.value = "";
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setSaveError("Only JPG, PNG, or WebP images are allowed.");
+      setTimeout(() => setSaveError(""), 3000);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setSaveError("Profile photo must be under 5MB.");
+      setTimeout(() => setSaveError(""), 3000);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    setCropImageSrc(objectUrl);
+    setPendingFileName(file.name);
+  };
+
+  const handleCropConfirm = async (croppedFile: File, _previewUrl: string) => {
+    if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+    setCropImageSrc(null);
+    setPendingFileName("");
+
+    // Now do the actual upload with the cropped file
+    if (!providerId) return;
     setIsUploadingPhoto(true);
     try {
-      const ext = file.name.split(".").pop();
+      const ext = croppedFile.name.split(".").pop();
       const filePath = `${providerId}/profile/photo_${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("provider-media")
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, croppedFile, { upsert: true });
       if (uploadError) throw uploadError;
+
       const publicUrl = `${getPublicUrl(filePath)}?t=${Date.now()}`;
       await supabase.from("provider_media").upsert(
         {
@@ -929,6 +955,7 @@ const ProviderProfile = () => {
         .from("providers")
         .update({ profile_image_url: publicUrl })
         .eq("id", providerId);
+
       setProfile((prev) => ({ ...prev, profilePhotoUrl: publicUrl }));
       setEditProfile((prev) => ({ ...prev, profilePhotoUrl: publicUrl }));
     } catch (error) {
@@ -938,6 +965,12 @@ const ProviderProfile = () => {
     } finally {
       setIsUploadingPhoto(false);
     }
+  };
+
+  const handleCropCancel = () => {
+    if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+    setCropImageSrc(null);
+    setPendingFileName("");
   };
 
   const handleDeleteProfilePhoto = async () => {
@@ -2335,6 +2368,14 @@ const ProviderProfile = () => {
           </div>
         )}
       </div>
+      {cropImageSrc && (
+        <ImageCropModal
+          imageSrc={cropImageSrc}
+          originalFileName={pendingFileName}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+        />
+      )}
     </>
   );
 };
