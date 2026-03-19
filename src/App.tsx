@@ -12,8 +12,10 @@ import CategoriesPage from "./pages/CategoriesPage";
 import ProviderProfilePage from "./pages/ProviderProfilePage";
 import BecomeProviderPage from "./pages/BecomeProviderPage";
 import ProviderOnboarding from "./pages/ProviderOnboarding";
+import PrivacyPage from "./pages/PrivacyPage";
+import TermsPage from "./pages/TermsPage";
 
-// ✅ NEW: Auth Pages
+// Auth Pages
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import AuthCallbackPage from "./pages/AuthCallbackPage";
@@ -102,10 +104,32 @@ function App() {
           <Route path="profile" element={<ProviderProfile />} />
         </Route>
 
-        {/* ── AUTH — no Header/Footer (standalone pages) ────── */}
+        {/* ── AUTH — standalone, no Header/Footer ───────────── */}
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/signup" element={<SignUpPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+
+        {/* ── LEGAL — with Header/Footer ────────────────────── */}
+        <Route
+          path="/privacy"
+          element={
+            <>
+              <Header />
+              <PrivacyPage />
+              <Footer />
+            </>
+          }
+        />
+        <Route
+          path="/terms"
+          element={
+            <>
+              <Header />
+              <TermsPage />
+              <Footer />
+            </>
+          }
+        />
 
         {/* ── PUBLIC ────────────────────────────────────────── */}
         <Route

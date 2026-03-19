@@ -425,22 +425,10 @@ const Footer = () => {
                 Become a Provider
               </li>
               <li>
-                <a
-                  href="/legal/terms.pdf"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Terms of Service
-                </a>
+                <a href="/terms">Terms of Service</a>
               </li>
               <li>
-                <a
-                  href="/legal/privacy.pdf"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Privacy Policy
-                </a>
+                <a href="/privacy">Privacy Policy</a>
               </li>
             </ul>
           </div>
