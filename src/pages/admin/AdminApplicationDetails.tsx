@@ -1,5 +1,5 @@
 // src/pages/admin/AdminApplicationDetails.tsx
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -45,7 +45,9 @@ type Application = {
     | "approved"
     | "invite_sent"
     | "invite_expired"
+    | "onboarding"
     | "rejected";
+  last_invited_at: string | null;
   created_at: string;
   reviewed_at: string | null;
   reviewed_by: string | null;
@@ -271,20 +273,12 @@ const AdminApplicationDetails = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileLoading, setFileLoading] = useState<"download" | null>(null);
   const [hasProviderProfile, setHasProviderProfile] = useState(false);
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [customCategoryName, setCustomCategoryName] = useState("");
-  const [isAssigningCategory, setIsAssigningCategory] = useState(false);
-
-  const applicationRef = useRef<Application | null>(null);
-  useEffect(() => {
-    applicationRef.current = application;
-  }, [application]);
 
   useEffect(() => {
     if (id) fetchApplication();
   }, [id]);
 
-  // ── FIX 3: Real-time subscription so details auto-updates when list page approves ──
+  // ── Real-time subscription so details auto-updates when list page approves ──
   useEffect(() => {
     if (!id) return;
     const channel = supabase
@@ -338,13 +332,9 @@ const AdminApplicationDetails = () => {
     }
   }
 
-  const isCustomCategory = (app: Application) =>
-    app.primary_category === "Other" && !!app.suggested_category;
-
   const isExpiredResend = (app: Application) => app.status === "invite_expired";
   const isAlreadyRegistered = () => hasProviderProfile;
 
-  // ── FIX 1: Removed "approved" — buttons hide immediately after approval ──
   const canTakeAction = (app: Application) =>
     !isAlreadyRegistered() &&
     ["pending", "invite_expired"].includes(app.status);
@@ -359,6 +349,8 @@ const AdminApplicationDetails = () => {
         return "Invite Sent";
       case "invite_expired":
         return "Invite Expired";
+      case "onboarding":
+        return "Onboarding";
       case "rejected":
         return "Rejected";
       default:
@@ -366,206 +358,96 @@ const AdminApplicationDetails = () => {
     }
   };
 
-  // ── Core approval ─────────────────────────────────────────────────────────
-  const runApproval = async (app: Application) => {
+  // ── Unified confirm handler (mirrors AdminApplications.confirmStatusChange) ──
+  const confirmStatusChange = async () => {
+    if (!application) return;
     setIsProcessing(true);
     try {
-      // ── Race condition guard ───────────────────────────────────────────
-      const { data: fresh, error: freshError } = await supabase
-        .from("provider_applications")
-        .select("status")
-        .eq("id", app.id)
-        .single();
+      // ── Reject path ────────────────────────────────────────────────────
+      if (showRejectModal) {
+        const { error } = await supabase
+          .from("provider_applications")
+          .update({ status: "rejected", reviewed_at: new Date().toISOString() })
+          .eq("id", application.id);
 
-      if (freshError || !fresh) {
-        showError("Fetch failed", "Could not verify application state.");
-        return;
-      }
+        if (error) {
+          showError("Update failed", "Failed to reject application.");
+          return;
+        }
 
-      // ── FIX 2: Removed "approved" — prevents double-approving ─────────
-      const actionableStatuses = ["pending", "invite_expired"];
-      if (!actionableStatuses.includes(fresh.status)) {
-        showError(
-          "Already processed",
-          "This application was already actioned by another admin.",
+        setApplication((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "rejected",
+                reviewed_at: new Date().toISOString(),
+              }
+            : prev,
         );
-        await fetchApplication();
+        setShowRejectModal(false);
+        showSuccess(
+          "Application rejected",
+          "The application has been rejected.",
+        );
         return;
       }
 
-      // ── Step 1: Set to "approved" ────────────────────────────────────
+      // ── Approve / Resend path ──────────────────────────────────────────
       const { error: approveError } = await supabase
         .from("provider_applications")
         .update({ status: "approved", reviewed_at: new Date().toISOString() })
-        .eq("id", app.id);
+        .eq("id", application.id);
 
       if (approveError) {
-        showError("Update failed", "Could not update application status.");
+        showError("Update failed", "Failed to approve application.");
         return;
       }
 
-      // ── Step 2: Call edge function ────────────────────────────────────
-      const { error: fnError } = await supabase.functions.invoke(
+      const { error: functionError } = await supabase.functions.invoke(
         "send-provider-invite",
         {
           body: {
-            applicationId: app.id,
-            email: app.email.toLowerCase(),
-            fullName: app.full_name,
+            applicationId: application.id,
+            email: application.email.toLowerCase(),
+            fullName: application.full_name,
           },
         },
       );
 
-      // ── Step 3a: Failed — roll back to "pending" ─────────────────────
-      if (fnError) {
+      if (functionError) {
         await supabase
           .from("provider_applications")
           .update({ status: "pending", reviewed_at: null })
-          .eq("id", app.id);
+          .eq("id", application.id);
+
+        setApplication((prev) =>
+          prev ? { ...prev, status: "pending", reviewed_at: null } : prev,
+        );
 
         showError(
           "Invite failed",
           "Could not send invitation email. Application was not approved. Please try again.",
         );
-        await fetchApplication();
+        setShowApproveModal(false);
         return;
       }
 
-      // ── Step 3b: Success — stays "approved", refresh UI ──────────────
-      await fetchApplication();
-      setShowApproveModal(false);
-      setShowCategoryModal(false);
-
-      showSuccess(
-        isExpiredResend(app) ? "Invite resent" : "Application approved",
-        `Invitation email sent to ${app.email}.`,
+      setApplication((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "invite_sent",
+              reviewed_at: new Date().toISOString(),
+              last_invited_at: new Date().toISOString(),
+            }
+          : prev,
       );
-    } catch (err) {
-      showError("Unexpected error", "An unexpected error occurred.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
-  // ── Approve handler ───────────────────────────────────────────────────────
-  const handleApprove = async () => {
-    if (!application) return;
-    if (isCustomCategory(application)) {
       setShowApproveModal(false);
-      setShowCategoryModal(true);
-      return;
-    }
-    await runApproval(application);
-  };
-
-  // ── Add suggested as new category then approve ────────────────────────────
-  const handleApproveWithNewCategory = async () => {
-    const app = applicationRef.current;
-    if (!app?.suggested_category) return;
-    setIsAssigningCategory(true);
-    try {
-      const { data: newCat, error: catError } = await supabase
-        .from("categories")
-        .insert({ name: app.suggested_category, status: "Active" })
-        .select()
-        .single();
-
-      if (catError) {
-        showError("Category error", "Failed to create new category.");
-        return;
-      }
-
-      await supabase
-        .from("provider_applications")
-        .update({
-          primary_category: newCat.name,
-          primary_category_id: newCat.id,
-        })
-        .eq("id", app.id);
-
-      const updated: Application = {
-        ...app,
-        primary_category: newCat.name,
-        primary_category_id: newCat.id,
-      };
-      setApplication(updated);
-      applicationRef.current = updated;
-
-      showSuccess("Category created", `"${newCat.name}" added to categories.`);
-      await runApproval(updated);
-    } catch (err) {
-      showError("Unexpected error", "An unexpected error occurred.");
-    } finally {
-      setIsAssigningCategory(false);
-    }
-  };
-
-  // ── Use custom-typed name then approve ────────────────────────────────────
-  const handleApproveWithCustomName = async () => {
-    const app = applicationRef.current;
-    const trimmed = customCategoryName.trim();
-    if (!app || !trimmed) {
-      showError("No name entered", "Please enter a category name.");
-      return;
-    }
-    setIsAssigningCategory(true);
-    try {
-      const { data: newCat, error: catError } = await supabase
-        .from("categories")
-        .insert({ name: trimmed, status: "Active" })
-        .select()
-        .single();
-
-      if (catError) {
-        showError("Category error", "Failed to create category.");
-        return;
-      }
-
-      await supabase
-        .from("provider_applications")
-        .update({
-          primary_category: newCat.name,
-          primary_category_id: newCat.id,
-        })
-        .eq("id", app.id);
-
-      const updated: Application = {
-        ...app,
-        primary_category: newCat.name,
-        primary_category_id: newCat.id,
-      };
-      setApplication(updated);
-      applicationRef.current = updated;
-
-      showSuccess("Category created", `"${newCat.name}" added to categories.`);
-      await runApproval(updated);
-    } catch (err) {
-      showError("Unexpected error", "An unexpected error occurred.");
-    } finally {
-      setIsAssigningCategory(false);
-    }
-  };
-
-  // ── Reject ────────────────────────────────────────────────────────────────
-  const handleReject = async () => {
-    if (!application) return;
-    setIsProcessing(true);
-    try {
-      const { data, error } = await supabase
-        .from("provider_applications")
-        .update({ status: "rejected", reviewed_at: new Date().toISOString() })
-        .eq("id", application.id)
-        .select(`*, categories ( name )`)
-        .single();
-
-      if (error) {
-        showError("Update failed", "Failed to reject application.");
-        return;
-      }
-
-      setApplication(data);
-      setShowRejectModal(false);
-      showSuccess("Application rejected", "The application has been rejected.");
+      showSuccess(
+        isExpiredResend(application) ? "Invite resent" : "Application approved",
+        `Invitation email sent to ${application.email}.`,
+      );
     } catch (err) {
       showError("Unexpected error", "An unexpected error occurred.");
     } finally {
@@ -729,6 +611,9 @@ const AdminApplicationDetails = () => {
                 )}
                 {application.status === "invite_expired" && (
                   <RefreshCw size={14} strokeWidth={2.5} />
+                )}
+                {application.status === "onboarding" && (
+                  <Clock size={14} strokeWidth={2.5} />
                 )}
                 {application.status === "rejected" && (
                   <XCircle size={14} strokeWidth={2.5} />
@@ -910,7 +795,18 @@ const AdminApplicationDetails = () => {
                         <div className="contact-info">
                           <div className="contact-label">WhatsApp</div>
                           <div className="contact-value">
-                            {application.whatsapp_number}
+                            <a
+                              href={`https://wa.me/${application.whatsapp_number.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: "inherit",
+                                textDecoration: "underline",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {application.whatsapp_number}
+                            </a>
                           </div>
                         </div>
                       </div>
@@ -930,17 +826,18 @@ const AdminApplicationDetails = () => {
                       <span className="info-label">Category</span>
                       <span className="info-value">{categoryName}</span>
                     </div>
-                    {isCustomCategory(application) && (
-                      <div className="suggested-category-banner">
-                        <span className="suggested-badge">SUGGESTED</span>
-                        <span className="suggested-name">
-                          {application.suggested_category}
-                        </span>
-                        <span className="suggested-note">
-                          Pending assignment on approval
-                        </span>
-                      </div>
-                    )}
+                    {application.suggested_category &&
+                      application.primary_category === "Other" && (
+                        <div className="suggested-category-banner">
+                          <span className="suggested-badge">SUGGESTED</span>
+                          <span className="suggested-name">
+                            {application.suggested_category}
+                          </span>
+                          <span className="suggested-note">
+                            Pending assignment on approval
+                          </span>
+                        </div>
+                      )}
                   </div>
                 </div>
               </div>
@@ -1086,11 +983,11 @@ const AdminApplicationDetails = () => {
           </div>
         </div>
 
-        {/* ── Standard Modals ───────────────────────────────────────────────── */}
+        {/* ── Modals ────────────────────────────────────────────────────────── */}
         <ConfirmationModal
           isOpen={showApproveModal}
           onClose={() => setShowApproveModal(false)}
-          onConfirm={handleApprove}
+          onConfirm={confirmStatusChange}
           title={
             isExpiredResend(application)
               ? "Resend Invite"
@@ -1098,10 +995,12 @@ const AdminApplicationDetails = () => {
           }
           message={
             isExpiredResend(application)
-              ? `The previous invite for "${application.full_name}" has expired. Send a fresh 24-hour invite link?`
+              ? `The previous invite for "${application.full_name}" has expired. Send a fresh 72-hour invite link?`
               : `Are you sure you want to approve "${application.full_name}"? An invitation email will be sent to complete their provider profile.`
           }
-          confirmLabel={isExpiredResend(application) ? "Resend" : "Approve"}
+          confirmLabel={
+            isExpiredResend(application) ? "Resend" : "Approve & Send Invite"
+          }
           confirmStyle="success"
           icon={isExpiredResend(application) ? RefreshCw : CheckCircle}
           isLoading={isProcessing}
@@ -1109,7 +1008,7 @@ const AdminApplicationDetails = () => {
         <ConfirmationModal
           isOpen={showRejectModal}
           onClose={() => setShowRejectModal(false)}
-          onConfirm={handleReject}
+          onConfirm={confirmStatusChange}
           title="Reject Application"
           message={`Are you sure you want to reject "${application.full_name}"? This action can be reversed later.`}
           confirmLabel="Reject"
@@ -1117,71 +1016,6 @@ const AdminApplicationDetails = () => {
           icon={XCircle}
           isLoading={isProcessing}
         />
-
-        {/* ── Category Assignment Modal ──────────────────────────────────────── */}
-        {showCategoryModal && (
-          <div className="modal-overlay">
-            <div className="modal-box">
-              <h2 className="modal-title">Assign a Category</h2>
-              <p className="modal-subtitle">
-                This applicant suggested:{" "}
-                <strong style={{ color: "var(--orange-primary)" }}>
-                  {application.suggested_category}
-                </strong>
-                . Choose how to proceed:
-              </p>
-
-              <div
-                className="category-option"
-                onClick={handleApproveWithNewCategory}
-              >
-                <div className="category-option-icon">
-                  <CheckCircle size={20} strokeWidth={2.5} />
-                </div>
-                <div className="category-option-content">
-                  <div className="category-option-title">
-                    Use "{application.suggested_category}"
-                  </div>
-                  <div className="category-option-desc">
-                    Add this as a new category and assign it to the provider
-                  </div>
-                </div>
-                {isAssigningCategory && (
-                  <div className="category-option-loading">…</div>
-                )}
-              </div>
-
-              <div className="category-divider">or enter a different name</div>
-
-              <div className="custom-name-row">
-                <input
-                  className="custom-name-input"
-                  placeholder="Enter category name…"
-                  value={customCategoryName}
-                  onChange={(e) => setCustomCategoryName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleApproveWithCustomName();
-                  }}
-                />
-                <button
-                  className="custom-name-btn"
-                  onClick={handleApproveWithCustomName}
-                  disabled={isAssigningCategory || !customCategoryName.trim()}
-                >
-                  {isAssigningCategory ? "…" : "Use This"}
-                </button>
-              </div>
-
-              <button
-                className="modal-cancel-btn"
-                onClick={() => setShowCategoryModal(false)}
-                disabled={isAssigningCategory}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </>
   );
@@ -1243,11 +1077,13 @@ const pageStyles = `
   .status-badge.approved       { background:#d1fae5; color:#065f46; }
   .status-badge.invite-sent    { background:#d1fae5; color:#065f46; }
   .status-badge.invite-expired { background:#fff3cd; color:#b45309; }
+  .status-badge.onboarding     { background:#ede9fe; color:#5b21b6; }
   .status-badge.rejected       { background:#fee2e2; color:#991b1b; }
   .dark-mode .status-badge.pending        { background:rgba(251,191,36,0.2);  color:#fbbf24; }
   .dark-mode .status-badge.approved       { background:rgba(16,185,129,0.2);  color:#10b981; }
   .dark-mode .status-badge.invite-sent    { background:rgba(16,185,129,0.2);  color:#10b981; }
   .dark-mode .status-badge.invite-expired { background:rgba(245,158,11,0.2);  color:#f59e0b; }
+  .dark-mode .status-badge.onboarding     { background:rgba(139,92,246,0.2);  color:#a78bfa; }
   .dark-mode .status-badge.rejected       { background:rgba(239,68,68,0.2);   color:#ef4444; }
 
   .header-actions { display:flex; gap:12px; }
@@ -1282,6 +1118,7 @@ const pageStyles = `
   .contact-info { flex:1; }
   .contact-label { font-size:12px; color:var(--text-secondary); margin-bottom:4px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; }
   .contact-value { font-size:14px; color:var(--text-primary); font-weight:600; }
+  .contact-value a:hover { color:var(--orange-primary); }
 
   .description-text { color:var(--text-secondary); line-height:1.8; font-size:15px; background:var(--chip-bg); padding:16px; border-radius:12px; margin:0; }
 
@@ -1302,26 +1139,6 @@ const pageStyles = `
   .suggested-badge { font-size:11px; font-weight:700; background:var(--orange-light-bg); color:var(--orange-primary); padding:2px 8px; border-radius:999px; flex-shrink:0; }
   .suggested-name { font-size:14px; font-weight:600; color:var(--text-primary); flex:1; }
   .suggested-note { font-size:12px; color:var(--text-secondary); margin-left:auto; white-space:nowrap; }
-
-  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; }
-  .modal-box { background:var(--card-bg); border-radius:16px; padding:32px; max-width:500px; width:100%; border:1.5px solid var(--border-color); box-shadow:0 20px 60px rgba(0,0,0,0.2); display:flex; flex-direction:column; gap:12px; }
-  .modal-title { font-size:20px; font-weight:700; color:var(--text-primary); margin:0 0 4px; }
-  .modal-subtitle { font-size:14px; color:var(--text-secondary); line-height:1.6; margin:0; }
-  .category-option { display:flex; align-items:center; gap:14px; padding:16px; border:1.5px solid var(--border-color); border-radius:12px; cursor:pointer; transition:all 0.2s ease; }
-  .category-option:hover { border-color:var(--orange-primary); background:var(--orange-light-bg); }
-  .category-option-icon { color:var(--orange-primary); flex-shrink:0; }
-  .category-option-title { font-size:14px; font-weight:700; color:var(--text-primary); margin-bottom:3px; }
-  .category-option-desc { font-size:13px; color:var(--text-secondary); }
-  .category-option-loading { font-size:18px; color:var(--text-secondary); }
-  .category-divider { text-align:center; font-size:13px; color:var(--text-tertiary); font-weight:500; padding:4px 0; }
-  .custom-name-row { display:flex; gap:8px; }
-  .custom-name-input { flex:1; padding:10px 14px; border:1.5px solid var(--border-color); border-radius:10px; background:var(--card-bg); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none; }
-  .custom-name-input:focus { border-color:var(--orange-primary); }
-  .custom-name-btn { padding:10px 18px; border:none; border-radius:10px; background:var(--orange-primary); color:#fff; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; transition:all 0.2s ease; }
-  .custom-name-btn:hover:not(:disabled) { background:#e85a28; }
-  .custom-name-btn:disabled { opacity:0.5; cursor:not-allowed; }
-  .modal-cancel-btn { padding:10px; border:none; background:transparent; color:var(--text-secondary); font-size:14px; cursor:pointer; border-radius:8px; transition:all 0.15s ease; }
-  .modal-cancel-btn:hover:not(:disabled) { background:var(--hover-bg); }
 
   .timeline { position:relative; }
   .timeline-item { position:relative; padding-left:40px; padding-bottom:28px; }
@@ -1359,7 +1176,6 @@ const pageStyles = `
     .file-actions { width:100%; }
     .file-btn { flex:1; justify-content:center; }
     .suggested-note { display:none; }
-    .modal-box { padding:24px; }
     .resend-banner { flex-direction:column; align-items:flex-start; }
     .resend-btn { width:100%; justify-content:center; }
   }

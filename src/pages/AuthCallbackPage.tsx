@@ -1,15 +1,33 @@
 // src/pages/AuthCallbackPage.tsx
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
 const AuthCallbackPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // ✅ onAuthStateChange waits for Supabase to finish the OAuth token exchange
-    // before firing — getSession() fires immediately and can return null too early
+    const tokenHash = searchParams.get("token_hash");
+    const type = searchParams.get("type");
+
+    // ✅ Password reset flow — handle before OAuth listener
+    if (tokenHash && type === "recovery") {
+      supabase.auth
+        .verifyOtp({ token_hash: tokenHash, type: "recovery" })
+        .then(({ error }) => {
+          if (error) {
+            setError("This reset link has expired or is invalid.");
+            setTimeout(() => navigate("/signin"), 3000);
+          } else {
+            navigate("/reset-password", { replace: true });
+          }
+        });
+      return; // ✅ Stop here — don't run the OAuth listener below
+    }
+
+    // ✅ Google OAuth flow — unchanged from your original
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -21,17 +39,14 @@ const AuthCallbackPage = () => {
         } else if (role === "provider") {
           navigate("/provider/dashboard", { replace: true });
         } else {
-          // ✅ Read returnTo saved before OAuth redirect
           const returnTo = sessionStorage.getItem("returnTo");
           sessionStorage.removeItem("returnTo");
           navigate(returnTo || "/", { replace: true });
         }
 
-        return; // stop processing after redirect
+        return;
       }
 
-      // ✅ Only treat it as an error after INITIAL_SESSION fires with no session
-      // Avoids false-positive errors on the first render tick
       if (event === "INITIAL_SESSION" && !session) {
         setError("Sign in failed. Please try again.");
         setTimeout(() => navigate("/signin"), 3000);
@@ -39,7 +54,7 @@ const AuthCallbackPage = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate]); // ✅ searchParams intentionally omitted — runs once on mount
 
   return (
     <div
