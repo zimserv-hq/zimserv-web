@@ -31,7 +31,7 @@ const ResetPasswordPage = () => {
       setError(error.message);
     } else {
       setSuccess(true);
-      setTimeout(() => navigate("/dashboard"), 2500);
+      setTimeout(() => navigate("/provider/login"), 2500);
     }
 
     setLoading(false);
