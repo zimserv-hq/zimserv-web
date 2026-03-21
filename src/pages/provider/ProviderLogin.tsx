@@ -247,9 +247,6 @@ const ProviderLogin = () => {
         <div className="pv-login-left">
           <div className="pv-brand-section">
             <div className="pv-brand-logo-wrapper">
-              <div className="pv-brand-logo">
-                <span className="pv-brand-logo-text">Z</span>
-              </div>
               <div>
                 <div className="pv-brand-name">
                   <span className="pv-brand-name-zim">ZIM</span>

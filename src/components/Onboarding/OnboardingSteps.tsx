@@ -50,53 +50,6 @@ interface OnboardingStepsProps {
   };
 }
 
-// ── Eye toggle SVG helpers ───────────────────────────────────────────────────
-const EyeIcon = (
-  <svg
-    width={20}
-    height={20}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-    <circle cx={12} cy={12} r={3} />
-  </svg>
-);
-const EyeOffIcon = (
-  <svg
-    width={20}
-    height={20}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-    <line x1={1} y1={1} x2={23} y2={23} />
-  </svg>
-);
-
-const eyeButtonStyle: React.CSSProperties = {
-  position: "absolute",
-  right: 12,
-  top: "50%",
-  transform: "translateY(-50%)",
-  background: "none",
-  border: "none",
-  cursor: "pointer",
-  padding: 0,
-  color: "var(--color-text-secondary)",
-  display: "flex",
-  alignItems: "center",
-};
-
 // ── Block non-integer keystrokes (e, +, -, .) ────────────────────────────────
 const blockNonInteger = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault();
@@ -115,9 +68,9 @@ const OnboardingSteps = ({
   updateFormData,
   nextStep,
   prevStep,
-  onAccountSubmit,
+
   onSubmitProfile,
-  loadError,
+
   onSaveProfileDraft,
   onSaveServicesDraft,
   onSaveAreasDraft,
@@ -138,18 +91,6 @@ const OnboardingSteps = ({
   const areaAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(
     null,
   );
-
-  // ── Step 1: Account ──────────────────────────────────────────────────────
-  const [email, setEmail] = useState(formData.email);
-  const [password, setPassword] = useState(formData.password);
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [passwordStrength, setPasswordStrength] = useState<
-    "weak" | "medium" | "strong" | null
-  >(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
   // ── Step 2: Profile ──────────────────────────────────────────────────────
   const [teamSize, setTeamSize] = useState(formData.teamSize);
@@ -324,30 +265,6 @@ const OnboardingSteps = ({
     };
   }, [portfolioPreviews]);
 
-  // ── Password strength ────────────────────────────────────────────────────
-  const checkPasswordStrength = (
-    pwd: string,
-  ): "weak" | "medium" | "strong" | null => {
-    if (!pwd) return null;
-    let score = 0;
-    if (/[A-Z]/.test(pwd)) score++;
-    if (/[a-z]/.test(pwd)) score++;
-    if (/[0-9]/.test(pwd)) score++;
-    if (/[^A-Za-z0-9]/.test(pwd)) score++;
-    if (pwd.length >= 8) score++;
-    if (score >= 4) return "strong";
-    if (score >= 3) return "medium";
-    return "weak";
-  };
-
-  useEffect(() => {
-    setPasswordStrength(checkPasswordStrength(password));
-  }, [password]);
-
-  const isValidEmail = (val: string) => /\S+@\S+\.\S+/.test(val);
-  const isStrongPassword = (pwd: string) =>
-    /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /[0-9]/.test(pwd);
-
   // ── Language helpers ─────────────────────────────────────────────────────
   const toggleQuickLanguage = (lang: string) => {
     if (languages.some((l) => l.toLowerCase() === lang.toLowerCase())) {
@@ -398,61 +315,6 @@ const OnboardingSteps = ({
   const removeLanguage = (lang: string) => {
     const updated = languages.filter((l) => l !== lang);
     setLanguages(updated.length === 0 ? ["English"] : updated);
-  };
-
-  // ── Step 1 validation ────────────────────────────────────────────────────
-  const validateAccountAndContinue = async () => {
-    if (!email || !password || !confirmPassword) {
-      showError("Missing fields", "Please fill in all required fields.");
-      return;
-    }
-    if (!isValidEmail(email)) {
-      showError("Invalid email", "Please enter a valid email address.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      showError("Password mismatch", "Passwords do not match.");
-      return;
-    }
-    if (password.length < 8) {
-      showError(
-        "Weak password",
-        "Password must be at least 8 characters long.",
-      );
-      return;
-    }
-    if (!isStrongPassword(password)) {
-      showError(
-        "Weak password",
-        "Password must contain uppercase, lowercase, and numbers.",
-      );
-      return;
-    }
-    if (!termsAccepted) {
-      showError(
-        "Terms not accepted",
-        "You must accept the Terms of Service and Privacy Policy.",
-      );
-      return;
-    }
-
-    updateFormData({ email, password });
-
-    if (onAccountSubmit) {
-      setIsCreatingAccount(true);
-      try {
-        const ok = await onAccountSubmit(email, password);
-        if (!ok) return;
-        // Do NOT call nextStep() here – handleAccountSubmit in
-        // ProviderOnboarding.tsx already calls setStep(2) on success.
-        return;
-      } finally {
-        setIsCreatingAccount(false);
-      }
-    }
-
-    // Fallback: only if no onAccountSubmit provided (shouldn't happen)
-    nextStep();
   };
 
   // ── Step 2 validation + draft save ──────────────────────────────────────
@@ -789,8 +651,6 @@ const OnboardingSteps = ({
     setIsSubmitting(true);
     const profileData: OnboardingData = {
       ...formData,
-      email,
-      password,
       fullName,
       businessName,
       phoneNumber: phone ?? "",
@@ -870,135 +730,6 @@ const OnboardingSteps = ({
             })}
           </div>
         </div>
-
-        {/* ── STEP 1: Account ─────────────────────────────────────────────── */}
-        {currentStep === 1 && (
-          <div className="form-section">
-            <h2 className="form-title">Create Your Account</h2>
-            <p className="form-description">
-              Set up your login credentials to access your ZimServ provider
-              dashboard.
-            </p>
-            {loadError && (
-              <div
-                className="input-error"
-                style={{ marginBottom: 12, fontWeight: 500 }}
-              >
-                {loadError}
-              </div>
-            )}
-            <div className="form-group">
-              <label className="form-label required">Email Address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your.email@example.com"
-                className="form-input"
-              />
-              <span className="input-hint">
-                Use the same email you used to apply.
-              </span>
-            </div>
-            <div className="form-group">
-              <label className="form-label required">Create Password</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter a strong password"
-                  className="form-input"
-                  style={{ paddingRight: 42 }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((p) => !p)}
-                  style={eyeButtonStyle}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? EyeOffIcon : EyeIcon}
-                </button>
-              </div>
-              <span className="input-hint">
-                At least 8 characters with uppercase, lowercase, and numbers.
-              </span>
-              {passwordStrength && (
-                <div className="password-strength">
-                  <div className="strength-bar">
-                    <div className={`strength-bar-fill ${passwordStrength}`} />
-                  </div>
-                  <div className="strength-text">
-                    {passwordStrength === "weak"
-                      ? "Weak password"
-                      : passwordStrength === "medium"
-                        ? "Medium password"
-                        : "Strong password"}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="form-group">
-              <label className="form-label required">Confirm Password</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Re-enter your password"
-                  className="form-input"
-                  style={{ paddingRight: 42 }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword((p) => !p)}
-                  style={eyeButtonStyle}
-                  aria-label={
-                    showConfirmPassword ? "Hide password" : "Show password"
-                  }
-                >
-                  {showConfirmPassword ? EyeOffIcon : EyeIcon}
-                </button>
-              </div>
-            </div>
-            <div className="checkbox-wrapper">
-              <input
-                type="checkbox"
-                checked={termsAccepted}
-                onChange={(e) => setTermsAccepted(e.target.checked)}
-                className="form-checkbox"
-              />
-              <label className="checkbox-label">
-                I agree to ZimServ&apos;s{" "}
-                <a href="/legal/terms.pdf" target="_blank" rel="noreferrer">
-                  Terms of Service
-                </a>{" "}
-                and{" "}
-                <a href="/legal/privacy.pdf" target="_blank" rel="noreferrer">
-                  Privacy Policy
-                </a>
-                .
-              </label>
-            </div>
-            <div className="form-actions">
-              <button
-                onClick={() => window.history.back()}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={validateAccountAndContinue}
-                className="btn-primary"
-                disabled={isCreatingAccount}
-              >
-                {isCreatingAccount
-                  ? "Creating account..."
-                  : "Create Account & Continue"}
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* ── STEP 2: Profile ──────────────────────────────────────────────── */}
         {currentStep === 2 && (
