@@ -1,8 +1,8 @@
 // Location: src/pages/ProviderOnboarding.tsx
-// Provider onboarding flow for approved providers to complete their profile
+// Provider onboarding flow — starts immediately after application submission
 
 import { useState, useEffect } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import imageCompression from "browser-image-compression";
 import SEO from "../components/SEO";
 import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
@@ -17,11 +17,8 @@ export type ServiceEntry = {
 };
 
 export interface OnboardingData {
-  // Step 1: Account
-  email: string;
-  password: string;
-
   // Step 2: Profile
+  email: string;
   fullName: string;
   businessName: string;
   phoneNumber: string;
@@ -51,7 +48,6 @@ export interface OnboardingData {
   idFile: File | null;
 }
 
-// What we persist in provider_drafts (paths instead of File objects)
 export interface OnboardingDraftPatch {
   businessName?: string;
   phoneNumber?: string;
@@ -71,9 +67,6 @@ export interface OnboardingDraftPatch {
   portfolioPaths?: string[];
   idFilePath?: string;
 }
-
-// include "checking" here to fix the TS error
-type InviteStatus = "checking" | "valid" | "expired" | "used" | "invalid";
 
 const generateSlug = (businessName: string, fullName: string): string => {
   const rawName = (businessName || fullName).trim();
@@ -111,25 +104,16 @@ const batchedUpload = async <T,>(
 };
 
 const ProviderOnboarding = () => {
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get("token");
   const navigate = useNavigate();
   const { showSuccess, showError, showInfo } = useToast();
 
-  // current step now comes from DB (provider_drafts.step_reached)
-  const [currentStep, setCurrentStep] = useState<number>(1);
-
-  const [inviteStatus, setInviteStatus] = useState<InviteStatus>("checking");
-  const [_validatedEmail, setValidatedEmail] = useState<string>("");
-  const [validatedApplicationId, setValidatedApplicationId] =
-    useState<string>("");
-
-  // separate flag so we can show loading UI until draft+application are loaded
+  const [currentStep, setCurrentStep] = useState<number>(2);
+  const [, setValidatedApplicationId] = useState<string>("");
   const [initializing, setInitializing] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<OnboardingData>({
     email: "",
-    password: "",
     fullName: "",
     businessName: "",
     phoneNumber: "",
@@ -159,10 +143,9 @@ const ProviderOnboarding = () => {
     idFilePath?: string;
   }>({ portfolioPaths: [] });
 
-  const [loadError, setLoadError] = useState<string | null>(null);
-
   const setStep = (step: number) => {
-    const safeStep = Math.min(Math.max(step, 1), 5);
+    // Step 1 (Account) no longer exists — clamp between 2 and 5
+    const safeStep = Math.min(Math.max(step, 2), 5);
     setCurrentStep(safeStep);
   };
 
@@ -177,7 +160,7 @@ const ProviderOnboarding = () => {
   };
 
   const prevStep = () => {
-    const prev = Math.max(currentStep - 1, 1);
+    const prev = Math.max(currentStep - 1, 2);
     setStep(prev);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -223,7 +206,6 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // Save draft keyed by user_id (like old working version)
   const saveStepDraft = async (
     step: number,
     patch: OnboardingDraftPatch,
@@ -232,10 +214,7 @@ const ProviderOnboarding = () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) {
-        console.warn("[saveStepDraft] no authenticated user, skipping");
-        return;
-      }
+      if (!user) return;
 
       const { error } = await supabase.from("provider_drafts").upsert(
         {
@@ -271,16 +250,12 @@ const ProviderOnboarding = () => {
     }
   };
 
-  // Restore draft by user_id and set step from step_reached
-  const restoreDraft = async (): Promise<void> => {
+  const restoreDraft = async (): Promise<number> => {
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) {
-        console.log("[restoreDraft] no authenticated user, skipping");
-        return;
-      }
+      if (!user) return 2;
 
       const { data: draft, error } = await supabase
         .from("provider_drafts")
@@ -288,10 +263,7 @@ const ProviderOnboarding = () => {
         .eq("user_id", user.id)
         .single();
 
-      if (error || !draft) {
-        console.log("[restoreDraft] no draft found", { error, draft });
-        return;
-      }
+      if (error || !draft) return 2;
 
       setFormData((prev) => ({
         ...prev,
@@ -318,188 +290,74 @@ const ProviderOnboarding = () => {
         idFilePath: draft.id_file_path ?? undefined,
       });
 
-      if (draft.step_reached && draft.step_reached > 1) {
-        setStep(draft.step_reached);
-        showInfo?.(
-          "Progress restored",
-          `We resumed your onboarding from step ${draft.step_reached}.`,
-        );
-      } else {
-        setStep(1);
-      }
+      return Math.max(draft.step_reached ?? 2, 2);
     } catch (e) {
       console.warn("Draft restore threw (non-critical):", e);
+      return 2;
     }
   };
 
-  // Delete draft by user_id after successful final submit
   const deleteDraft = async (): Promise<void> => {
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-
       await supabase.from("provider_drafts").delete().eq("user_id", user.id);
     } catch (e) {
       console.warn("Draft delete threw (non-critical):", e);
     }
   };
 
+  // ── Init: verify session and load data ───────────────────────────────────
   useEffect(() => {
-    const validateToken = async () => {
-      if (!token) {
-        setInviteStatus("invalid");
-        setInitializing(false);
+    const init = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        // Not signed in — send them to apply
+        navigate("/become-provider");
         return;
       }
 
-      try {
-        const { data, error } = await supabase.functions.invoke(
-          "validate-invite",
-          { body: { token } },
+      const applicationId = user.user_metadata?.application_id as
+        | string
+        | undefined;
+
+      if (!applicationId) {
+        showError(
+          "Session error",
+          "Could not find your application. Please re-apply or contact support.",
         );
-
-        if (error || !data) {
-          console.error("validate-invite error:", error);
-          setInviteStatus("invalid");
-          setInitializing(false);
-          return;
-        }
-
-        if (!data.valid) {
-          const reasonMap: Record<string, InviteStatus> = {
-            expired: "expired",
-            already_used: "used",
-            invalid: "invalid",
-            server_error: "invalid",
-          };
-          setInviteStatus(reasonMap[data.reason] ?? "invalid");
-          setInitializing(false);
-          return;
-        }
-
-        setValidatedEmail(data.email);
-        const appIdFromFn = data.applicationId ?? data.application_id;
-        setValidatedApplicationId(appIdFromFn);
-        setFormData((prev) => ({ ...prev, email: data.email }));
-
-        // Check if user is already signed in
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (user) {
-          // Returning user – restore draft and at least skip Account (step 1)
-          await restoreDraft();
-          await preloadFromApplication(appIdFromFn, data.email);
-
-          // If restoreDraft already set a higher step, keep it; otherwise force 2.
-          // Since setStep clamps 1–5 and restoreDraft already called setStep,
-          // just forcing 2 here is enough for the “no draft” case.
-          if (currentStep < 2) {
-            setStep(2);
-          }
-
-          setInviteStatus("valid");
-          setInitializing(false);
-          return;
-        }
-
-        // First-time user – only preload application, they start on step 1
-        await preloadFromApplication(appIdFromFn, data.email);
-        setInviteStatus("valid");
-        setInitializing(false);
-      } catch (err) {
-        console.error("Unexpected error validating invite:", err);
-        setInviteStatus("invalid");
-        setInitializing(false);
+        navigate("/become-provider");
+        return;
       }
+
+      setValidatedApplicationId(applicationId);
+
+      // Restore draft first (returns the step to resume at)
+      const restoredStep = await restoreDraft();
+
+      // Preload application data (fills email, fullName, city, etc.)
+      await preloadFromApplication(applicationId, user.email ?? "");
+
+      // Set step from draft, or start at 2
+      setCurrentStep(restoredStep);
+
+      if (restoredStep > 2) {
+        showInfo?.(
+          "Progress restored",
+          `We resumed your onboarding from step ${restoredStep}.`,
+        );
+      }
+
+      setInitializing(false);
     };
 
-    validateToken();
-  }, [token]);
-
-  const handleAccountSubmit = async (
-    email: string,
-    password: string,
-  ): Promise<boolean> => {
-    setLoadError(null);
-
-    try {
-      const { data, error } = await supabase.functions.invoke(
-        "complete-provider-registration",
-        {
-          body: {
-            token,
-            email,
-            password,
-            applicationId: validatedApplicationId,
-          },
-        },
-      );
-
-      if (error || !data?.success) {
-        const msg = data?.error ?? error?.message ?? "Unknown error";
-        console.error("Registration error:", msg);
-        setLoadError("Could not create your account. Please try again.");
-        showError("Registration failed", msg);
-        return false;
-      }
-
-      // Sign in so we have a user to update
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInError) {
-        console.error("Sign-in after registration failed:", signInError);
-        showError(
-          "Sign-in failed",
-          "Your account was created but we couldn't sign you in. Try the login page.",
-        );
-        return false;
-      }
-
-      // After sign-in, set display name = full name from application
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (!user || userError) {
-        console.warn("Could not load user to set display name:", userError);
-      } else {
-        // fullName is already in formData from preloadFromApplication
-        const fullName = formData.fullName;
-        if (fullName.trim()) {
-          const { error: metaError } = await supabase.auth.updateUser({
-            data: {
-              display_name: fullName,
-            },
-          });
-          if (metaError) {
-            console.warn("Failed to set display_name:", metaError);
-          }
-        }
-      }
-
-      showSuccess(
-        "Account secured",
-        "Your password has been set successfully.",
-      );
-
-      setStep(2);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return true;
-    } catch (err) {
-      console.error("Unexpected error in handleAccountSubmit:", err);
-      setLoadError("Unexpected error while creating your account.");
-      showError("Unexpected error", "Something went wrong. Please try again.");
-      return false;
-    }
-  };
+    init();
+  }, []);
 
   const uploadFile = async (
     file: File,
@@ -641,7 +499,6 @@ const ProviderOnboarding = () => {
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        console.error("No authenticated user for onboarding:", userError);
         showError(
           "Not signed in",
           "You need to be signed in to submit your profile.",
@@ -709,11 +566,18 @@ const ProviderOnboarding = () => {
           }
 
           await insertRelatedData(profileData, retryInsert.id as string);
-          await markTokenUsed();
           await sendProfileReceivedEmail(
             profileData.email,
             profileData.fullName,
           );
+
+          // notify admin after successful onboarding (slug retry branch)
+          supabase.functions
+            .invoke("notify-new-application", {
+              body: { fullName: profileData.fullName },
+            })
+            .catch((err) => console.warn("Admin notification failed:", err));
+
           await deleteDraft();
           showSuccess("Profile submitted!", "Check your email for next steps.");
           navigate("/provider/login");
@@ -738,8 +602,15 @@ const ProviderOnboarding = () => {
 
       const providerId = providerInsert.id as string;
       await insertRelatedData(profileData, providerId);
-      await markTokenUsed();
       await sendProfileReceivedEmail(profileData.email, profileData.fullName);
+
+      // notify admin after successful onboarding (normal branch)
+      supabase.functions
+        .invoke("notify-new-application", {
+          body: { fullName: profileData.fullName },
+        })
+        .catch((err) => console.warn("Admin notification failed:", err));
+
       await deleteDraft();
 
       showSuccess("Profile submitted!", "Check your email for next steps.");
@@ -750,17 +621,6 @@ const ProviderOnboarding = () => {
         "Submission failed",
         "We could not save your profile. Please try again.",
       );
-    }
-  };
-
-  const markTokenUsed = async (): Promise<void> => {
-    if (!token) return;
-    try {
-      await supabase.functions.invoke("validate-invite", {
-        body: { token, markUsed: true },
-      });
-    } catch (err) {
-      console.warn("Failed to mark token as used (non-critical):", err);
     }
   };
 
@@ -819,9 +679,7 @@ const ProviderOnboarding = () => {
       );
     }
     if (profilePhotoPath) {
-      const finalPath = `providers/${providerId}/profile/${crypto
-        .randomUUID()
-        .toString()}.${profilePhotoPath.split(".").pop()}`;
+      const finalPath = `providers/${providerId}/profile/${crypto.randomUUID()}.${profilePhotoPath.split(".").pop()}`;
       await supabase.storage
         .from("provider-media")
         .copy(profilePhotoPath, finalPath)
@@ -917,10 +775,10 @@ const ProviderOnboarding = () => {
     }
   };
 
-  const stepLabels = ["Account", "Profile", "Services", "Areas", "Portfolio"];
+  // Step labels now start from 2 — but display numbers 1–4 to the user
+  const stepLabels = ["Profile", "Services", "Areas", "Portfolio"];
 
-  // Loading guard: don't render onboarding UI until invite + drafts are loaded
-  if (inviteStatus === "checking" || initializing) {
+  if (initializing) {
     return (
       <div
         style={{
@@ -934,281 +792,8 @@ const ProviderOnboarding = () => {
         }}
       >
         <p style={{ color: "var(--color-text-secondary)", fontSize: 15 }}>
-          Loading your invite...
+          Loading your profile...
         </p>
-      </div>
-    );
-  }
-
-  if (inviteStatus === "valid" && !validatedApplicationId) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--color-bg-section)",
-          flexDirection: "column",
-          gap: "8px",
-        }}
-      >
-        <p style={{ color: "var(--color-text-secondary)", fontSize: 15 }}>
-          Loading your invite...
-        </p>
-      </div>
-    );
-  }
-
-  if (inviteStatus === "expired") {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--color-bg-section)",
-          fontFamily: "var(--font-primary)",
-          padding: "40px 20px",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 480,
-            textAlign: "center",
-            background: "var(--color-bg)",
-            border: "1.5px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
-            padding: "48px 40px",
-            boxShadow: "var(--shadow-lg)",
-          }}
-        >
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: "50%",
-              background: "#FEF3C7",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 24px",
-              fontSize: 36,
-            }}
-          >
-            ⏰
-          </div>
-          <h1
-            style={{
-              fontFamily: "Fraunces, serif",
-              fontSize: 24,
-              fontWeight: 800,
-              color: "var(--color-primary)",
-              marginBottom: 12,
-              letterSpacing: "-0.5px",
-            }}
-          >
-            Your Invite Has Expired
-          </h1>
-          <p
-            style={{
-              color: "var(--color-text-secondary)",
-              fontSize: 15,
-              lineHeight: 1.7,
-              marginBottom: 28,
-            }}
-          >
-            Your invitation link was only valid for <strong>72 hours</strong>{" "}
-            and has now expired. Don't worry — contact an admin and they can
-            resend a fresh link instantly.
-          </p>
-          <div
-            style={{
-              padding: "14px 20px",
-              background: "rgba(255,107,53,0.08)",
-              border: "1.5px solid rgba(255,107,53,0.2)",
-              borderRadius: 10,
-              fontSize: 13,
-              color: "var(--color-text-secondary)",
-              lineHeight: 1.6,
-            }}
-          >
-            📬 Contact us at{" "}
-            <a
-              href="mailto:support@zimserv.co.zw"
-              style={{ color: "var(--color-accent)" }}
-            >
-              support@zimserv.co.zw
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (inviteStatus === "used") {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--color-bg-section)",
-          fontFamily: "var(--font-primary)",
-          padding: "40px 20px",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 480,
-            textAlign: "center",
-            background: "var(--color-bg)",
-            border: "1.5px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
-            padding: "48px 40px",
-            boxShadow: "var(--shadow-lg)",
-          }}
-        >
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: "50%",
-              background: "#D1FAE5",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 24px",
-              fontSize: 36,
-            }}
-          >
-            ✅
-          </div>
-          <h1
-            style={{
-              fontFamily: "Fraunces, serif",
-              fontSize: 24,
-              fontWeight: 800,
-              color: "var(--color-primary)",
-              marginBottom: 12,
-            }}
-          >
-            Already Registered
-          </h1>
-          <p
-            style={{
-              color: "var(--color-text-secondary)",
-              fontSize: 15,
-              lineHeight: 1.7,
-              marginBottom: 28,
-            }}
-          >
-            This invite link has already been used to complete registration. Try
-            logging in to your provider account instead.
-          </p>
-          <button
-            onClick={() => navigate("/provider/login")}
-            style={{
-              background: "var(--color-accent)",
-              color: "#fff",
-              padding: "12px 28px",
-              borderRadius: 8,
-              border: "none",
-              fontWeight: 600,
-              fontSize: 15,
-              cursor: "pointer",
-            }}
-          >
-            Go to Login →
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (inviteStatus === "invalid") {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--color-bg-section)",
-          fontFamily: "var(--font-primary)",
-          padding: "40px 20px",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 480,
-            textAlign: "center",
-            background: "var(--color-bg)",
-            border: "1.5px solid var(--color-border)",
-            borderRadius: "var(--radius-lg)",
-            padding: "48px 40px",
-            boxShadow: "var(--shadow-lg)",
-          }}
-        >
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: "50%",
-              background: "#FEE2E2",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 24px",
-              fontSize: 36,
-            }}
-          >
-            🔗
-          </div>
-          <h1
-            style={{
-              fontFamily: "Fraunces, serif",
-              fontSize: 24,
-              fontWeight: 800,
-              color: "var(--color-primary)",
-              marginBottom: 12,
-            }}
-          >
-            Invalid Invite Link
-          </h1>
-          <p
-            style={{
-              color: "var(--color-text-secondary)",
-              fontSize: 15,
-              lineHeight: 1.7,
-              marginBottom: 28,
-            }}
-          >
-            This link doesn't look right or may have already been used. Please
-            use the link directly from your invitation email, or contact support
-            for a fresh one.
-          </p>
-          <div
-            style={{
-              padding: "14px 20px",
-              background: "rgba(255,107,53,0.08)",
-              border: "1.5px solid rgba(255,107,53,0.2)",
-              borderRadius: 10,
-              fontSize: 13,
-              color: "var(--color-text-secondary)",
-            }}
-          >
-            📬{" "}
-            <a
-              href="mailto:support@zimserv.co.zw"
-              style={{ color: "var(--color-accent)" }}
-            >
-              support@zimserv.co.zw
-            </a>
-          </div>
-        </div>
       </div>
     );
   }
@@ -1225,7 +810,7 @@ const ProviderOnboarding = () => {
       <Breadcrumb
         items={[
           { label: "Provider Onboarding" },
-          { label: stepLabels[currentStep - 1] },
+          { label: stepLabels[currentStep - 2] },
         ]}
       />
 
@@ -1235,7 +820,6 @@ const ProviderOnboarding = () => {
         updateFormData={updateFormData}
         nextStep={nextStep}
         prevStep={prevStep}
-        onAccountSubmit={handleAccountSubmit}
         onSubmitProfile={handleSubmitProfile}
         onSaveProfileDraft={handleSaveProfileDraft}
         onSaveServicesDraft={handleSaveServicesDraft}

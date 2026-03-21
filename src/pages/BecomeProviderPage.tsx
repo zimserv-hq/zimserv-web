@@ -9,9 +9,9 @@ import {
   Star,
   DollarSign,
   ArrowRight,
-  CheckCircle,
-  Upload,
   X,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import PhoneInput, { isValidPhoneNumber } from "react-phone-number-input";
 import type { Value as PhoneValue } from "react-phone-number-input";
@@ -83,6 +83,8 @@ const BENEFITS = [
 type FormState = {
   fullName: string;
   email: string;
+  password: string;
+  confirmPassword: string;
   city: string;
   category: string;
   yearsExperience: string;
@@ -96,6 +98,8 @@ type FormState = {
 const initialState: FormState = {
   fullName: "",
   email: "",
+  password: "",
+  confirmPassword: "",
   city: "",
   category: "",
   yearsExperience: "",
@@ -119,10 +123,13 @@ export default function BecomeProviderPage(): JSX.Element {
   const [formData, setFormData] = useState<FormState>(initialState);
   const [phone, setPhone] = useState<PhoneValue | undefined>(undefined);
   const [whatsapp, setWhatsapp] = useState<PhoneValue | undefined>(undefined);
-  const [verificationFile, setVerificationFile] = useState<File | null>(null);
+  const [verificationFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [pendingCategoryApproval, setPendingCategoryApproval] = useState(false);
 
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
@@ -137,24 +144,19 @@ export default function BecomeProviderPage(): JSX.Element {
       try {
         setCategoryLoading(true);
         setCategoryError(null);
-
         const { data, error } = await supabase
           .from("categories")
           .select("id, name, status, display_order")
           .eq("status", "Active")
           .order("display_order", { ascending: true });
-
         if (error) {
-          console.error("Supabase categories error:", error);
           const msg = "Failed to load service categories. Please refresh.";
           setCategoryError(msg);
           showError("Categories unavailable", msg);
           return;
         }
-
         setCategories(data || []);
-      } catch (err) {
-        console.error("Error loading categories:", err);
+      } catch {
         const msg =
           "Failed to load service categories. Please refresh the page.";
         setCategoryError(msg);
@@ -163,7 +165,6 @@ export default function BecomeProviderPage(): JSX.Element {
         setCategoryLoading(false);
       }
     };
-
     fetchCategories();
   }, []);
 
@@ -179,25 +180,7 @@ export default function BecomeProviderPage(): JSX.Element {
       ...prev,
       [name]: type === "checkbox" ? (checked as any) : value,
     }));
-    if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: "" }));
-    }
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (!file) {
-      setVerificationFile(null);
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      const msg = "File is too large. Maximum size is 5MB.";
-      setErrors((prev) => ({ ...prev, verificationFile: msg }));
-      showError("File too large", msg);
-      return;
-    }
-    setVerificationFile(file);
-    setErrors((prev) => ({ ...prev, verificationFile: "" }));
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
   }
 
   // ── Custom category helpers ──────────────────────────────────────────────
@@ -235,15 +218,12 @@ export default function BecomeProviderPage(): JSX.Element {
       e.phone = "Enter a valid phone number for your selected country";
     } else {
       const digits = phone.replace(/\D/g, "");
-      const isZimbabwe = digits.startsWith("263");
-      if (isZimbabwe && digits.length > 12) {
+      if (digits.startsWith("263") && digits.length > 12)
         e.phone = "Zimbabwean numbers cannot exceed 9 digits after +263";
-      }
     }
 
-    if (whatsapp && !isValidPhoneNumber(whatsapp)) {
+    if (whatsapp && !isValidPhoneNumber(whatsapp))
       e.whatsapp = "Enter a valid WhatsApp number for your selected country";
-    }
 
     if (!formData.city) e.city = "City is required";
 
@@ -260,14 +240,24 @@ export default function BecomeProviderPage(): JSX.Element {
       e.description = "A brief description is required";
     else if (formData.description.length > 200)
       e.description = "Description must be 200 characters or less";
+
+    if (!formData.password.trim()) {
+      e.password = "Password is required";
+    } else if (formData.password.length < 8) {
+      e.password = "Password must be at least 8 characters";
+    }
+    if (!formData.confirmPassword.trim()) {
+      e.confirmPassword = "Please confirm your password";
+    } else if (formData.confirmPassword !== formData.password) {
+      e.confirmPassword = "Passwords do not match";
+    }
+
     if (!formData.agreedToTerms)
       e.agreedToTerms = "You must accept the Terms of Service to continue";
 
     setErrors(e);
-
     const errorCount = Object.keys(e).length;
     if (errorCount > 0) {
-      // Show a single summary toast
       showWarning(
         "Please fix the errors below",
         errorCount === 1
@@ -275,7 +265,6 @@ export default function BecomeProviderPage(): JSX.Element {
           : `${errorCount} fields need your attention before submitting.`,
       );
     }
-
     return errorCount === 0;
   }
 
@@ -284,28 +273,24 @@ export default function BecomeProviderPage(): JSX.Element {
     e.preventDefault();
 
     if (!validate()) {
-      const first = document.querySelector(".input-error");
-      first?.scrollIntoView({ behavior: "smooth", block: "center" });
+      document
+        .querySelector(".input-error")
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      let verificationFileUrl: string | null = null;
-
       // Step 1: Upload verification file
+      let verificationFileUrl: string | null = null;
       if (verificationFile) {
         const fileExt = verificationFile.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${fileName}`;
-
         const { error: uploadError } = await supabase.storage
           .from("verification-documents")
-          .upload(filePath, verificationFile);
-
+          .upload(fileName, verificationFile);
         if (uploadError) {
-          console.error("❌ File upload error:", uploadError);
           const msg =
             "Failed to upload your verification file. Please try again.";
           setErrors({ verificationFile: msg });
@@ -313,19 +298,10 @@ export default function BecomeProviderPage(): JSX.Element {
           setIsSubmitting(false);
           return;
         }
-
-        verificationFileUrl = filePath;
+        verificationFileUrl = fileName;
       }
 
       // Step 2: Resolve category
-      if (!formData.category) {
-        const msg = "Please select a category before submitting.";
-        setErrors({ category: msg });
-        showError("Category required", msg);
-        setIsSubmitting(false);
-        return;
-      }
-
       const isCustomCategory = formData.category === "other";
       let resolvedCategoryName: string;
       let resolvedCategoryId: string | null;
@@ -337,7 +313,6 @@ export default function BecomeProviderPage(): JSX.Element {
         const selectedCategory = categories.find(
           (cat) => cat.id === formData.category,
         );
-
         if (!selectedCategory) {
           const msg =
             "The selected category is no longer available. Please choose another option.";
@@ -346,12 +321,11 @@ export default function BecomeProviderPage(): JSX.Element {
           setIsSubmitting(false);
           return;
         }
-
         resolvedCategoryName = selectedCategory.name;
         resolvedCategoryId = selectedCategory.id;
       }
 
-      // Step 3: Insert application
+      // Step 3: Insert application — explicit select("id") to avoid RLS silent failure
       const insertData = {
         full_name: formData.fullName.trim(),
         email: formData.email.toLowerCase().trim(),
@@ -367,48 +341,114 @@ export default function BecomeProviderPage(): JSX.Element {
         description: formData.description.trim(),
         referral_source: formData.referral || null,
         verification_file_url: verificationFileUrl,
-        status: "pending",
+        status: isCustomCategory ? "pending_category_review" : "approved",
       };
 
-      const { data, error } = await supabase
+      const { data: appData, error: appError } = await supabase
         .from("provider_applications")
         .insert(insertData)
-        .select()
+        .select("id") // explicit — prevents RLS silent failure returning undefined
         .single();
 
-      if (error) {
-        console.error("❌ Database insertion error:", error);
+      console.log("DEBUG appData:", appData);
+      console.log("DEBUG appError:", appError);
 
-        if (error.code === "23505" && error.message.includes("email")) {
+      if (appError) {
+        console.error("Database insertion error:", appError);
+        if (appError.code === "23505" && appError.message.includes("email")) {
           const msg =
             "An application with this email already exists. Please check your inbox or contact support.";
           setErrors({ email: msg });
           showError("Email already registered", msg);
-          const emailInput = document.querySelector('[name="email"]');
-          emailInput?.scrollIntoView({ behavior: "smooth", block: "center" });
+          document
+            .querySelector('[name="email"]')
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
           showError(
             "Submission failed",
             "Failed to submit your application. Please try again or contact support.",
           );
         }
-
         setIsSubmitting(false);
         return;
       }
 
-      console.log("✅ Application submitted successfully! ID:", data?.id);
+      // Guard: ensure we actually got the UUID back
+      const applicationId = appData?.id as string | undefined;
+      if (!applicationId) {
+        console.error("applicationId is undefined — appData:", appData);
+        showError(
+          "Submission failed",
+          "Could not retrieve your application ID. Please try again or contact support.",
+        );
+        setIsSubmitting(false);
+        return;
+      }
 
-      supabase.functions
-        .invoke("notify-new-application", {
-          body: { fullName: formData.fullName },
-        })
-        .catch((err) => console.warn("Admin email notification failed:", err));
+      console.log("DEBUG applicationId:", applicationId);
 
-      setSubmitSuccess(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      // Step 4: Create confirmed auth account via edge function
+      const { data: regData, error: regError } =
+        await supabase.functions.invoke("register-provider", {
+          body: {
+            email: formData.email.toLowerCase().trim(),
+            password: formData.password,
+            displayName: formData.fullName.trim(),
+            applicationId, // guaranteed to be a valid UUID here
+          },
+          headers: {
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+        });
+
+      console.log("DEBUG regData:", regData);
+      console.log("DEBUG regError:", regError);
+
+      if (regError || !regData?.success) {
+        const msg = regData?.error ?? regError?.message ?? "Unknown error";
+        if (
+          msg.toLowerCase().includes("already registered") ||
+          msg.toLowerCase().includes("already exists") ||
+          msg.toLowerCase().includes("already been registered")
+        ) {
+          showError(
+            "Email already registered",
+            "An account with this email already exists. Try logging in instead.",
+          );
+          setErrors({ email: "This email already has an account." });
+        } else {
+          showError("Account creation failed", msg);
+        }
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Step 5: Sign in immediately (works because edge function set email_confirm: true)
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email.toLowerCase().trim(),
+        password: formData.password,
+      });
+
+      if (signInError) {
+        console.error("Sign-in after registration failed:", signInError);
+        showError(
+          "Sign-in failed",
+          "Your application was submitted but we couldn't sign you in. Please go to the login page.",
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Step 6: Route based on category type
+      if (isCustomCategory) {
+        await supabase.auth.signOut();
+        setPendingCategoryApproval(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        navigate("/provider/onboarding");
+      }
     } catch (err) {
-      console.error("❌ Unexpected error:", err);
+      console.error("Unexpected error:", err);
       showError(
         "Unexpected error",
         "An unexpected error occurred. Please refresh and try again.",
@@ -417,50 +457,120 @@ export default function BecomeProviderPage(): JSX.Element {
     }
   }
 
-  // ── Success screen ───────────────────────────────────────────────────────
-  if (submitSuccess) {
+  // ── Pending category approval screen ─────────────────────────────────────
+  if (pendingCategoryApproval) {
     return (
       <>
-        <style>{`
-          .success-page { min-height: 70vh; display: flex; align-items: center; justify-content: center; padding: 80px 20px; background: var(--color-bg-section); }
-          .success-container { max-width: 600px; text-align: center; background: var(--color-bg); padding: 48px 40px; border-radius: var(--radius-lg); border: 1.5px solid var(--color-border); box-shadow: var(--shadow-lg); }
-          .success-icon { width: 100px; height: 100px; margin: 0 auto 24px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-accent-soft); color: var(--color-accent); }
-          .success-title { font-family: 'Fraunces', serif; font-size: 28px; font-weight: 800; color: var(--color-primary); margin-bottom: 12px; letter-spacing: -0.5px; }
-          .success-message { color: var(--color-text-secondary); line-height: 1.6; margin-bottom: 28px; font-size: 15px; }
-          .success-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-          .btn-primary, .btn-secondary { padding: 14px 28px; border-radius: var(--radius-full); font-weight: 700; font-size: 15px; border: none; cursor: pointer; transition: all var(--transition-fast); font-family: var(--font-primary); }
-          .btn-primary { background: var(--color-accent); color: #fff; box-shadow: 0 4px 14px rgba(255, 107, 53, 0.25); }
-          .btn-primary:hover { background: var(--color-accent-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4); }
-          .btn-secondary { background: transparent; border: 1.5px solid var(--color-border); color: var(--color-text-secondary); }
-          .btn-secondary:hover { background: var(--color-bg-section); border-color: var(--color-accent); color: var(--color-accent); }
-          @media (max-width: 640px) { .success-container { padding: 32px 24px; } .success-actions { flex-direction: column; width: 100%; } .btn-primary, .btn-secondary { width: 100%; } }
-        `}</style>
-
         <Breadcrumb items={[{ label: "Become a Provider" }]} />
-
-        <div className="success-page">
-          <div className="success-container">
-            <div className="success-icon">
-              <CheckCircle size={56} strokeWidth={2} />
+        <div
+          style={{
+            minHeight: "70vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "80px 20px",
+            background: "var(--color-bg-section)",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 560,
+              textAlign: "center",
+              background: "var(--color-bg)",
+              padding: "48px 40px",
+              borderRadius: "var(--radius-lg)",
+              border: "1.5px solid var(--color-border)",
+              boxShadow: "var(--shadow-lg)",
+            }}
+          >
+            <div
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: "50%",
+                background: "#FEF3C7",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 24px",
+                fontSize: 40,
+              }}
+            >
+              🕐
             </div>
-            <h1 className="success-title">Application Submitted!</h1>
-            <p className="success-message">
-              Thank you for applying to become a provider on ZimServ. We've
-              received your application and will review it within 24 hours.
-              You'll receive an email at <strong>{formData.email}</strong> with
-              next steps if approved.
+            <h1
+              style={{
+                fontFamily: "Fraunces, serif",
+                fontSize: 26,
+                fontWeight: 800,
+                color: "var(--color-primary)",
+                marginBottom: 12,
+                letterSpacing: "-0.5px",
+              }}
+            >
+              Application Received
+            </h1>
+            <p
+              style={{
+                color: "var(--color-text-secondary)",
+                fontSize: 15,
+                lineHeight: 1.7,
+                marginBottom: 16,
+              }}
+            >
+              Your application has been submitted successfully. Because you
+              suggested a <strong>custom service category</strong>, our team
+              needs to review and approve it before you can complete your
+              profile.
             </p>
-            <div className="success-actions">
-              <button className="btn-primary" onClick={() => navigate("/")}>
-                Back to Home
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => navigate("/providers")}
+            <p
+              style={{
+                color: "var(--color-text-secondary)",
+                fontSize: 15,
+                lineHeight: 1.7,
+                marginBottom: 32,
+              }}
+            >
+              You'll receive an email at <strong>{formData.email}</strong> once
+              your category is approved, with a link to continue your
+              onboarding.
+            </p>
+            <div
+              style={{
+                padding: "14px 20px",
+                background: "rgba(255,107,53,0.08)",
+                border: "1.5px solid rgba(255,107,53,0.2)",
+                borderRadius: 10,
+                fontSize: 13,
+                color: "var(--color-text-secondary)",
+                lineHeight: 1.6,
+                marginBottom: 28,
+              }}
+            >
+              📬 Questions? Contact us at{" "}
+              <a
+                href="mailto:support@zimserv.co.zw"
+                style={{ color: "var(--color-accent)" }}
               >
-                Browse Providers
-              </button>
+                support@zimserv.co.zw
+              </a>
             </div>
+            <button
+              onClick={() => navigate("/")}
+              style={{
+                background: "var(--color-accent)",
+                color: "#fff",
+                padding: "12px 32px",
+                borderRadius: "var(--radius-full)",
+                border: "none",
+                fontWeight: 700,
+                fontSize: 15,
+                cursor: "pointer",
+                fontFamily: "var(--font-primary)",
+              }}
+            >
+              Back to Home
+            </button>
           </div>
         </div>
       </>
@@ -517,6 +627,10 @@ export default function BecomeProviderPage(): JSX.Element {
         .phone-input-wrapper .PhoneInputCountrySelectArrow { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--color-text-secondary); margin-left: 2px; }
         .phone-input-wrapper .PhoneInputInput { flex: 1; padding: 12px 16px; border: none; outline: none; background: transparent; color: var(--color-primary); font-family: var(--font-primary); font-size: 15px; min-width: 0; }
         .phone-input-wrapper.has-error { border-color: #ef4444; }
+        .password-wrapper { position: relative; display: flex; align-items: center; }
+        .password-wrapper .form-input { padding-right: 44px; }
+        .password-toggle { position: absolute; right: 12px; background: none; border: none; cursor: pointer; color: var(--color-text-secondary); display: flex; align-items: center; padding: 4px; transition: color var(--transition-fast); }
+        .password-toggle:hover { color: var(--color-accent); }
         .custom-services-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; margin-bottom: 4px; }
         .custom-service-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--color-bg-soft); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); }
         .custom-service-name { font-size: 14px; font-weight: 600; color: var(--color-primary); display: flex; align-items: center; gap: 8px; }
@@ -566,7 +680,6 @@ export default function BecomeProviderPage(): JSX.Element {
             </p>
           </div>
 
-          {/* Benefits grid */}
           <div className="benefits-section">
             <div className="benefits-grid">
               {BENEFITS.map((benefit, index) => {
@@ -589,14 +702,13 @@ export default function BecomeProviderPage(): JSX.Element {
           <div className="form-section">
             <h2 className="form-title">Provider Application</h2>
             <p className="form-description">
-              Fill out this form to apply. We'll review your application and, if
-              approved, invite you to complete your profile.
+              Fill out this form to apply and set up your account. You'll be
+              taken straight to your provider profile to complete your listing.
             </p>
 
             <form onSubmit={handleSubmit} noValidate>
               {/* ── Contact Information ── */}
               <div className="section-label">Contact Information</div>
-
               <div className="form-grid-2">
                 <div className="form-group">
                   <label className="form-label">
@@ -613,7 +725,6 @@ export default function BecomeProviderPage(): JSX.Element {
                     <span className="input-error">{errors.fullName}</span>
                   )}
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">
                     Email Address <span className="required">*</span>
@@ -632,7 +743,6 @@ export default function BecomeProviderPage(): JSX.Element {
                 </div>
               </div>
 
-              {/* Phone + WhatsApp */}
               <div className="form-grid-2">
                 <div className="form-group">
                   <label className="form-label">
@@ -650,8 +760,8 @@ export default function BecomeProviderPage(): JSX.Element {
                       onChange={(val) => {
                         if (val) {
                           const digits = val.replace(/\D/g, "");
-                          const isZimbabwe = digits.startsWith("263");
-                          if (isZimbabwe && digits.length > 12) return;
+                          if (digits.startsWith("263") && digits.length > 12)
+                            return;
                         }
                         setPhone(val);
                         if (errors.phone)
@@ -664,7 +774,6 @@ export default function BecomeProviderPage(): JSX.Element {
                     <span className="input-error">{errors.phone}</span>
                   )}
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">
                     WhatsApp Number{" "}
@@ -689,8 +798,8 @@ export default function BecomeProviderPage(): JSX.Element {
                       onChange={(val) => {
                         if (val) {
                           const digits = val.replace(/\D/g, "");
-                          const isZimbabwe = digits.startsWith("263");
-                          if (isZimbabwe && digits.length > 12) return;
+                          if (digits.startsWith("263") && digits.length > 12)
+                            return;
                         }
                         setWhatsapp(val);
                         if (errors.whatsapp)
@@ -831,6 +940,26 @@ export default function BecomeProviderPage(): JSX.Element {
                     </button>
                   )}
 
+                  {formData.category === "other" &&
+                    !showCustomCategoryInput && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: "10px 14px",
+                          background: "#FEF3C7",
+                          border: "1.5px solid #F59E0B",
+                          borderRadius: 8,
+                          fontSize: 13,
+                          color: "#92400E",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        ⚠️ Custom categories require admin approval before you
+                        can continue onboarding. You'll be notified by email
+                        once approved.
+                      </div>
+                    )}
+
                   {errors.category && (
                     <span className="input-error">{errors.category}</span>
                   )}
@@ -842,7 +971,6 @@ export default function BecomeProviderPage(): JSX.Element {
 
               {/* ── Work Information ── */}
               <div className="section-label">Work Information</div>
-
               <div className="form-grid-2">
                 <div className="form-group">
                   <label className="form-label">
@@ -866,7 +994,6 @@ export default function BecomeProviderPage(): JSX.Element {
                     </span>
                   )}
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">
                     Work Type <span className="required">*</span>
@@ -931,52 +1058,6 @@ export default function BecomeProviderPage(): JSX.Element {
                 )}
               </div>
 
-              {/* ── Verification ── */}
-              <div className="section-label">Verification (Optional)</div>
-
-              <div
-                className={`upload-section ${verificationFile ? "has-file" : ""}`}
-              >
-                <label className="file-label" htmlFor="verificationFile">
-                  <Upload size={16} strokeWidth={2} />
-                  {verificationFile ? "Change File" : "Upload Proof of Service"}
-                </label>
-                <input
-                  id="verificationFile"
-                  className="file-input"
-                  type="file"
-                  onChange={handleFileChange}
-                />
-                <div
-                  style={{
-                    fontSize: "13px",
-                    color: "var(--color-text-secondary)",
-                    marginTop: "8px",
-                  }}
-                >
-                  Upload any document — business license, certificate (speeds up
-                  approval). Max 5MB.
-                </div>
-                {verificationFile && (
-                  <div className="file-info">
-                    <span className="file-name">
-                      📄 {verificationFile.name}
-                    </span>
-                    <button
-                      type="button"
-                      className="file-remove"
-                      onClick={() => setVerificationFile(null)}
-                      aria-label="Remove file"
-                    >
-                      <X size={18} strokeWidth={2} />
-                    </button>
-                  </div>
-                )}
-                {errors.verificationFile && (
-                  <span className="input-error">{errors.verificationFile}</span>
-                )}
-              </div>
-
               <div className="form-group">
                 <label className="form-label">How did you hear about us?</label>
                 <select
@@ -992,6 +1073,81 @@ export default function BecomeProviderPage(): JSX.Element {
                   <option value="flyer">Flyer or poster</option>
                   <option value="other">Other</option>
                 </select>
+              </div>
+
+              {/* ── Set Password ── */}
+              <div className="section-label">Set Your Password</div>
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label className="form-label">
+                    Password <span className="required">*</span>
+                  </label>
+                  <div className="password-wrapper">
+                    <input
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      className={`form-input${errors.password ? " has-error" : ""}`}
+                      value={formData.password}
+                      onChange={handleInputChange}
+                      placeholder="At least 8 characters"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowPassword((v) => !v)}
+                      tabIndex={-1}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
+                    >
+                      {showPassword ? (
+                        <EyeOff size={16} strokeWidth={2} />
+                      ) : (
+                        <Eye size={16} strokeWidth={2} />
+                      )}
+                    </button>
+                  </div>
+                  {errors.password && (
+                    <span className="input-error">{errors.password}</span>
+                  )}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">
+                    Confirm Password <span className="required">*</span>
+                  </label>
+                  <div className="password-wrapper">
+                    <input
+                      name="confirmPassword"
+                      type={showConfirmPassword ? "text" : "password"}
+                      className={`form-input${errors.confirmPassword ? " has-error" : ""}`}
+                      value={formData.confirmPassword}
+                      onChange={handleInputChange}
+                      placeholder="Repeat your password"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowConfirmPassword((v) => !v)}
+                      tabIndex={-1}
+                      aria-label={
+                        showConfirmPassword ? "Hide password" : "Show password"
+                      }
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff size={16} strokeWidth={2} />
+                      ) : (
+                        <Eye size={16} strokeWidth={2} />
+                      )}
+                    </button>
+                  </div>
+                  {errors.confirmPassword && (
+                    <span className="input-error">
+                      {errors.confirmPassword}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="checkbox-row">
@@ -1026,10 +1182,10 @@ export default function BecomeProviderPage(): JSX.Element {
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (
-                    "Submitting Application..."
+                    "Creating your account..."
                   ) : (
                     <>
-                      Submit Application
+                      Apply & Continue{" "}
                       <ArrowRight size={18} strokeWidth={2.5} />
                     </>
                   )}
