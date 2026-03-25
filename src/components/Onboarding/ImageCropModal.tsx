@@ -98,35 +98,64 @@ const ImageCropModal = ({
     <>
       <style>{`
         .crop-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,0.75);
-          display: flex; align-items: center; justify-content: center;
-          z-index: 2000; padding: 20px; backdrop-filter: blur(4px);
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.75);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 2000;
+          padding: 16px;
+          backdrop-filter: blur(4px);
           animation: cropFadeIn 0.2s ease;
+          /* Allow overlay itself to scroll on very short screens */
+          overflow-y: auto;
         }
+
         @keyframes cropFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
         .crop-modal {
-          background: var(--color-bg); border-radius: var(--radius-lg);
-          width: 100%; max-width: 520px;
-          box-shadow: var(--shadow-xl); overflow: hidden;
+          background: var(--color-bg);
+          border-radius: var(--radius-lg);
+          width: 100%;
+          max-width: 520px;
+          /* Flex column so header + footer are sticky, body scrolls */
+          display: flex;
+          flex-direction: column;
+          /* Cap height so it never overflows viewport */
+          max-height: 90dvh;
+          /* Remove overflow:hidden — use overflow-y:auto on .crop-body instead */
+          box-shadow: var(--shadow-xl);
           animation: cropSlideUp 0.25s cubic-bezier(0.22,1,0.36,1);
+          /* Ensure modal itself never shrinks below its content on tiny screens */
+          flex-shrink: 0;
         }
+
         @keyframes cropSlideUp {
           from { opacity: 0; transform: translateY(20px); }
           to   { opacity: 1; transform: translateY(0); }
         }
+
+        /* ── Sticky Header ── */
         .crop-header {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 18px 20px 14px; border-bottom: 1.5px solid var(--color-border);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 18px 12px;
+          border-bottom: 1.5px solid var(--color-border);
+          flex-shrink: 0;
+          border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+          background: var(--color-bg);
         }
         .crop-header-left { display: flex; align-items: center; gap: 10px; }
         .crop-header-icon {
-          width: 36px; height: 36px; border-radius: 10px;
-          background: var(--color-accent-soft); display: flex;
-          align-items: center; justify-content: center; color: var(--color-accent);
-          flex-shrink: 0;
+          width: 34px; height: 34px; border-radius: 10px;
+          background: var(--color-accent-soft);
+          display: flex; align-items: center; justify-content: center;
+          color: var(--color-accent); flex-shrink: 0;
         }
-        .crop-title { font-size: 16px; font-weight: 800; color: var(--color-primary); }
-        .crop-subtitle { font-size: 12px; color: var(--color-text-secondary); margin-top: 1px; }
+        .crop-title { font-size: 15px; font-weight: 800; color: var(--color-primary); }
+        .crop-subtitle { font-size: 11px; color: var(--color-text-secondary); margin-top: 1px; }
         .crop-close-btn {
           background: transparent; border: none; cursor: pointer;
           color: var(--color-text-secondary); padding: 4px;
@@ -135,30 +164,46 @@ const ImageCropModal = ({
         }
         .crop-close-btn:hover { color: var(--color-primary); background: var(--color-bg-section); }
 
+        /* ── Scrollable Body ── */
+        .crop-body {
+          flex: 1;
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
+        }
+
         /* ── NB Guideline banner ── */
         .crop-guideline {
-          margin: 14px 16px 0;
-          padding: 10px 14px;
+          margin: 12px 14px 0;
+          padding: 9px 13px;
           background: rgba(255,107,53,0.06);
           border: 1.5px solid rgba(255,107,53,0.2);
           border-radius: 10px;
-          font-size: 13px;
+          font-size: 12px;
           color: var(--color-text-secondary);
           line-height: 1.6;
           display: flex;
-          gap: 10px;
+          gap: 8px;
           align-items: flex-start;
         }
-        .crop-guideline-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+        .crop-guideline-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
         .crop-guideline strong { color: var(--color-primary); }
 
+        /* ── Crop Canvas ── */
         .crop-canvas-wrap {
-          position: relative; width: 100%; height: 320px;
-          background: #111; margin-top: 14px;
+          position: relative;
+          width: 100%;
+          height: clamp(200px, 40vw, 320px);
+          background: #111;
+          margin-top: 12px;
         }
+
+        /* ── Zoom Row ── */
         .crop-zoom-row {
-          display: flex; align-items: center; gap: 10px;
-          padding: 14px 20px 0;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 18px 4px;
         }
         .crop-zoom-icon { color: var(--color-text-secondary); flex-shrink: 0; }
         .crop-zoom-slider {
@@ -175,33 +220,58 @@ const ImageCropModal = ({
         }
         .crop-zoom-slider::-webkit-slider-thumb {
           -webkit-appearance: none; appearance: none;
-          width: 18px; height: 18px; border-radius: 50%;
+          width: 20px; height: 20px; border-radius: 50%;
           background: var(--color-accent); cursor: pointer;
-          border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+          border: 2px solid #fff;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.2);
         }
         .crop-zoom-label {
-          font-size: 12px; font-weight: 600; color: var(--color-text-secondary);
-          min-width: 36px; text-align: right;
+          font-size: 12px; font-weight: 600;
+          color: var(--color-text-secondary);
+          min-width: 34px; text-align: right;
         }
+
+        /* ── Sticky Action Bar ── */
         .crop-actions {
-          display: flex; gap: 10px; justify-content: flex-end;
-          padding: 16px 20px 20px;
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+          padding: 12px 18px;
+          padding-bottom: max(14px, env(safe-area-inset-bottom));
+          border-top: 1.5px solid var(--color-border);
+          flex-shrink: 0;
+          background: var(--color-bg);
+          border-radius: 0 0 var(--radius-lg) var(--radius-lg);
         }
+
         .crop-btn {
-          padding: 10px 22px; border-radius: var(--radius-full);
-          font-family: var(--font-primary); font-size: 14px; font-weight: 700;
-          cursor: pointer; border: none; transition: all 0.2s ease;
+          padding: 10px 20px;
+          border-radius: var(--radius-full);
+          font-family: var(--font-primary);
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+          border: none;
+          transition: all 0.2s ease;
+          /* Equal width on very small screens */
+          flex: 1;
+        }
+        @media (min-width: 400px) {
+          .crop-btn { flex: none; }
         }
         .crop-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .crop-btn-cancel {
-          background: var(--color-bg-section); color: var(--color-text-secondary);
+          background: var(--color-bg-section);
+          color: var(--color-text-secondary);
           border: 1.5px solid var(--color-border);
         }
         .crop-btn-cancel:hover:not(:disabled) {
-          border-color: var(--color-accent); color: var(--color-accent);
+          border-color: var(--color-accent);
+          color: var(--color-accent);
         }
         .crop-btn-confirm {
-          background: var(--color-accent); color: #fff;
+          background: var(--color-accent);
+          color: #fff;
           box-shadow: 0 3px 12px rgba(236,111,22,0.3);
         }
         .crop-btn-confirm:hover:not(:disabled) {
@@ -213,7 +283,7 @@ const ImageCropModal = ({
 
       <div className="crop-overlay" onClick={onCancel}>
         <div className="crop-modal" onClick={(e) => e.stopPropagation()}>
-          {/* Header */}
+          {/* Sticky Header */}
           <div className="crop-header">
             <div className="crop-header-left">
               <div className="crop-header-icon">
@@ -222,7 +292,7 @@ const ImageCropModal = ({
               <div>
                 <div className="crop-title">Crop Your Profile Photo</div>
                 <div className="crop-subtitle">
-                  Drag to reposition · Scroll or use slider to zoom
+                  Drag to reposition · Slider to zoom
                 </div>
               </div>
             </div>
@@ -235,62 +305,67 @@ const ImageCropModal = ({
             </button>
           </div>
 
-          {/* NB Guideline */}
-          <div className="crop-guideline">
-            <span className="crop-guideline-icon">📸</span>
-            <span>
-              <strong>Tip:</strong> Choose a photo that best represents your
-              work — a clear{" "}
-              <strong>
-                headshot, business logo, or a quality photo of your completed
-                work
-              </strong>{" "}
-              all work great. Avoid blurry images, screenshots, or business
-              cards. A strong photo builds trust and gets you more enquiries.
-            </span>
+          {/* Scrollable Body */}
+          <div className="crop-body">
+            {/* Guideline */}
+            <div className="crop-guideline">
+              <span className="crop-guideline-icon">📸</span>
+              <span>
+                <strong>Tip:</strong> Choose a photo that best represents your
+                work — a clear{" "}
+                <strong>
+                  headshot, business logo, or a quality photo of your completed
+                  work
+                </strong>{" "}
+                all work great. Avoid blurry images, screenshots, or business
+                cards. A strong photo builds trust and gets you more enquiries.
+              </span>
+            </div>
+
+            {/* Crop Canvas */}
+            <div className="crop-canvas-wrap">
+              <Cropper
+                image={imageSrc}
+                crop={crop}
+                zoom={zoom}
+                aspect={4 / 3}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+                showGrid={true}
+                style={{
+                  containerStyle: { borderRadius: 0 },
+                  cropAreaStyle: {
+                    border: "2.5px solid rgba(236,111,22,0.9)",
+                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
+                  },
+                }}
+              />
+            </div>
+
+            {/* Zoom Slider */}
+            <div className="crop-zoom-row">
+              <ZoomOut size={16} strokeWidth={2} className="crop-zoom-icon" />
+              <input
+                type="range"
+                className="crop-zoom-slider"
+                min={1}
+                max={3}
+                step={0.01}
+                value={zoom}
+                style={
+                  {
+                    "--zoom-pct": ((zoom - 1) / 2) * 100,
+                  } as React.CSSProperties
+                }
+                onChange={(e) => setZoom(Number(e.target.value))}
+              />
+              <ZoomIn size={16} strokeWidth={2} className="crop-zoom-icon" />
+              <span className="crop-zoom-label">{zoom.toFixed(1)}×</span>
+            </div>
           </div>
 
-          {/* Crop canvas */}
-          <div className="crop-canvas-wrap">
-            <Cropper
-              image={imageSrc}
-              crop={crop}
-              zoom={zoom}
-              aspect={4 / 3}
-              onCropChange={setCrop}
-              onZoomChange={setZoom}
-              onCropComplete={onCropComplete}
-              showGrid={true}
-              style={{
-                containerStyle: { borderRadius: 0 },
-                cropAreaStyle: {
-                  border: "2.5px solid rgba(236,111,22,0.9)",
-                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
-                },
-              }}
-            />
-          </div>
-
-          {/* Zoom slider */}
-          <div className="crop-zoom-row">
-            <ZoomOut size={16} strokeWidth={2} className="crop-zoom-icon" />
-            <input
-              type="range"
-              className="crop-zoom-slider"
-              min={1}
-              max={3}
-              step={0.01}
-              value={zoom}
-              style={
-                { "--zoom-pct": ((zoom - 1) / 2) * 100 } as React.CSSProperties
-              }
-              onChange={(e) => setZoom(Number(e.target.value))}
-            />
-            <ZoomIn size={16} strokeWidth={2} className="crop-zoom-icon" />
-            <span className="crop-zoom-label">{zoom.toFixed(1)}×</span>
-          </div>
-
-          {/* Actions */}
+          {/* Sticky Action Bar */}
           <div className="crop-actions">
             <button
               className="crop-btn crop-btn-cancel"
