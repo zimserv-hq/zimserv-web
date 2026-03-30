@@ -26,8 +26,17 @@ import { supabase } from "../../lib/supabaseClient";
 import { useLoadScript } from "@react-google-maps/api";
 import ImageCropModal from "../../components/Onboarding/ImageCropModal";
 
-// ── Keep outside component to avoid re-renders ───────────────────────────────
 const MAPS_LIBRARIES: "places"[] = ["places"];
+
+const PER_SQM_CATEGORIES = ["Tiling Services", "Painting"];
+
+const generateSlug = (businessName: string, fullName: string): string => {
+  const rawName = (businessName || fullName).trim();
+  return rawName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+};
 
 interface ServiceItem {
   name: string;
@@ -40,7 +49,6 @@ interface GalleryImage {
   publicUrl: string;
 }
 
-// ── NEW: Service area row from DB ─────────────────────────────────────────────
 interface ServiceAreaRow {
   id: string;
   suburb: string;
@@ -78,7 +86,6 @@ type FormField = {
   fullWidth?: boolean;
 };
 
-// ── Skeleton (unchanged) ──────────────────────────────────────────────────────
 const SkeletonBlock = ({
   w,
   h,
@@ -369,6 +376,15 @@ const ProviderProfile = () => {
   const [areaInputValue, setAreaInputValue] = useState("");
   const MAX_SERVICE_AREAS = 8;
 
+  // ── worksNationwide state ─────────────────────────────────────────────────
+  const [worksNationwide, setWorksNationwide] = useState<boolean | null>(null);
+  const [isSavingNationwide, setIsSavingNationwide] = useState(false);
+
+  // ── Service picker state ──────────────────────────────────────────────────
+  const [allCategoryServices, setAllCategoryServices] = useState<string[]>([]);
+  const [showServicePicker, setShowServicePicker] = useState(false);
+  const [customServiceMode, setCustomServiceMode] = useState(false);
+
   // ── Google Maps ───────────────────────────────────────────────────────────
   const { isLoaded: mapsLoaded } = useLoadScript({
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
@@ -433,7 +449,6 @@ const ProviderProfile = () => {
         const place = areaAutocompleteRef.current?.getPlace();
         if (!place) return;
 
-        // Use place.name — always the exact label shown in the dropdown
         const areaName =
           place.name ||
           place.address_components?.find(
@@ -456,7 +471,6 @@ const ProviderProfile = () => {
           return;
         }
 
-        // ── Add this check ──
         if (serviceAreas.length >= MAX_SERVICE_AREAS) {
           setSaveError(
             `You can only add up to ${MAX_SERVICE_AREAS} service areas.`,
@@ -467,7 +481,6 @@ const ProviderProfile = () => {
         }
 
         handleAddArea(areaName);
-
         setAreaInputValue("");
         setShowAreaInput(false);
       },
@@ -543,7 +556,7 @@ const ProviderProfile = () => {
     };
   }, [providerId, isEditing]);
 
-  // ── Service suggestions ───────────────────────────────────────────────────
+  // ── Service suggestions debounce ──────────────────────────────────────────
   useEffect(() => {
     if (serviceDebounceRef.current) clearTimeout(serviceDebounceRef.current);
 
@@ -626,7 +639,7 @@ const ProviderProfile = () => {
           `id, full_name, email, phone_number, whatsapp_number, city,
            business_name, primary_category, bio, years_experience, website,
            status, avg_rating, total_reviews, total_jobs_completed,
-           verification_level, profile_image_url`,
+           verification_level, profile_image_url, works_nationwide`,
         )
         .eq("user_id", user.id)
         .single();
@@ -638,6 +651,7 @@ const ProviderProfile = () => {
       }
 
       setProviderId(provider.id);
+      setWorksNationwide(provider.works_nationwide ?? null);
 
       const { data: servicesData } = await supabase
         .from("provider_services")
@@ -649,7 +663,6 @@ const ProviderProfile = () => {
         .select("id, media_type, file_path")
         .eq("provider_id", provider.id);
 
-      // ── Fetch service areas ───────────────────────────────────────────────
       const { data: areasData } = await supabase
         .from("provider_service_areas")
         .select("id, suburb, city")
@@ -663,6 +676,24 @@ const ProviderProfile = () => {
           city: a.city,
         })),
       );
+
+      // ── Fetch all services for this category (for picker) ─────────────────
+      if (provider.primary_category) {
+        const { data: catData } = await supabase
+          .from("categories")
+          .select("id")
+          .ilike("name", provider.primary_category)
+          .single();
+        if (catData) {
+          const { data: catServices } = await supabase
+            .from("services")
+            .select("name")
+            .eq("category_id", catData.id)
+            .eq("is_active", true)
+            .order("name");
+          setAllCategoryServices(catServices?.map((s) => s.name) ?? []);
+        }
+      }
 
       const profileMediaItem = mediaData?.find(
         (m) => m.media_type === "profile",
@@ -714,11 +745,32 @@ const ProviderProfile = () => {
     }
   };
 
-  // ── Add a service area to Supabase ────────────────────────────────────────
+  // ── Nationwide toggle ─────────────────────────────────────────────────────
+  const handleNationwideToggle = async (value: boolean) => {
+    if (!providerId) return;
+
+    // Block "Local only" if no service areas exist
+    if (value === false && serviceAreas.length === 0) {
+      setSaveError(
+        "Please add at least one service area before selecting Local only coverage.",
+      );
+      setTimeout(() => setSaveError(""), 4000);
+      return;
+    }
+
+    setWorksNationwide(value);
+    setIsSavingNationwide(true);
+    await supabase
+      .from("providers")
+      .update({ works_nationwide: value })
+      .eq("id", providerId);
+    setIsSavingNationwide(false);
+  };
+
+  // ── Add a service area ────────────────────────────────────────────────────
   const handleAddArea = async (suburb: string) => {
     if (!providerId || !suburb.trim()) return;
 
-    // ── Add this check ──
     if (serviceAreas.length >= MAX_SERVICE_AREAS) {
       setSaveError(
         `You can only add up to ${MAX_SERVICE_AREAS} service areas.`,
@@ -759,7 +811,7 @@ const ProviderProfile = () => {
     }
   };
 
-  // ── Remove a service area from Supabase ───────────────────────────────────
+  // ── Remove a service area ─────────────────────────────────────────────────
   const handleRemoveArea = async (areaId: string) => {
     if (!providerId) return;
     setIsDeletingArea(areaId);
@@ -800,8 +852,6 @@ const ProviderProfile = () => {
         changedFields.years_experience = editProfile.yearsExperience
           ? parseInt(editProfile.yearsExperience, 10)
           : null;
-      if (editProfile.businessName !== profile.businessName)
-        changedFields.business_name = editProfile.businessName;
       if (editProfile.phone !== profile.phone)
         changedFields.phone_number = editProfile.phone;
       if (editProfile.whatsappNumber !== profile.whatsappNumber)
@@ -810,6 +860,32 @@ const ProviderProfile = () => {
         changedFields.city = editProfile.city;
       if (editProfile.email !== profile.email)
         changedFields.email = editProfile.email;
+
+      // ── Business name + slug ──────────────────────────────────────────────
+      if (editProfile.businessName !== profile.businessName) {
+        changedFields.business_name = editProfile.businessName;
+
+        const newSlug = generateSlug(
+          editProfile.businessName,
+          profile.fullName,
+        );
+        const { data: slugCheck } = await supabase
+          .from("providers")
+          .select("id")
+          .eq("slug", newSlug)
+          .neq("id", providerId)
+          .maybeSingle();
+
+        const finalSlug = slugCheck
+          ? `${newSlug}-${Math.random().toString(36).slice(2, 6)}`
+          : newSlug;
+
+        // Apply slug immediately (auto-approved)
+        await supabase
+          .from("providers")
+          .update({ slug: finalSlug })
+          .eq("id", providerId);
+      }
 
       const originalServices = profile.services || [];
       const editedServices = editProfile.services || [];
@@ -823,10 +899,40 @@ const ProviderProfile = () => {
         });
 
       if (servicesChanged) {
-        changedFields.services = editedServices.map((s) => ({
-          name: s.name,
-          price: s.price || null,
-        }));
+        // Apply services directly to provider_services table
+        await supabase
+          .from("provider_services")
+          .delete()
+          .eq("provider_id", providerId);
+
+        if (editedServices.length > 0) {
+          await supabase.from("provider_services").insert(
+            editedServices.map((s) => ({
+              provider_id: providerId,
+              service_name: s.name,
+              price:
+                s.price && !isNaN(parseFloat(s.price))
+                  ? parseFloat(s.price)
+                  : null,
+              is_custom: false,
+              service_keywords: [],
+            })),
+          );
+        }
+      }
+
+      // Send remaining fields to review queue
+      const reviewFields = { ...changedFields };
+      if (Object.keys(reviewFields).length > 0) {
+        const { error: insertError } = await supabase
+          .from("provider_edit_requests")
+          .insert({
+            provider_id: providerId,
+            edit_type: "profile_update",
+            pending_review_fields: reviewFields,
+            auto_approved_fields: {},
+          });
+        if (insertError) throw insertError;
       }
 
       if (Object.keys(changedFields).length === 0 && !servicesChanged) {
@@ -835,25 +941,7 @@ const ProviderProfile = () => {
         return;
       }
 
-      if (Object.keys(changedFields).length > 0) {
-        const { error: insertError } = await supabase
-          .from("provider_edit_requests")
-          .insert({
-            provider_id: providerId,
-            edit_type: "profile_update",
-            pending_review_fields: changedFields,
-            auto_approved_fields: {},
-          });
-        if (insertError) throw insertError;
-      }
-
-      setProfile({
-        ...editProfile,
-        phone: editProfile.phone,
-        whatsappNumber: editProfile.whatsappNumber,
-        city: editProfile.city,
-        email: editProfile.email,
-      });
+      setProfile({ ...editProfile });
       setIsEditing(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -873,6 +961,9 @@ const ProviderProfile = () => {
     setEditProfile({ ...profile });
     setIsEditing(false);
     setSaveError("");
+    setShowServicePicker(false);
+    setNewService("");
+    setNewServicePrice("");
   };
 
   const handleAddService = () => {
@@ -894,6 +985,7 @@ const ProviderProfile = () => {
       setNewService("");
       setNewServicePrice("");
       setShowServiceSuggestions(false);
+      // Keep picker open so user can add more
     }
   };
 
@@ -930,7 +1022,6 @@ const ProviderProfile = () => {
     setCropImageSrc(null);
     setPendingFileName("");
 
-    // Now do the actual upload with the cropped file
     if (!providerId) return;
     setIsUploadingPhoto(true);
     try {
@@ -1021,7 +1112,9 @@ const ProviderProfile = () => {
         const ext = (file.name.split(".").pop() || "jpg")
           .replace(/[^a-zA-Z0-9]/g, "")
           .toLowerCase();
-        const filePath = `${providerId}/portfolio/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const filePath = `${providerId}/portfolio/${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2)}.${ext}`;
 
         const { error: uploadError } = await supabase.storage
           .from("provider-media")
@@ -1204,39 +1297,29 @@ const ProviderProfile = () => {
         .profile-avatar-wrap { position: relative; flex-shrink: 0; }
 
         .profile-avatar {
-          width: 88px;
-          height: 88px;
-          border-radius: 16px;
-          background: var(--orange-light);
-          color: var(--orange-primary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 30px;
-          font-weight: 800;
-          letter-spacing: -1px;
-          border: 2px solid var(--border-color);
-          overflow: hidden;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-          cursor: pointer;
+          width: 88px; height: 88px; border-radius: 16px;
+          background: var(--orange-light); color: var(--orange-primary);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 30px; font-weight: 800; letter-spacing: -1px;
+          border: 2px solid var(--border-color); overflow: hidden;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.08); cursor: pointer;
         }
         .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
 
+        .photo-upload-overlay {
+          position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 6px; opacity: 0; transition: opacity 0.2s; color: #fff;
+          font-size: 11px; font-weight: 600; border-radius: 16px;
+        }
+        .profile-avatar:hover .photo-upload-overlay { opacity: 1; }
+
         .upload-avatar-btn {
-          position: absolute;
-          bottom: -8px;
-          right: -8px;
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-          background: var(--orange-primary);
-          border: 2px solid var(--card-bg);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          color: #fff;
-          box-shadow: 0 2px 8px var(--orange-shadow);
+          position: absolute; bottom: -8px; right: -8px;
+          width: 28px; height: 28px; border-radius: 8px;
+          background: var(--orange-primary); border: 2px solid var(--card-bg);
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer; color: #fff; box-shadow: 0 2px 8px var(--orange-shadow);
           transition: all 0.2s;
         }
         .upload-avatar-btn:hover { background: var(--orange-hover); transform: scale(1.1); }
@@ -1245,34 +1328,20 @@ const ProviderProfile = () => {
         .profile-hero-info { flex: 1; min-width: 0; }
 
         .profile-name {
-          font-size: 24px;
-          font-weight: 800;
-          color: var(--text-primary);
-          margin-bottom: 4px;
-          letter-spacing: -0.5px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          font-size: 24px; font-weight: 800; color: var(--text-primary);
+          margin-bottom: 4px; letter-spacing: -0.5px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
 
         .profile-business {
-          font-size: 14px;
-          color: var(--text-secondary);
-          margin-bottom: 12px;
-          font-weight: 500;
+          font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; font-weight: 500;
         }
 
         .profile-status-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 5px 14px;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: 700;
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 700;
           text-transform: capitalize;
-          background: rgba(16,185,129,0.12);
-          color: #059669;
+          background: rgba(16,185,129,0.12); color: #059669;
           border: 1px solid rgba(16,185,129,0.25);
         }
         .dark-mode .profile-status-badge { color: #4ade80; background: rgba(74,222,128,0.15); border-color: rgba(74,222,128,0.2); }
@@ -1282,18 +1351,10 @@ const ProviderProfile = () => {
         .profile-hero-actions { display: flex; gap: 10px; flex-shrink: 0; }
 
         .hero-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 11px 20px;
-          border-radius: 12px;
-          font-size: 14px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.2s;
-          border: 1.5px solid;
-          background: transparent;
-          white-space: nowrap;
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 11px 20px; border-radius: 12px; font-size: 14px; font-weight: 700;
+          cursor: pointer; transition: all 0.2s; border: 1.5px solid;
+          background: transparent; white-space: nowrap;
         }
         .hero-btn.secondary { border-color: var(--border-color); color: var(--text-primary); background: var(--card-bg); }
         .hero-btn.secondary:hover { background: var(--hover-bg); border-color: var(--border-hover); }
@@ -1302,10 +1363,8 @@ const ProviderProfile = () => {
         .hero-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
 
         .profile-stats-row {
-          display: grid;
-          grid-template-columns: repeat(5, 1fr);
-          padding: 20px 28px;
-          gap: 20px;
+          display: grid; grid-template-columns: repeat(5, 1fr);
+          padding: 20px 28px; gap: 20px;
         }
         .stat-box { text-align: center; }
         .stat-number { font-size: 22px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; margin-bottom: 4px; }
@@ -1314,21 +1373,14 @@ const ProviderProfile = () => {
         .profile-content-grid { display: grid; grid-template-columns: 1fr 360px; gap: 24px; }
 
         .profile-card {
-          background: var(--card-bg);
-          border: 1.5px solid var(--border-color);
-          border-radius: 16px;
-          overflow: visible;
-          margin-bottom: 20px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-          transition: border-color 0.2s;
+          background: var(--card-bg); border: 1.5px solid var(--border-color);
+          border-radius: 16px; overflow: visible; margin-bottom: 20px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: border-color 0.2s;
         }
 
         .profile-card-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 18px 24px;
-          border-bottom: 1.5px solid var(--border-color);
+          display: flex; align-items: center; gap: 12px;
+          padding: 18px 24px; border-bottom: 1.5px solid var(--border-color);
         }
         .section-icon {
           width: 36px; height: 36px; border-radius: 10px;
@@ -1355,7 +1407,7 @@ const ProviderProfile = () => {
         .field-input:disabled { background: var(--disabled-bg); color: var(--text-secondary); cursor: default; border-color: var(--border-color); }
         .field-textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 
-        .services-display { display: flex; flex-wrap: wrap; gap: 8px; }
+        .services-display { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
         .service-tag {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 6px 10px; background: var(--orange-light); color: var(--orange-primary);
@@ -1370,8 +1422,6 @@ const ProviderProfile = () => {
         .remove-service-btn { background: none; border: none; cursor: pointer; color: var(--orange-primary); display: flex; padding: 0; opacity: 0.7; transition: opacity 0.2s; }
         .remove-service-btn:hover { opacity: 1; }
 
-        .add-service-row { display: flex; gap: 8px; margin-top: 12px; align-items: flex-start; }
-        .service-input-wrap { position: relative; flex: 1; }
         .service-input {
           width: 100%; padding: 9px 12px; border: 1.5px solid var(--input-border);
           border-radius: 8px; font-size: 13px; background: var(--input-bg);
@@ -1380,30 +1430,19 @@ const ProviderProfile = () => {
         }
         .service-input:focus { border-color: var(--orange-primary); }
         .service-input.has-suggestions {
-          border-bottom-left-radius: 0;
-          border-bottom-right-radius: 0;
+          border-bottom-left-radius: 0; border-bottom-right-radius: 0;
           border-bottom-color: transparent;
         }
         .service-suggestions {
-          position: absolute;
-          top: 100%; left: 0; right: 0;
-          background: var(--card-bg);
-          border: 1.5px solid var(--orange-primary);
-          border-top: none;
-          border-bottom-left-radius: 8px;
-          border-bottom-right-radius: 8px;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-          z-index: 100;
-          overflow: hidden;
+          position: absolute; top: 100%; left: 0; right: 0;
+          background: var(--card-bg); border: 1.5px solid var(--orange-primary);
+          border-top: none; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.1); z-index: 100; overflow: hidden;
         }
         .service-suggestion-item {
-          padding: 9px 12px;
-          font-size: 13px;
-          font-weight: 500;
-          color: var(--text-primary);
-          cursor: pointer;
-          border-bottom: 1px solid var(--border-color);
-          transition: background 0.15s;
+          padding: 9px 12px; font-size: 13px; font-weight: 500;
+          color: var(--text-primary); cursor: pointer;
+          border-bottom: 1px solid var(--border-color); transition: background 0.15s;
         }
         .service-suggestion-item:last-child { border-bottom: none; }
         .service-suggestion-item:hover,
@@ -1412,28 +1451,22 @@ const ProviderProfile = () => {
         .add-service-btn {
           padding: 9px 16px; background: var(--orange-primary); color: #fff;
           border: none; border-radius: 8px; font-size: 13px; font-weight: 600;
-          cursor: pointer; transition: all 0.2s; font-family: inherit; white-space: nowrap;
-          flex-shrink: 0;
+          cursor: pointer; transition: all 0.2s; font-family: inherit; white-space: nowrap; flex-shrink: 0;
         }
         .add-service-btn:hover { background: var(--orange-hover); }
         .add-service-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* ── Service Areas ── */
         .area-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
         .area-tag {
           display: inline-flex; align-items: center; gap: 6px;
-          padding: 6px 12px;
-          background: var(--hover-bg);
-          border: 1.5px solid var(--border-color);
-          border-radius: 999px;
-          font-size: 13px; font-weight: 500; color: var(--text-primary);
-          transition: border-color 0.2s;
+          padding: 6px 12px; background: var(--hover-bg);
+          border: 1.5px solid var(--border-color); border-radius: 999px;
+          font-size: 13px; font-weight: 500; color: var(--text-primary); transition: border-color 0.2s;
         }
         .area-tag:hover { border-color: var(--orange-primary); }
         .area-remove-btn {
           background: none; border: none; padding: 0; cursor: pointer;
-          color: var(--text-tertiary); display: flex; align-items: center;
-          transition: color 0.2s;
+          color: var(--text-tertiary); display: flex; align-items: center; transition: color 0.2s;
         }
         .area-remove-btn:hover { color: #ef4444; }
         .area-remove-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1448,17 +1481,15 @@ const ProviderProfile = () => {
         .area-cancel-btn {
           padding: 9px 14px; background: var(--card-bg); color: var(--text-secondary);
           border: 1.5px solid var(--border-color); border-radius: 8px; font-size: 13px;
-          font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.2s;
-          white-space: nowrap;
+          font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.2s; white-space: nowrap;
         }
         .area-cancel-btn:hover { border-color: var(--border-hover); color: var(--text-primary); }
         .add-area-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 8px 14px; background: transparent;
-          border: 1.5px dashed var(--border-color);
-          border-radius: 999px; font-size: 13px; font-weight: 600;
-          color: var(--text-secondary); cursor: pointer; font-family: inherit;
-          transition: all 0.2s;
+          border: 1.5px dashed var(--border-color); border-radius: 999px;
+          font-size: 13px; font-weight: 600; color: var(--text-secondary);
+          cursor: pointer; font-family: inherit; transition: all 0.2s;
         }
         .add-area-btn:hover { border-color: var(--orange-primary); color: var(--orange-primary); background: var(--orange-light); }
         .area-empty { font-size: 13px; color: var(--text-tertiary); margin-bottom: 10px; }
@@ -1482,12 +1513,6 @@ const ProviderProfile = () => {
         }
         .photo-avatar-frame:hover { border-color: var(--orange-primary); }
         .photo-avatar-frame:hover .photo-upload-overlay { opacity: 1; }
-        .photo-upload-overlay {
-          position: absolute; inset: 0; background: rgba(0,0,0,0.45);
-          display: flex; flex-direction: column; align-items: center; justify-content: center;
-          gap: 6px; opacity: 0; transition: opacity 0.2s; color: #fff;
-          font-size: 11px; font-weight: 600; border-radius: 18px;
-        }
         .photo-avatar-frame img { width: 100%; height: 100%; object-fit: cover; }
         .photo-avatar-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-tertiary); }
         .photo-avatar-placeholder span { font-size: 11px; font-weight: 500; }
@@ -1521,17 +1546,13 @@ const ProviderProfile = () => {
         .remove-image-btn:hover { background: #fff; }
         .gallery-empty { grid-column: 1 / -1; padding: 24px; text-align: center; color: var(--text-tertiary); font-size: 13px; border: 1.5px dashed var(--border-color); border-radius: 10px; }
         .gallery-count { margin-top: 8px; font-size: 12px; color: var(--text-secondary); text-align: center; }
+
         .save-footer {
-          position: sticky;
-          bottom: 0; left: 0; right: 0;
-          background: var(--card-bg);
-          border-top: 1.5px solid var(--border-color);
-          padding: 16px 24px;
-          display: flex; align-items: center; gap: 12px;
-          box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
-          z-index: 50;
-          border-radius: 0 0 16px 16px;
-          margin-top: 8px;
+          position: sticky; bottom: 0; left: 0; right: 0;
+          background: var(--card-bg); border-top: 1.5px solid var(--border-color);
+          padding: 16px 24px; display: flex; align-items: center; gap: 12px;
+          box-shadow: 0 -4px 20px rgba(0,0,0,0.08); z-index: 50;
+          border-radius: 0 0 16px 16px; margin-top: 8px;
         }
 
         .save-alert { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 10px; font-size: 13px; font-weight: 500; margin-bottom: 20px; animation: fadeIn 0.2s ease; }
@@ -1558,8 +1579,6 @@ const ProviderProfile = () => {
           .profile-stats-row   { grid-template-columns: repeat(3, 1fr); padding: 16px 20px; gap: 12px; }
           .profile-card-body   { padding: 16px; }
           .profile-card-header { padding: 14px 16px; }
-          .add-service-row     { flex-direction: column; align-items: stretch; }
-          .service-price-input { max-width: 100%; }
           .area-add-row        { flex-direction: column; align-items: stretch; }
         }
         @media (max-width: 480px) {
@@ -1591,7 +1610,7 @@ const ProviderProfile = () => {
           </div>
         )}
 
-        {/* Header card */}
+        {/* ── Header card ── */}
         <div className="profile-header-card">
           <div className="profile-hero">
             <div className="profile-avatar-wrap">
@@ -1716,7 +1735,7 @@ const ProviderProfile = () => {
         </div>
 
         <div className="profile-content-grid">
-          {/* LEFT */}
+          {/* ── LEFT ── */}
           <div>
             {/* Personal Information */}
             <div className="profile-card">
@@ -1887,7 +1906,7 @@ const ProviderProfile = () => {
               </div>
             </div>
 
-            {/* Services Offered */}
+            {/* ── Services Offered ── */}
             <div className="profile-card">
               <div className="profile-card-header">
                 <div className="section-icon">
@@ -1916,6 +1935,30 @@ const ProviderProfile = () => {
                 </span>
               </div>
               <div className="profile-card-body">
+                {/* Per-m² hint */}
+                {PER_SQM_CATEGORIES.includes(profile.category) && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "9px 14px",
+                      marginBottom: 14,
+                      background: "rgba(59,130,246,0.07)",
+                      border: "1.5px solid rgba(59,130,246,0.18)",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      color: "#2563eb",
+                      fontWeight: 500,
+                    }}
+                  >
+                    <span>📐</span>
+                    Your category charges per m² — enter your price per square
+                    metre.
+                  </div>
+                )}
+
+                {/* Existing services */}
                 <div className="services-display">
                   {displayProfile.services.length === 0 && !isEditing && (
                     <p style={{ color: "var(--text-tertiary)", fontSize: 13 }}>
@@ -1927,7 +1970,7 @@ const ProviderProfile = () => {
                       <span>{service.name}</span>
                       <span className="service-price-pill">
                         {service.price
-                          ? `$${service.price}`
+                          ? `$${service.price}${PER_SQM_CATEGORIES.includes(profile.category) ? "/m²" : ""}`
                           : "Price on request"}
                       </span>
                       {isEditing && (
@@ -1942,6 +1985,7 @@ const ProviderProfile = () => {
                   ))}
                 </div>
 
+                {/* Add service — edit mode only */}
                 {isEditing &&
                   (editProfile.services.length >= 8 ? (
                     <div
@@ -1962,75 +2006,308 @@ const ProviderProfile = () => {
                       <AlertCircle size={14} strokeWidth={2.5} />
                       Maximum of 8 services reached. Remove one to add another.
                     </div>
+                  ) : !showServicePicker ? (
+                    <button
+                      className="add-area-btn"
+                      style={{ marginTop: 12 }}
+                      onClick={() => {
+                        setShowServicePicker(true);
+                        setCustomServiceMode(false);
+                        setNewService("");
+                        setNewServicePrice("");
+                      }}
+                    >
+                      + Add service
+                    </button>
                   ) : (
-                    <div className="add-service-row">
+                    <div
+                      style={{
+                        marginTop: 14,
+                        border: "1.5px solid var(--border-color)",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {/* Tab row */}
                       <div
-                        className="service-input-wrap"
-                        ref={serviceInputWrapRef}
+                        style={{
+                          display: "flex",
+                          borderBottom: "1.5px solid var(--border-color)",
+                        }}
                       >
-                        <input
-                          type="text"
-                          className={`service-input ${showServiceSuggestions ? "has-suggestions" : ""}`}
-                          placeholder="Add a service (e.g. Door Installation)"
-                          value={newService}
-                          onChange={(e) => setNewService(e.target.value)}
-                          onKeyDown={(e) => {
-                            handleServiceInputKeyDown(e);
-                            if (e.key === "Enter" && serviceActiveIndex < 0) {
-                              e.preventDefault();
-                              handleAddService();
-                            }
+                        <button
+                          onClick={() => {
+                            setCustomServiceMode(false);
+                            setNewService("");
                           }}
-                          onFocus={() =>
-                            serviceSuggestions.length > 0 &&
-                            setShowServiceSuggestions(true)
-                          }
-                          autoComplete="off"
-                        />
-                        {showServiceSuggestions && (
-                          <div className="service-suggestions">
-                            {serviceSuggestions.map((name, i) => (
-                              <div
-                                key={name}
-                                className={`service-suggestion-item ${i === serviceActiveIndex ? "active" : ""}`}
-                                onMouseDown={() => {
-                                  setNewService(name);
-                                  setShowServiceSuggestions(false);
-                                }}
-                                onMouseEnter={() => setServiceActiveIndex(i)}
+                          style={{
+                            flex: 1,
+                            padding: "10px 0",
+                            fontSize: 13,
+                            fontWeight: 700,
+                            background: !customServiceMode
+                              ? "var(--orange-light)"
+                              : "var(--card-bg)",
+                            color: !customServiceMode
+                              ? "var(--orange-primary)"
+                              : "var(--text-secondary)",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            borderBottom: !customServiceMode
+                              ? "2px solid var(--orange-primary)"
+                              : "none",
+                          }}
+                        >
+                          📋 From your category
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCustomServiceMode(true);
+                            setNewService("");
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: "10px 0",
+                            fontSize: 13,
+                            fontWeight: 700,
+                            background: customServiceMode
+                              ? "var(--orange-light)"
+                              : "var(--card-bg)",
+                            color: customServiceMode
+                              ? "var(--orange-primary)"
+                              : "var(--text-secondary)",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            borderBottom: customServiceMode
+                              ? "2px solid var(--orange-primary)"
+                              : "none",
+                          }}
+                        >
+                          ✏️ Custom service
+                        </button>
+                      </div>
+
+                      <div style={{ padding: 14 }}>
+                        {!customServiceMode ? (
+                          /* ── Catalog picker ── */
+                          <>
+                            <div
+                              ref={serviceInputWrapRef}
+                              style={{ position: "relative", marginBottom: 10 }}
+                            >
+                              <input
+                                type="text"
+                                className={`service-input ${showServiceSuggestions ? "has-suggestions" : ""}`}
+                                placeholder="Search services..."
+                                value={newService}
+                                onChange={(e) => setNewService(e.target.value)}
+                                onKeyDown={handleServiceInputKeyDown}
+                                autoComplete="off"
+                                autoFocus
+                              />
+                              {showServiceSuggestions && (
+                                <div className="service-suggestions">
+                                  {serviceSuggestions.map((name, i) => (
+                                    <div
+                                      key={name}
+                                      className={`service-suggestion-item ${i === serviceActiveIndex ? "active" : ""}`}
+                                      onMouseDown={() => {
+                                        setNewService(name);
+                                        setShowServiceSuggestions(false);
+                                      }}
+                                      onMouseEnter={() =>
+                                        setServiceActiveIndex(i)
+                                      }
+                                    >
+                                      {highlightServiceMatch(
+                                        name,
+                                        newService.trim(),
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Catalog chips */}
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 7,
+                                maxHeight: 160,
+                                overflowY: "auto",
+                                marginBottom: 12,
+                              }}
+                            >
+                              {allCategoryServices
+                                .filter(
+                                  (name) =>
+                                    !editProfile.services.some(
+                                      (s) =>
+                                        s.name.toLowerCase() ===
+                                        name.toLowerCase(),
+                                    ) &&
+                                    (newService.trim() === "" ||
+                                      name
+                                        .toLowerCase()
+                                        .includes(
+                                          newService.trim().toLowerCase(),
+                                        )),
+                                )
+                                .map((name) => (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    onClick={() => {
+                                      setNewService(name);
+                                      setShowServiceSuggestions(false);
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 999,
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      background:
+                                        newService === name
+                                          ? "var(--orange-primary)"
+                                          : "var(--hover-bg)",
+                                      color:
+                                        newService === name
+                                          ? "#fff"
+                                          : "var(--text-secondary)",
+                                      border: `1.5px solid ${newService === name ? "var(--orange-primary)" : "var(--border-color)"}`,
+                                      cursor: "pointer",
+                                      fontFamily: "inherit",
+                                      transition: "all 0.15s",
+                                    }}
+                                  >
+                                    {name}
+                                  </button>
+                                ))}
+                            </div>
+
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "center",
+                              }}
+                            >
+                              <input
+                                type="number"
+                                className="service-input service-price-input"
+                                placeholder={
+                                  PER_SQM_CATEGORIES.includes(profile.category)
+                                    ? "Price/m²"
+                                    : "Price (e.g. 50)"
+                                }
+                                step="0.01"
+                                min="0"
+                                value={newServicePrice}
+                                onChange={(e) =>
+                                  setNewServicePrice(e.target.value)
+                                }
+                                style={{ maxWidth: 140 }}
+                                onKeyDown={(e) =>
+                                  e.key === "Enter" &&
+                                  (e.preventDefault(), handleAddService())
+                                }
+                              />
+                              <button
+                                className="add-service-btn"
+                                onClick={handleAddService}
+                                disabled={
+                                  !newService.trim() || !newServicePrice.trim()
+                                }
                               >
-                                {highlightServiceMatch(name, newService.trim())}
-                              </div>
-                            ))}
+                                Add
+                              </button>
+                              <button
+                                className="area-cancel-btn"
+                                onClick={() => {
+                                  setShowServicePicker(false);
+                                  setNewService("");
+                                  setNewServicePrice("");
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          /* ── Custom service ── */
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 10,
+                            }}
+                          >
+                            <input
+                              type="text"
+                              className="service-input"
+                              placeholder="Service name (e.g. Epoxy Floor Coating)"
+                              value={newService}
+                              onChange={(e) => setNewService(e.target.value)}
+                              autoFocus
+                              onKeyDown={(e) =>
+                                e.key === "Enter" &&
+                                (e.preventDefault(), handleAddService())
+                              }
+                            />
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <input
+                                type="number"
+                                className="service-input service-price-input"
+                                placeholder={
+                                  PER_SQM_CATEGORIES.includes(profile.category)
+                                    ? "Price/m²"
+                                    : "Price (e.g. 50)"
+                                }
+                                step="0.01"
+                                min="0"
+                                value={newServicePrice}
+                                onChange={(e) =>
+                                  setNewServicePrice(e.target.value)
+                                }
+                                style={{ maxWidth: 140 }}
+                                onKeyDown={(e) =>
+                                  e.key === "Enter" &&
+                                  (e.preventDefault(), handleAddService())
+                                }
+                              />
+                              <button
+                                className="add-service-btn"
+                                onClick={handleAddService}
+                                disabled={
+                                  !newService.trim() || !newServicePrice.trim()
+                                }
+                              >
+                                Add
+                              </button>
+                              <button
+                                className="area-cancel-btn"
+                                onClick={() => {
+                                  setShowServicePicker(false);
+                                  setNewService("");
+                                  setNewServicePrice("");
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
-                      <input
-                        type="number"
-                        className="service-input service-price-input"
-                        placeholder="Price (e.g. 50.00)"
-                        step="0.01"
-                        min="0"
-                        value={newServicePrice}
-                        onChange={(e) => setNewServicePrice(e.target.value)}
-                        onKeyDown={(e) =>
-                          e.key === "Enter" &&
-                          (e.preventDefault(), handleAddService())
-                        }
-                      />
-                      <button
-                        className="add-service-btn"
-                        onClick={handleAddService}
-                        disabled={!newService.trim() || !newServicePrice.trim()}
-                      >
-                        Add
-                      </button>
                     </div>
                   ))}
               </div>
             </div>
 
-            {/* ── Service Areas ─────────────────────────────────────────── */}
+            {/* ── Service Areas ── */}
             <div className="profile-card">
               <div className="profile-card-header">
                 <div className="section-icon">
@@ -2059,91 +2336,223 @@ const ProviderProfile = () => {
                 </span>
               </div>
               <div className="profile-card-body">
-                {serviceAreas.length === 0 && !showAreaInput && (
-                  <p className="area-empty">No service areas added yet.</p>
-                )}
-
-                {serviceAreas.length > 0 && (
-                  <div className="area-tags">
-                    {serviceAreas.map((area) => (
-                      <div key={area.id} className="area-tag">
-                        <MapPin size={12} style={{ opacity: 0.5 }} />
-                        {area.suburb}
-                        <button
-                          className="area-remove-btn"
-                          onClick={() => handleRemoveArea(area.id)}
-                          disabled={isDeletingArea === area.id}
-                          aria-label={`Remove ${area.suburb}`}
-                        >
-                          {isDeletingArea === area.id ? (
-                            <Loader2 size={12} className="spin" />
-                          ) : (
-                            <X size={12} strokeWidth={2.5} />
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {showAreaInput ? (
-                  <div className="area-add-row">
-                    <input
-                      ref={areaInputRef}
-                      type="text"
-                      className="area-input"
-                      placeholder={
-                        mapsLoaded
-                          ? "Search suburb or area..."
-                          : "Loading maps..."
-                      }
-                      value={areaInputValue}
-                      onChange={(e) => setAreaInputValue(e.target.value)}
-                      disabled={!mapsLoaded || isAddingArea}
-                      autoFocus
-                    />
-                    <button
-                      className="area-cancel-btn"
-                      onClick={() => {
-                        setShowAreaInput(false);
-                        setAreaInputValue("");
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : serviceAreas.length >= MAX_SERVICE_AREAS ? (
-                  <div
+                {/* Nationwide toggle */}
+                <div style={{ marginBottom: 16 }}>
+                  <p
                     style={{
-                      fontSize: 13,
-                      color: "#d97706",
-                      background: "rgba(245,158,11,0.08)",
-                      border: "1.5px solid rgba(245,158,11,0.2)",
-                      borderRadius: 8,
-                      padding: "9px 14px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      fontWeight: 500,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "var(--text-secondary)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      marginBottom: 8,
+                      marginTop: 0,
                     }}
                   >
-                    <MapPin size={13} />
-                    Maximum of {MAX_SERVICE_AREAS} service areas reached. Remove
-                    one to add another.
+                    Coverage
+                  </p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => handleNationwideToggle(true)}
+                      disabled={isSavingNationwide}
+                      style={{
+                        flex: 1,
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        border: `2px solid ${worksNationwide === true ? "var(--orange-primary)" : "var(--border-color)"}`,
+                        background:
+                          worksNationwide === true
+                            ? "var(--orange-light)"
+                            : "var(--card-bg)",
+                        color:
+                          worksNationwide === true
+                            ? "var(--orange-primary)"
+                            : "var(--text-secondary)",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        transition: "all 0.2s",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                      }}
+                    >
+                      🌍 Nationwide
+                    </button>
+                    <button
+                      onClick={() => handleNationwideToggle(false)}
+                      disabled={isSavingNationwide || serviceAreas.length === 0}
+                      title={
+                        serviceAreas.length === 0
+                          ? "Add at least one service area first"
+                          : ""
+                      }
+                      style={{
+                        flex: 1,
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        border: `2px solid ${worksNationwide === false ? "var(--orange-primary)" : "var(--border-color)"}`,
+                        background:
+                          worksNationwide === false
+                            ? "var(--orange-light)"
+                            : "var(--card-bg)",
+                        color:
+                          worksNationwide === false
+                            ? "var(--orange-primary)"
+                            : serviceAreas.length === 0
+                              ? "var(--text-tertiary)"
+                              : "var(--text-secondary)",
+                        cursor:
+                          serviceAreas.length === 0 ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                        transition: "all 0.2s",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        opacity: serviceAreas.length === 0 ? 0.5 : 1,
+                      }}
+                    >
+                      📍 Local only
+                    </button>
                   </div>
-                ) : (
-                  <button
-                    className="add-area-btn"
-                    onClick={() => setShowAreaInput(true)}
-                  >
-                    {isAddingArea ? (
-                      <Loader2 size={13} className="spin" />
-                    ) : (
+                  {worksNationwide === true && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "#059669",
+                        marginTop: 8,
+                        marginBottom: 0,
+                        fontWeight: 500,
+                      }}
+                    >
+                      ✅ You appear in searches across all of Zimbabwe.
+                    </p>
+                  )}
+
+                  {serviceAreas.length === 0 && worksNationwide !== false && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-tertiary)",
+                        marginTop: 8,
+                        marginBottom: 0,
+                      }}
+                    >
+                      💡 Add service areas below to enable{" "}
+                      <strong>Local only</strong> coverage.
+                    </p>
+                  )}
+                  {isSavingNationwide && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-tertiary)",
+                        marginTop: 6,
+                        marginBottom: 0,
+                      }}
+                    >
+                      Saving...
+                    </p>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    borderTop: "1.5px solid var(--border-color)",
+                    paddingTop: 14,
+                  }}
+                >
+                  {serviceAreas.length === 0 && !showAreaInput && (
+                    <p className="area-empty">No specific areas added yet.</p>
+                  )}
+
+                  {serviceAreas.length > 0 && (
+                    <div className="area-tags">
+                      {serviceAreas.map((area) => (
+                        <div key={area.id} className="area-tag">
+                          <MapPin size={12} style={{ opacity: 0.5 }} />
+                          {area.suburb}
+                          <button
+                            className="area-remove-btn"
+                            onClick={() => handleRemoveArea(area.id)}
+                            disabled={isDeletingArea === area.id}
+                            aria-label={`Remove ${area.suburb}`}
+                          >
+                            {isDeletingArea === area.id ? (
+                              <Loader2 size={12} className="spin" />
+                            ) : (
+                              <X size={12} strokeWidth={2.5} />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {showAreaInput ? (
+                    <div className="area-add-row">
+                      <input
+                        ref={areaInputRef}
+                        type="text"
+                        className="area-input"
+                        placeholder={
+                          mapsLoaded
+                            ? "Search suburb or area..."
+                            : "Loading maps..."
+                        }
+                        value={areaInputValue}
+                        onChange={(e) => setAreaInputValue(e.target.value)}
+                        disabled={!mapsLoaded || isAddingArea}
+                        autoFocus
+                      />
+                      <button
+                        className="area-cancel-btn"
+                        onClick={() => {
+                          setShowAreaInput(false);
+                          setAreaInputValue("");
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : serviceAreas.length >= MAX_SERVICE_AREAS ? (
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#d97706",
+                        background: "rgba(245,158,11,0.08)",
+                        border: "1.5px solid rgba(245,158,11,0.2)",
+                        borderRadius: 8,
+                        padding: "9px 14px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontWeight: 500,
+                      }}
+                    >
                       <MapPin size={13} />
-                    )}
-                    Add service area
-                  </button>
-                )}
+                      Maximum of {MAX_SERVICE_AREAS} service areas reached.
+                      Remove one to add another.
+                    </div>
+                  ) : (
+                    <button
+                      className="add-area-btn"
+                      onClick={() => setShowAreaInput(true)}
+                    >
+                      {isAddingArea ? (
+                        <Loader2 size={13} className="spin" />
+                      ) : (
+                        <MapPin size={13} />
+                      )}
+                      Add service area
+                    </button>
+                  )}
+                </div>
 
                 <p
                   style={{
@@ -2153,13 +2562,14 @@ const ProviderProfile = () => {
                     marginBottom: 0,
                   }}
                 >
-                  Areas are saved instantly — no need to click Save Changes.
+                  Areas and coverage are saved instantly — no need to click Save
+                  Changes.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* RIGHT — Photo & Gallery (unchanged) */}
+          {/* ── RIGHT — Photo & Gallery ── */}
           <div>
             <div className="photo-card">
               <div className="photo-card-header">
@@ -2368,6 +2778,7 @@ const ProviderProfile = () => {
           </div>
         )}
       </div>
+
       {cropImageSrc && (
         <ImageCropModal
           imageSrc={cropImageSrc}

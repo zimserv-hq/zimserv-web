@@ -24,33 +24,54 @@ const ProviderReviews = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [providerId, setProviderId] = useState<string | null>(null);
   const [filterRating, setFilterRating] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchReviews();
   }, []);
 
   const fetchReviews = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
-      if (!user) return;
 
-      const { data: provider } = await supabase
+      if (userError || !user) {
+        setError("Not authenticated");
+        return;
+      }
+
+      // ✅ Lookup by user_id (not email)
+      const { data: provider, error: providerError } = await supabase
         .from("providers")
         .select("id")
-        .eq("email", user.email)
+        .eq("user_id", user.id)
         .single();
-      if (!provider) return;
+
+      if (providerError || !provider) {
+        setError("Provider profile not found");
+        return;
+      }
+
       setProviderId(provider.id);
 
-      const { data } = await supabase
+      // ✅ Use provider_reply_at (actual column name)
+      const { data, error: reviewsError } = await supabase
         .from("reviews")
         .select(
-          "id, customer_nickname, rating, comment, created_at, provider_reply, replied_at",
+          "id, customer_nickname, rating, comment, created_at, provider_reply, provider_reply_at",
         )
         .eq("provider_id", provider.id)
         .order("created_at", { ascending: false });
+
+      if (reviewsError) {
+        console.error("Error fetching reviews:", reviewsError);
+        setError("Failed to load reviews");
+        return;
+      }
 
       if (data) {
         setReviews(
@@ -60,13 +81,14 @@ const ProviderReviews = () => {
             rating: r.rating,
             comment: r.comment,
             createdAt: r.created_at,
-            providerReply: r.provider_reply,
-            repliedAt: r.replied_at,
+            providerReply: r.provider_reply ?? null,
+            repliedAt: r.provider_reply_at ?? null, // ✅ correct column
           })),
         );
       }
-    } catch (error) {
-      console.error("Error fetching reviews:", error);
+    } catch (err) {
+      console.error("Unexpected error:", err);
+      setError("Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -88,25 +110,33 @@ const ProviderReviews = () => {
     setIsSubmitting(true);
     try {
       const now = new Date().toISOString();
+
+      // ✅ Use provider_reply_at (actual column name)
       const { error } = await supabase
         .from("reviews")
-        .update({ provider_reply: replyText.trim(), replied_at: now })
+        .update({
+          provider_reply: replyText.trim(),
+          provider_reply_at: now, // ✅ correct column
+        })
         .eq("id", replyingToId)
         .eq("provider_id", providerId);
 
-      if (!error) {
-        setReviews((prev) =>
-          prev.map((r) =>
-            r.id === replyingToId
-              ? { ...r, providerReply: replyText.trim(), repliedAt: now }
-              : r,
-          ),
-        );
-        setReplyingToId(null);
-        setReplyText("");
+      if (error) {
+        console.error("Error submitting reply:", error);
+        return;
       }
-    } catch (error) {
-      console.error("Error submitting reply:", error);
+
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === replyingToId
+            ? { ...r, providerReply: replyText.trim(), repliedAt: now }
+            : r,
+        ),
+      );
+      setReplyingToId(null);
+      setReplyText("");
+    } catch (err) {
+      console.error("Unexpected error submitting reply:", err);
     } finally {
       setIsSubmitting(false);
     }
@@ -167,7 +197,6 @@ const ProviderReviews = () => {
           width: 100%;
         }
 
-        /* ── Summary Card — matches profile-card / profile-header-card style ── */
         .reviews-summary {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
@@ -184,7 +213,6 @@ const ProviderReviews = () => {
           gap: 32px;
         }
 
-        /* Left — big rating number */
         .rating-large {
           display: flex;
           flex-direction: column;
@@ -209,7 +237,6 @@ const ProviderReviews = () => {
         .rating-stars   { display: flex; gap: 3px; }
         .rating-count   { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
 
-        /* Divider */
         .summary-divider {
           width: 1px;
           height: 80px;
@@ -217,9 +244,7 @@ const ProviderReviews = () => {
           flex-shrink: 0;
         }
 
-        /* Right — bar breakdown */
         .summary-stats  { display: flex; flex-direction: column; gap: 9px; flex: 1; }
-
         .stat-row       { display: flex; align-items: center; gap: 12px; }
 
         .rating-label {
@@ -261,7 +286,6 @@ const ProviderReviews = () => {
           color: var(--text-primary);
         }
 
-        /* ── Filter Bar ── */
         .filter-bar {
           display: flex;
           align-items: center;
@@ -296,7 +320,6 @@ const ProviderReviews = () => {
           border-color: rgba(245,158,11,0.3);
         }
 
-        /* ── Reviews Grid ── */
         .reviews-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -342,7 +365,6 @@ const ProviderReviews = () => {
         .review-rating     { display: flex; gap: 2px; flex-shrink: 0; }
         .review-comment    { font-size: 13px; color: var(--text-secondary); line-height: 1.6; flex: 1; }
 
-        /* Reply Section */
         .provider-reply-section { border-top: 1.5px solid var(--border-color); padding-top: 14px; }
 
         .existing-reply {
@@ -368,7 +390,6 @@ const ProviderReviews = () => {
 
         .review-footer { display: flex; justify-content: flex-end; }
 
-        /* Action buttons — neutral, no orange */
         .action-btn {
           display: inline-flex;
           align-items: center;
@@ -390,7 +411,6 @@ const ProviderReviews = () => {
           background: var(--hover-bg);
         }
 
-        /* Reply Form */
         .reply-form         { display: flex; flex-direction: column; gap: 10px; }
 
         .reply-textarea {
@@ -448,7 +468,22 @@ const ProviderReviews = () => {
 
         .reply-btn.secondary:hover { border-color: var(--border-hover); color: var(--text-primary); }
 
-        /* Empty State */
+        /* Error Banner */
+        .error-banner {
+          background: rgba(239,68,68,0.08);
+          border: 1.5px solid rgba(239,68,68,0.25);
+          border-radius: 10px;
+          padding: 12px 16px;
+          margin-bottom: 20px;
+          font-size: 13px;
+          color: #dc2626;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .dark-mode .error-banner { color: #f87171; background: rgba(239,68,68,0.12); }
+
         .empty-state {
           grid-column: 1 / -1;
           padding: 80px 20px;
@@ -465,7 +500,6 @@ const ProviderReviews = () => {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 1s linear infinite; }
 
-        /* ── Responsive ── */
         @media (max-width: 1200px) { .reviews-grid { grid-template-columns: repeat(2, 1fr); } }
 
         @media (max-width: 768px) {
@@ -493,10 +527,12 @@ const ProviderReviews = () => {
           icon={MessageSquare}
         />
 
-        {/* ── Summary Card ── */}
+        {/* Error Banner */}
+        {error && <div className="error-banner">⚠️ {error}</div>}
+
+        {/* Summary Card */}
         <div className="reviews-summary">
           <div className="summary-inner">
-            {/* Big rating number */}
             <div className="rating-large">
               <div className="rating-number">{avgRating}</div>
               <div className="rating-stars">
@@ -517,7 +553,6 @@ const ProviderReviews = () => {
 
             <div className="summary-divider" />
 
-            {/* Rating breakdown bars */}
             <div className="summary-stats">
               {ratingCounts.map(({ rating, count, percentage }) => (
                 <div key={rating} className="stat-row">
@@ -554,7 +589,7 @@ const ProviderReviews = () => {
           </div>
         </div>
 
-        {/* ── Filter Bar ── */}
+        {/* Filter Bar */}
         <div className="filter-bar">
           <div className="search-wrapper">
             <SearchBar
@@ -575,7 +610,7 @@ const ProviderReviews = () => {
           )}
         </div>
 
-        {/* ── Reviews Grid ── */}
+        {/* Reviews Grid */}
         <div className="reviews-grid">
           {loading ? (
             [...Array(6)].map((_, i) => (
@@ -596,7 +631,7 @@ const ProviderReviews = () => {
               <p className="empty-text">
                 {searchQuery || filterRating
                   ? "No reviews match your search"
-                  : "No reviews yet"}
+                  : "No reviews yet — share your profile to get started"}
               </p>
             </div>
           ) : (

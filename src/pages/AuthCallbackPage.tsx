@@ -12,7 +12,7 @@ const AuthCallbackPage = () => {
     const tokenHash = searchParams.get("token_hash");
     const type = searchParams.get("type");
 
-    // ✅ Password reset flow — handle before OAuth listener
+    // ── Password reset flow ──
     if (tokenHash && type === "recovery") {
       supabase.auth
         .verifyOtp({ token_hash: tokenHash, type: "recovery" })
@@ -24,10 +24,10 @@ const AuthCallbackPage = () => {
             navigate("/reset-password", { replace: true });
           }
         });
-      return; // ✅ Stop here — don't run the OAuth listener below
+      return;
     }
 
-    // ✅ Google OAuth flow — unchanged from your original
+    // ── Google OAuth flow ──
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -36,14 +36,20 @@ const AuthCallbackPage = () => {
 
         if (role === "admin" || role === "super_admin") {
           navigate("/admin/dashboard", { replace: true });
-        } else if (role === "provider") {
-          navigate("/provider/dashboard", { replace: true });
-        } else {
-          const returnTo = sessionStorage.getItem("returnTo");
-          sessionStorage.removeItem("returnTo");
-          navigate(returnTo || "/", { replace: true });
+          return;
         }
 
+        if (role === "provider") {
+          navigate("/provider/dashboard", { replace: true });
+          return;
+        }
+
+        // ── Regular user: return to where they came from ──
+        const returnTo = sessionStorage.getItem("returnTo");
+        sessionStorage.removeItem("returnTo");
+
+        // Fall back to /providers (not home) so the context isn't lost
+        navigate(returnTo || "/providers", { replace: true });
         return;
       }
 
@@ -54,7 +60,7 @@ const AuthCallbackPage = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]); // ✅ searchParams intentionally omitted — runs once on mount
+  }, [navigate]);
 
   return (
     <div

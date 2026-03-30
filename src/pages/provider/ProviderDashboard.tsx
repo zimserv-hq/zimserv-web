@@ -10,8 +10,11 @@ import {
   ArrowUpRight,
   Plus,
   Briefcase,
+  ChevronRight,
+  Award,
+  BarChart2,
+  RefreshCw,
 } from "lucide-react";
-import StatCard from "../../components/Admin/StatCard";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -23,8 +26,7 @@ interface DashboardStats {
   avgRating: number;
   totalReviews: number;
   pendingReviews: number;
-  activeJobs: number;
-  completedJobs: number;
+  repliedReviews: number;
 }
 
 interface RecentReview {
@@ -36,11 +38,63 @@ interface RecentReview {
   providerReply: string | null;
 }
 
+// ── Inline stat card ─────────────────────────────────────────────────────────
+const StatCard = ({
+  label,
+  value,
+  icon: Icon,
+  accent,
+  accentBg,
+  sub,
+  onClick,
+}: {
+  label: string;
+  value: string | number;
+  icon: any;
+  accent: string;
+  accentBg: string;
+  sub?: string;
+  onClick?: () => void;
+}) => (
+  <div
+    className="stat-card"
+    onClick={onClick}
+    style={{ cursor: onClick ? "pointer" : "default" }}
+  >
+    <div className="stat-card-top">
+      <div className="stat-icon-wrap" style={{ background: accentBg }}>
+        <Icon size={20} strokeWidth={2.5} style={{ color: accent }} />
+      </div>
+    </div>
+    <div className="stat-value">{value}</div>
+    <div className="stat-label">{label}</div>
+    {sub && <div className="stat-sub">{sub}</div>}
+  </div>
+);
+
+// ── Rating stars ─────────────────────────────────────────────────────────────
+const Stars = ({ rating, size = 13 }: { rating: number; size?: number }) => (
+  <div style={{ display: "flex", gap: 2 }}>
+    {[...Array(5)].map((_, i) => (
+      <Star
+        key={i}
+        size={size}
+        fill={i < rating ? "#f9ab00" : "none"}
+        stroke={i < rating ? "#f9ab00" : "#dadce0"}
+        strokeWidth={2}
+      />
+    ))}
+  </div>
+);
+
+// ── Main component ────────────────────────────────────────────────────────────
 const ProviderDashboard = () => {
   const navigate = useNavigate();
-  const [timeFilter, setTimeFilter] = useState("7days");
   const [loading, setLoading] = useState(true);
-  const [, setProviderId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [greeting, setGreeting] = useState("");
+  const [providerName, setProviderName] = useState("");
 
   const [stats, setStats] = useState<DashboardStats>({
     totalViews: 0,
@@ -50,158 +104,90 @@ const ProviderDashboard = () => {
     avgRating: 0,
     totalReviews: 0,
     pendingReviews: 0,
-    activeJobs: 0,
-    completedJobs: 0,
+    repliedReviews: 0,
   });
 
   const [recentReviews, setRecentReviews] = useState<RecentReview[]>([]);
 
   useEffect(() => {
+    const h = new Date().getHours();
+    setGreeting(
+      h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening",
+    );
     fetchProviderAndData();
-  }, [timeFilter]);
+  }, []);
 
-  const getDateFilter = () => {
-    const now = new Date();
-    switch (timeFilter) {
-      case "today":
-        return new Date(now.setHours(0, 0, 0, 0)).toISOString();
-      case "7days":
-        return new Date(Date.now() - 7 * 86400000).toISOString();
-      case "30days":
-        return new Date(Date.now() - 30 * 86400000).toISOString();
-      case "90days":
-        return new Date(Date.now() - 90 * 86400000).toISOString();
-      default:
-        return new Date(Date.now() - 7 * 86400000).toISOString();
-    }
-  };
-
-  const fetchProviderAndData = async () => {
+  const fetchProviderAndData = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    setError(null);
     try {
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (userError || !user) {
+        setError("Not authenticated");
+        return;
+      }
 
-      const { data: provider } = await supabase
+      const { data: provider, error: providerError } = await supabase
         .from("providers")
-        .select("id")
-        .eq("email", user.email)
+        .select(
+          "id, full_name, business_name, profile_views, click_to_call_count, click_to_whatsapp_count, avg_rating, total_reviews",
+        )
+        .eq("user_id", user.id)
         .single();
 
-      if (!provider) return;
-      setProviderId(provider.id);
-      await Promise.all([
-        fetchStats(provider.id),
-        fetchRecentReviews(provider.id),
-      ]);
-    } catch (error) {
-      console.error("Error fetching provider data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (providerError || !provider) {
+        setError("Provider profile not found");
+        return;
+      }
 
-  const fetchStats = async (pid: string) => {
-    const since = getDateFilter();
-    try {
-      const [
-        { count: totalViews },
-        { count: totalLeads },
-        { count: clickToCall },
-        { count: clickToWhatsApp },
-        { data: reviewsData },
-        { count: pendingReviews },
-        { count: activeJobs },
-        { count: completedJobs },
-      ] = await Promise.all([
-        supabase
-          .from("provider_analytics")
-          .select("*", { count: "exact", head: true })
-          .eq("provider_id", pid)
-          .eq("event_type", "view")
-          .gte("created_at", since),
-        supabase
-          .from("provider_analytics")
-          .select("*", { count: "exact", head: true })
-          .eq("provider_id", pid)
-          .in("event_type", ["call", "whatsapp"])
-          .gte("created_at", since),
-        supabase
-          .from("provider_analytics")
-          .select("*", { count: "exact", head: true })
-          .eq("provider_id", pid)
-          .eq("event_type", "call")
-          .gte("created_at", since),
-        supabase
-          .from("provider_analytics")
-          .select("*", { count: "exact", head: true })
-          .eq("provider_id", pid)
-          .eq("event_type", "whatsapp")
-          .gte("created_at", since),
-        supabase.from("reviews").select("rating").eq("provider_id", pid),
-        supabase
-          .from("reviews")
-          .select("*", { count: "exact", head: true })
-          .eq("provider_id", pid)
-          .is("provider_reply", null),
-        supabase
-          .from("provider_jobs")
-          .select("*", { count: "exact", head: true })
-          .eq("provider_id", pid)
-          .in("status", ["pending", "in_progress"]),
-        supabase
-          .from("provider_jobs")
-          .select("*", { count: "exact", head: true })
-          .eq("provider_id", pid)
-          .eq("status", "completed"),
-      ]);
+      setProviderName(provider.business_name || provider.full_name || "");
 
-      const avgRating = reviewsData?.length
-        ? reviewsData.reduce((sum, r) => sum + r.rating, 0) / reviewsData.length
-        : 0;
-
-      setStats({
-        totalViews: totalViews || 0,
-        totalLeads: totalLeads || 0,
-        clickToCall: clickToCall || 0,
-        clickToWhatsApp: clickToWhatsApp || 0,
-        avgRating: Math.round(avgRating * 10) / 10,
-        totalReviews: reviewsData?.length || 0,
-        pendingReviews: pendingReviews || 0,
-        activeJobs: activeJobs || 0,
-        completedJobs: completedJobs || 0,
-      });
-    } catch (error) {
-      console.error("Error fetching stats:", error);
-    }
-  };
-
-  const fetchRecentReviews = async (pid: string) => {
-    try {
-      const { data } = await supabase
+      const { data: reviewsData } = await supabase
         .from("reviews")
         .select(
           "id, customer_nickname, rating, comment, created_at, provider_reply",
         )
-        .eq("provider_id", pid)
-        .order("created_at", { ascending: false })
-        .limit(4);
+        .eq("provider_id", provider.id)
+        .order("created_at", { ascending: false });
 
-      if (data) {
-        setRecentReviews(
-          data.map((r) => ({
-            id: r.id,
-            customerNickname: r.customer_nickname,
-            rating: r.rating,
-            comment: r.comment,
-            createdAt: r.created_at,
-            providerReply: r.provider_reply,
-          })),
-        );
-      }
-    } catch (error) {
-      console.error("Error fetching reviews:", error);
+      const allReviews = reviewsData ?? [];
+      setRecentReviews(
+        allReviews.slice(0, 5).map((r) => ({
+          id: r.id,
+          customerNickname: r.customer_nickname,
+          rating: r.rating,
+          comment: r.comment,
+          createdAt: r.created_at,
+          providerReply: r.provider_reply ?? null,
+        })),
+      );
+
+      const pendingReviews = allReviews.filter((r) => !r.provider_reply).length;
+      const repliedReviews = allReviews.filter(
+        (r) => !!r.provider_reply,
+      ).length;
+      const totalViews = provider.profile_views ?? 0;
+      const clickToCall = provider.click_to_call_count ?? 0;
+      const clickToWhatsApp = provider.click_to_whatsapp_count ?? 0;
+
+      setStats({
+        totalViews,
+        totalLeads: clickToCall + clickToWhatsApp,
+        clickToCall,
+        clickToWhatsApp,
+        avgRating: Math.round((provider.avg_rating ?? 0) * 10) / 10,
+        totalReviews: provider.total_reviews ?? 0,
+        pendingReviews,
+        repliedReviews,
+      });
+    } catch (err) {
+      setError("Something went wrong");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -217,6 +203,51 @@ const ProviderDashboard = () => {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
+  // Reply rate %
+  const replyRate =
+    stats.totalReviews > 0
+      ? Math.round((stats.repliedReviews / stats.totalReviews) * 100)
+      : 0;
+
+  const statCards = [
+    {
+      label: "Profile Views",
+      value: stats.totalViews.toLocaleString(),
+      icon: Eye,
+      accent: "#3B82F6",
+      accentBg: "rgba(59,130,246,0.12)",
+      sub: "All time",
+      cssAccent: "#3B82F6",
+    },
+    {
+      label: "Total Leads",
+      value: stats.totalLeads.toLocaleString(),
+      icon: MousePointerClick,
+      accent: "#FF6B35",
+      accentBg: "rgba(255,107,53,0.12)",
+      sub: "Calls + WhatsApp",
+      cssAccent: "#FF6B35",
+    },
+    {
+      label: "Calls Received",
+      value: stats.clickToCall,
+      icon: Phone,
+      accent: "#10b981",
+      accentBg: "rgba(16,185,129,0.12)",
+      sub: "Direct calls",
+      cssAccent: "#10b981",
+    },
+    {
+      label: "WhatsApp Clicks",
+      value: stats.clickToWhatsApp,
+      icon: MessageCircle,
+      accent: "#8B5CF6",
+      accentBg: "rgba(139,92,246,0.12)",
+      sub: "WhatsApp leads",
+      cssAccent: "#8B5CF6",
+    },
+  ];
+
   return (
     <>
       <style>{`
@@ -228,366 +259,573 @@ const ProviderDashboard = () => {
           box-sizing: border-box;
         }
 
-        .page-title-row {
+        /* ── Hero greeting row ── */
+        .greeting-row {
           display: flex;
           justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
+          align-items: flex-start;
+          margin-bottom: 24px;
           gap: 16px;
           flex-wrap: wrap;
         }
-
-        .page-title {
-          font-size: 24px;
+        .greeting-block {}
+        .greeting-eyebrow {
+          font-size: 12px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+          color: var(--orange-primary);
+          margin-bottom: 4px;
+        }
+        .greeting-title {
+          font-size: 26px;
           font-weight: 800;
           color: var(--text-primary);
           letter-spacing: -0.8px;
+          line-height: 1.2;
         }
-
-        .title-actions {
+        .greeting-sub {
+          font-size: 12px;
+          color: var(--text-tertiary);
+          margin-top: 4px;
+          font-weight: 500;
+        }
+        .greeting-actions {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 10px;
+          flex-shrink: 0;
         }
+        .refresh-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 9px 14px;
+          background: var(--card-bg);
+          color: var(--text-secondary);
+          border: 1.5px solid var(--border-color);
+          border-radius: 10px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-family: inherit;
+        }
+        .refresh-btn:hover { border-color: var(--orange-primary); color: var(--orange-primary); }
+        .refresh-btn svg { transition: transform 0.6s ease; }
+        .refresh-btn:hover svg { transform: rotate(180deg); }
+        .spinning { animation: spin360 0.7s linear infinite; }
+        @keyframes spin360 { to { transform: rotate(360deg); } }
 
         .new-job-btn {
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          padding: 10px 18px;
+          padding: 10px 20px;
           background: linear-gradient(135deg, #FF6B35 0%, #E85A28 100%);
           color: #fff;
           border: none;
           border-radius: 10px;
           font-size: 14px;
-          font-weight: 600;
+          font-weight: 700;
           cursor: pointer;
           transition: all 0.2s;
           white-space: nowrap;
-          box-shadow: 0 4px 12px rgba(255, 107, 53, 0.25);
+          box-shadow: 0 4px 14px rgba(255,107,53,0.3);
+          font-family: inherit;
         }
+        .new-job-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,107,53,0.4); }
+        .new-job-btn:active { transform: translateY(0); }
 
-        .new-job-btn:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 6px 16px rgba(255, 107, 53, 0.35);
-        }
-
-        .time-filter {
-          display: inline-flex;
-          gap: 6px;
-          padding: 4px;
-          background: var(--filter-bg);
-          border-radius: 10px;
-          border: 1.5px solid var(--border-color);
-        }
-
-        .filter-btn {
-          padding: 8px 16px;
-          border-radius: 8px;
-          border: none;
-          background: transparent;
-          color: var(--text-secondary);
-          font-size: 13px;
+        /* ── Alert banner ── */
+        .alert-banner {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 18px;
+          border-radius: 12px;
+          margin-bottom: 20px;
+          font-size: 14px;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: all 0.2s ease;
+          border: 1.5px solid;
         }
-
-        .filter-btn.active {
-          background: var(--filter-active-bg);
+        .alert-banner.warning {
+          background: rgba(255,107,53,0.07);
+          border-color: rgba(255,107,53,0.25);
           color: var(--orange-primary);
-          box-shadow: 0 2px 8px var(--orange-shadow);
         }
-
-        .filter-btn:hover:not(.active) {
-          background: var(--filter-hover-bg);
-          color: var(--text-primary);
+        .alert-banner.warning:hover { background: rgba(255,107,53,0.12); }
+        .alert-banner-dot {
+          width: 8px; height: 8px; border-radius: 50%;
+          background: var(--orange-primary);
+          animation: pulse-dot 1.5s ease-in-out infinite;
+          flex-shrink: 0;
         }
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.8); }
+        }
+        .alert-banner-text { flex: 1; }
+        .error-banner {
+          background: rgba(239,68,68,0.08);
+          border: 1.5px solid rgba(239,68,68,0.25);
+          border-radius: 10px;
+          padding: 12px 16px;
+          margin-bottom: 20px;
+          font-size: 13px;
+          color: #dc2626;
+        }
+        .dark-mode .error-banner { color: #f87171; background: rgba(239,68,68,0.12); }
 
+        /* ── Stat cards ── */
         .stats-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 16px;
           margin-bottom: 24px;
         }
-
-        .dashboard-grid {
-          display: grid;
-          grid-template-columns: 1.5fr 1fr;
-          gap: 20px;
-          margin-bottom: 20px;
+        .stat-card {
+          background: var(--card-bg);
+          border: 1.5px solid var(--border-color);
+          border-radius: 16px;
+          padding: 22px 20px 20px;
+          transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+          position: relative;
+          overflow: hidden;
+        }
+        .stat-card::after {
+          content: '';
+          position: absolute;
+          bottom: 0; left: 0; right: 0;
+          height: 3px;
+          background: var(--stat-accent, transparent);
+          border-radius: 0 0 16px 16px;
+          opacity: 0;
+          transition: opacity 0.25s ease;
+        }
+        .stat-card:hover {
+          border-color: var(--border-hover);
+          box-shadow: 0 10px 32px var(--card-shadow);
+          transform: translateY(-4px);
+        }
+        .stat-card:hover::after { opacity: 1; }
+        .stat-card-top {
+          margin-bottom: 18px;
+        }
+        .stat-icon-wrap {
+          width: 48px; height: 48px; border-radius: 14px;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+        }
+        .stat-value {
+          font-size: 32px;
+          font-weight: 800;
+          color: var(--text-primary);
+          letter-spacing: -1.2px;
+          line-height: 1;
+          margin-bottom: 5px;
+        }
+        .stat-label {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          margin-bottom: 2px;
+        }
+        .stat-sub {
+          font-size: 11px;
+          color: var(--text-tertiary);
+          font-weight: 500;
         }
 
+        /* ── Score / highlight strip ── */
+        .highlight-strip {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+        .highlight-tile {
+          background: var(--card-bg);
+          border: 1.5px solid var(--border-color);
+          border-radius: 16px;
+          padding: 20px 22px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .highlight-tile:hover {
+          border-color: var(--border-hover);
+          box-shadow: 0 6px 20px var(--card-shadow);
+          transform: translateY(-2px);
+        }
+        .highlight-icon {
+          width: 50px; height: 50px; border-radius: 14px;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+        }
+        .highlight-body { flex: 1; min-width: 0; }
+        .highlight-value {
+          font-size: 24px; font-weight: 800;
+          color: var(--text-primary); letter-spacing: -0.5px; line-height: 1;
+          margin-bottom: 4px;
+        }
+        .highlight-stars { display: flex; gap: 3px; margin-bottom: 5px; }
+        .highlight-label {
+          font-size: 12px; font-weight: 600;
+          color: var(--text-secondary);
+        }
+        .highlight-arrow {
+          color: var(--text-tertiary); flex-shrink: 0;
+          transition: transform 0.2s, color 0.2s;
+        }
+        .highlight-tile:hover .highlight-arrow { transform: translateX(3px); color: var(--orange-primary); }
+
+        /* ── Main grid ── */
+        .dashboard-grid {
+          display: grid;
+          grid-template-columns: 1.6fr 1fr;
+          gap: 20px;
+        }
+
+        /* ── Cards ── */
         .dashboard-card {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
-          border-radius: 14px;
+          border-radius: 16px;
           overflow: hidden;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
         }
-
         .dashboard-card:hover {
           border-color: var(--border-hover);
-          box-shadow: 0 8px 24px var(--card-shadow);
-          transform: translateY(-2px);
+          box-shadow: 0 8px 32px var(--card-shadow);
         }
-
         .card-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 20px 24px;
+          padding: 18px 22px;
           border-bottom: 1.5px solid var(--border-color);
         }
-
+        .card-title-wrap {}
         .card-title {
-          font-size: 16px;
-          font-weight: 700;
-          color: var(--text-primary);
-          letter-spacing: -0.3px;
+          font-size: 15px; font-weight: 700;
+          color: var(--text-primary); letter-spacing: -0.3px;
         }
-
+        .card-subtitle {
+          font-size: 12px; color: var(--text-tertiary); margin-top: 1px; font-weight: 500;
+        }
         .card-link {
-          font-size: 13px;
-          color: var(--orange-primary);
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 12px;
-          border-radius: 8px;
-          transition: all 0.2s ease;
+          font-size: 13px; color: var(--orange-primary); font-weight: 600;
+          cursor: pointer; display: flex; align-items: center; gap: 4px;
+          padding: 6px 12px; border-radius: 8px; transition: all 0.2s ease;
+          white-space: nowrap;
         }
-
         .card-link:hover { background: var(--orange-light-bg); }
 
-        /* Reviews List */
+        /* ── Review list ── */
         .reviews-list { display: flex; flex-direction: column; }
-
         .review-item {
-          padding: 18px 24px;
+          padding: 16px 22px;
           border-bottom: 1px solid var(--border-color);
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: all 0.15s ease;
+          position: relative;
         }
-
-        .review-item:last-child { border-bottom: none; }
-        .review-item:hover { background: var(--hover-bg); }
-
-        .review-item-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-        }
-
-        .reviewer-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-
-        .review-rating { display: flex; gap: 2px; }
-
-        .review-comment {
-          font-size: 13px;
-          color: var(--text-secondary);
-          line-height: 1.5;
-          margin-bottom: 10px;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-
-        .review-footer {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .review-timestamp { font-size: 12px; color: var(--text-tertiary); }
-
-        .reply-status {
-          font-size: 11px;
-          padding: 3px 8px;
-          border-radius: 6px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-
-        .reply-status.replied { background: #dcfce7; color: #15803d; }
-        .reply-status.pending { background: #fef7e0; color: #8f5d00; }
-
-        .dark-mode .reply-status.replied { background: rgba(21,128,61,0.2); color: #4ade80; }
-        .dark-mode .reply-status.pending { background: rgba(143,93,0,0.2); color: #fcd34d; }
-
-        /* Quick Actions */
-        .quick-actions { display: flex; flex-direction: column; }
-
-        .action-item {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          padding: 18px 24px;
-          border-bottom: 1px solid var(--border-color);
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .action-item:last-child { border-bottom: none; }
-        .action-item:hover { background: var(--hover-bg); }
-
-        .action-icon {
-          width: 44px;
-          height: 44px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
+        .review-item::before {
+          content: '';
+          position: absolute; left: 0; top: 0; bottom: 0;
+          width: 3px; border-radius: 0 2px 2px 0;
+          background: var(--orange-primary);
+          transform: scaleY(0);
           transition: transform 0.2s ease;
         }
+        .review-item:last-child { border-bottom: none; }
+        .review-item:hover { background: var(--hover-bg); }
+        .review-item:hover::before { transform: scaleY(1); }
+        .review-item-header {
+          display: flex; justify-content: space-between;
+          align-items: center; margin-bottom: 6px;
+        }
+        .reviewer-name { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+        .review-comment {
+          font-size: 13px; color: var(--text-secondary); line-height: 1.55;
+          margin-bottom: 10px;
+          display: -webkit-box;
+          -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .review-footer {
+          display: flex; align-items: center; justify-content: space-between;
+        }
+        .review-timestamp { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
+        .reply-badge {
+          font-size: 10px; padding: 3px 9px; border-radius: 6px;
+          font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+        }
+        .reply-badge.replied { background: #dcfce7; color: #15803d; }
+        .reply-badge.pending { background: #fff7ed; color: #c2410c; }
+        .dark-mode .reply-badge.replied { background: rgba(21,128,61,0.2); color: #4ade80; }
+        .dark-mode .reply-badge.pending { background: rgba(194,65,12,0.2); color: #fb923c; }
 
-        .action-item:hover .action-icon { transform: scale(1.05); }
-
-        .action-content { flex: 1; min-width: 0; }
-        .action-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
-        .action-count { font-size: 12px; color: var(--text-secondary); }
-
-        .action-badge {
-          background: var(--orange-primary);
-          color: #fff;
-          font-size: 12px;
-          font-weight: 700;
-          padding: 4px 10px;
-          border-radius: 8px;
-          min-width: 28px;
-          text-align: center;
+        .reviews-empty {
+          padding: 48px 24px; text-align: center; color: var(--text-tertiary);
+        }
+        .reviews-empty-icon {
+          width: 52px; height: 52px; border-radius: 16px;
+          background: var(--hover-bg);
+          display: flex; align-items: center; justify-content: center;
+          margin: 0 auto 12px;
         }
 
-        /* Loading skeleton */
+        /* ── Performance panel ── */
+        .perf-list { display: flex; flex-direction: column; }
+        .perf-item {
+          display: flex; align-items: center; gap: 14px;
+          padding: 14px 22px;
+          border-bottom: 1px solid var(--border-color);
+          cursor: pointer; transition: all 0.15s ease;
+        }
+        .perf-item:last-child { border-bottom: none; }
+        .perf-item:hover { background: var(--hover-bg); }
+        .perf-icon {
+          width: 42px; height: 42px; border-radius: 12px;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0; transition: transform 0.2s ease;
+        }
+        .perf-item:hover .perf-icon { transform: scale(1.07); }
+        .perf-body { flex: 1; min-width: 0; }
+        .perf-title { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+        .perf-sub { font-size: 12px; color: var(--text-secondary); }
+        .perf-right { display: flex; align-items: center; gap: 8px; }
+        .perf-badge {
+          background: var(--orange-primary); color: #fff;
+          font-size: 12px; font-weight: 700;
+          padding: 3px 10px; border-radius: 8px; min-width: 28px; text-align: center;
+        }
+        .perf-value {
+          font-size: 18px; font-weight: 800;
+          color: var(--text-primary); letter-spacing: -0.4px;
+        }
+        .perf-chevron { color: var(--text-tertiary); transition: transform 0.2s, color 0.2s; }
+        .perf-item:hover .perf-chevron { transform: translateX(3px); color: var(--orange-primary); }
+
+        /* ── Loading skeleton ── */
         .loading-skeleton {
           background: linear-gradient(90deg, var(--border-color) 25%, var(--hover-bg) 50%, var(--border-color) 75%);
           background-size: 200% 100%;
           animation: shimmer 1.5s infinite;
           border-radius: 8px;
         }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-
-        /* ===== RESPONSIVE ===== */
+        /* ── Responsive ── */
         @media (max-width: 1200px) {
           .dashboard-grid { grid-template-columns: 1fr; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
+          .highlight-strip { grid-template-columns: repeat(2, 1fr); }
         }
-
+        @media (max-width: 900px) {
+          .highlight-strip { grid-template-columns: repeat(2, 1fr); }
+        }
         @media (max-width: 768px) {
-          .provider-dashboard { padding: 16px; }
-          .page-title { font-size: 20px; }
-          .page-title-row {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
-            margin-bottom: 16px;
-          }
-          .title-actions {
-            flex-direction: row;
-            width: 100%;
-            flex-wrap: wrap;
-          }
-          .new-job-btn { flex: 1; justify-content: center; }
-          .time-filter { display: none; }
-          .stats-grid {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin-bottom: 16px;
-          }
-          .dashboard-grid { gap: 12px; margin-bottom: 12px; }
+          .provider-dashboard { padding: 14px 14px 24px; }
+          .greeting-title { font-size: 21px; }
+          .greeting-row { margin-bottom: 16px; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+          .stat-value { font-size: 26px; }
+          .highlight-strip { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+          .dashboard-grid { gap: 14px; }
           .card-header { padding: 14px 16px; }
-          .card-title { font-size: 14px; }
           .review-item { padding: 12px 16px; }
-          .action-item { padding: 12px 16px; gap: 12px; }
-          .action-icon { width: 36px; height: 36px; border-radius: 10px; }
-          .action-title { font-size: 13px; }
-          .action-count { font-size: 11px; }
+          .perf-item { padding: 12px 16px; gap: 12px; }
+          .perf-icon { width: 38px; height: 38px; border-radius: 10px; }
         }
-
         @media (max-width: 480px) {
-          .provider-dashboard { padding: 12px; }
-          .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-          .page-title { font-size: 18px; }
+          .provider-dashboard { padding: 12px 12px 24px; }
+          .stats-grid { gap: 8px; }
+          .highlight-strip { grid-template-columns: 1fr 1fr; gap: 8px; }
+          .greeting-title { font-size: 16px; }
+          .greeting-actions { flex-direction: row; gap: 8px; }
+          .new-job-btn { padding: 9px 16px; font-size: 13px; }
+          .refresh-btn { padding: 9px 12px; }
         }
       `}</style>
 
       <div className="provider-dashboard">
-        <div className="page-title-row">
-          <h1 className="page-title">My Dashboard</h1>
-          <div className="title-actions">
+        {/* ── Greeting row ── */}
+        <div className="greeting-row">
+          <div className="greeting-block">
+            <div className="greeting-eyebrow">Provider Portal</div>
+            <h1 className="greeting-title">
+              {greeting}
+              {providerName ? `, ${providerName.split(" ")[0]}` : ""} 👋
+            </h1>
+            <p className="greeting-sub">
+              Here's what's happening with your business today.
+            </p>
+          </div>
+          <div className="greeting-actions">
+            <button
+              className="refresh-btn"
+              onClick={() => fetchProviderAndData(true)}
+              disabled={refreshing}
+            >
+              <RefreshCw
+                size={14}
+                strokeWidth={2.5}
+                className={refreshing ? "spinning" : ""}
+              />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
             <button
               className="new-job-btn"
               onClick={() => navigate("/provider/jobs")}
             >
-              <Plus size={18} strokeWidth={2.5} />
+              <Plus size={16} strokeWidth={2.5} />
               Add Job
             </button>
-            <div className="time-filter">
-              {[
-                ["Today", "today"],
-                ["7 Days", "7days"],
-                ["30 Days", "30days"],
-                ["90 Days", "90days"],
-              ].map(([label, value]) => (
-                <button
-                  key={value}
-                  className={`filter-btn ${timeFilter === value ? "active" : ""}`}
-                  onClick={() => setTimeFilter(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
 
+        {/* ── Pending reviews alert ── */}
+        {!loading && stats.pendingReviews > 0 && (
+          <div
+            className="alert-banner warning"
+            onClick={() => navigate("/provider/reviews")}
+          >
+            <span className="alert-banner-dot" />
+            <span className="alert-banner-text">
+              You have{" "}
+              <strong>
+                {stats.pendingReviews} review
+                {stats.pendingReviews > 1 ? "s" : ""}
+              </strong>{" "}
+              waiting for your reply — respond to build trust with customers.
+            </span>
+            <ChevronRight size={16} strokeWidth={2.5} />
+          </div>
+        )}
+
+        {/* ── Error ── */}
+        {error && <div className="error-banner">⚠️ {error}</div>}
+
+        {/* ── Stat cards ── */}
         <div className="stats-grid">
-          <StatCard
-            label="Profile Views"
-            value={stats.totalViews.toLocaleString()}
-            icon={Eye}
-            iconColor="blue"
-          />
-          <StatCard
-            label="Total Leads"
-            value={stats.totalLeads.toLocaleString()}
-            icon={MousePointerClick}
-            iconColor="orange"
-          />
-          <StatCard
-            label="Calls Received"
-            value={stats.clickToCall}
-            icon={Phone}
-            iconColor="green"
-          />
-          <StatCard
-            label="WhatsApp Clicks"
-            value={stats.clickToWhatsApp}
-            icon={MessageCircle}
-            iconColor="purple"
-          />
+          {loading
+            ? [...Array(4)].map((_, i) => (
+                <div key={i} className="stat-card">
+                  <div
+                    className="loading-skeleton"
+                    style={{
+                      height: 44,
+                      width: 44,
+                      borderRadius: 12,
+                      marginBottom: 16,
+                    }}
+                  />
+                  <div
+                    className="loading-skeleton"
+                    style={{ height: 28, width: "55%", marginBottom: 8 }}
+                  />
+                  <div
+                    className="loading-skeleton"
+                    style={{ height: 13, width: "70%" }}
+                  />
+                </div>
+              ))
+            : statCards.map((s) => (
+                <div
+                  key={s.label}
+                  style={
+                    { "--stat-accent": s.cssAccent } as React.CSSProperties
+                  }
+                >
+                  <StatCard {...s} />
+                </div>
+              ))}
         </div>
 
+        {/* ── Highlight strip: Rating (stars) + Reply rate ── */}
+        <div className="highlight-strip">
+          {/* Avg rating — stars */}
+          <div
+            className="highlight-tile"
+            onClick={() => navigate("/provider/reviews")}
+          >
+            <div
+              className="highlight-icon"
+              style={{ background: "rgba(234,179,8,0.12)" }}
+            >
+              <Award size={24} strokeWidth={2.5} style={{ color: "#EAB308" }} />
+            </div>
+            <div className="highlight-body">
+              {loading ? (
+                <div
+                  className="loading-skeleton"
+                  style={{ height: 20, width: 100, marginBottom: 8 }}
+                />
+              ) : (
+                <>
+                  <div className="highlight-value">
+                    {stats.avgRating || "—"}
+                    <span
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: "var(--text-tertiary)",
+                        marginLeft: 4,
+                      }}
+                    >
+                      /5
+                    </span>
+                  </div>
+                  <div className="highlight-stars">
+                    {[...Array(5)].map((_, i) => {
+                      const filled = i < Math.floor(stats.avgRating);
+                      const half = !filled && i < stats.avgRating;
+                      return (
+                        <Star
+                          key={i}
+                          size={16}
+                          fill={filled ? "#f9ab00" : "none"}
+                          stroke={filled || half ? "#f9ab00" : "#d1d5db"}
+                          strokeWidth={2}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="highlight-label">
+                    {stats.totalReviews} customer review
+                    {stats.totalReviews !== 1 ? "s" : ""}
+                  </div>
+                </>
+              )}
+            </div>
+            <ChevronRight
+              size={16}
+              strokeWidth={2.5}
+              className="highlight-arrow"
+            />
+          </div>
+        </div>
+
+        {/* ── Main grid ── */}
         <div className="dashboard-grid">
           {/* Recent Reviews */}
           <div className="dashboard-card">
             <div className="card-header">
-              <h2 className="card-title">Recent Reviews</h2>
+              <div className="card-title-wrap">
+                <div className="card-title">Recent Reviews</div>
+                <div className="card-subtitle">Latest customer feedback</div>
+              </div>
               <span
                 className="card-link"
                 onClick={() => navigate("/provider/reviews")}
               >
-                View all <ArrowUpRight size={14} strokeWidth={2.5} />
+                View all <ArrowUpRight size={13} strokeWidth={2.5} />
               </span>
             </div>
             <div className="reviews-list">
@@ -596,57 +834,68 @@ const ProviderDashboard = () => {
                   <div
                     key={i}
                     style={{
-                      padding: "18px 24px",
+                      padding: "16px 22px",
                       borderBottom: "1px solid var(--border-color)",
                     }}
                   >
                     <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div
+                        className="loading-skeleton"
+                        style={{ height: 13, width: "40%" }}
+                      />
+                      <div
+                        className="loading-skeleton"
+                        style={{ height: 13, width: 72 }}
+                      />
+                    </div>
+                    <div
                       className="loading-skeleton"
-                      style={{ height: 14, width: "60%", marginBottom: 8 }}
+                      style={{ height: 12, width: "85%", marginBottom: 6 }}
                     />
                     <div
                       className="loading-skeleton"
-                      style={{ height: 12, width: "90%" }}
+                      style={{ height: 12, width: "65%" }}
                     />
                   </div>
                 ))
               ) : recentReviews.length === 0 ? (
-                <div
-                  style={{
-                    padding: "40px 24px",
-                    textAlign: "center",
-                    color: "var(--text-tertiary)",
-                  }}
-                >
-                  <MessageCircle
-                    size={32}
-                    strokeWidth={1.5}
-                    style={{ margin: "0 auto 12px", display: "block" }}
-                  />
-                  <p style={{ fontSize: 14 }}>No reviews yet</p>
+                <div className="reviews-empty">
+                  <div className="reviews-empty-icon">
+                    <MessageCircle
+                      size={24}
+                      strokeWidth={1.5}
+                      style={{ color: "var(--text-tertiary)" }}
+                    />
+                  </div>
+                  <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
+                    No reviews yet
+                  </p>
+                  <p style={{ fontSize: 12 }}>
+                    Reviews from customers will appear here
+                  </p>
                 </div>
               ) : (
                 recentReviews.map((review) => (
                   <div
                     key={review.id}
                     className="review-item"
-                    onClick={() => navigate("/provider/reviews")}
+                    onClick={() =>
+                      navigate("/provider/reviews", {
+                        state: { highlightId: review.id },
+                      })
+                    }
                   >
                     <div className="review-item-header">
                       <span className="reviewer-name">
                         {review.customerNickname}
                       </span>
-                      <div className="review-rating">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            size={14}
-                            fill={i < review.rating ? "#f9ab00" : "none"}
-                            stroke={i < review.rating ? "#f9ab00" : "#dadce0"}
-                            strokeWidth={2}
-                          />
-                        ))}
-                      </div>
+                      <Stars rating={review.rating} />
                     </div>
                     <p className="review-comment">{review.comment}</p>
                     <div className="review-footer">
@@ -654,9 +903,9 @@ const ProviderDashboard = () => {
                         {getTimeAgo(review.createdAt)}
                       </span>
                       <span
-                        className={`reply-status ${review.providerReply ? "replied" : "pending"}`}
+                        className={`reply-badge ${review.providerReply ? "replied" : "pending"}`}
                       >
-                        {review.providerReply ? "Replied" : "Needs reply"}
+                        {review.providerReply ? "✓ Replied" : "Needs reply"}
                       </span>
                     </div>
                   </div>
@@ -665,116 +914,169 @@ const ProviderDashboard = () => {
             </div>
           </div>
 
-          {/* Performance Overview */}
+          {/* Performance */}
           <div className="dashboard-card">
             <div className="card-header">
-              <h2 className="card-title">Performance</h2>
+              <div className="card-title-wrap">
+                <div className="card-title">Performance</div>
+                <div className="card-subtitle">Business health overview</div>
+              </div>
+              <BarChart2
+                size={18}
+                strokeWidth={2}
+                style={{ color: "var(--text-tertiary)" }}
+              />
             </div>
-            <div className="quick-actions">
+            <div className="perf-list">
               <div
-                className="action-item"
+                className="perf-item"
                 onClick={() => navigate("/provider/reviews")}
               >
                 <div
-                  className="action-icon"
-                  style={{
-                    background: "var(--orange-light-bg)",
-                    color: "var(--orange-primary)",
-                  }}
+                  className="perf-icon"
+                  style={{ background: "rgba(255,107,53,0.1)" }}
                 >
-                  <MessageCircle size={20} strokeWidth={2.5} />
+                  <MessageCircle
+                    size={18}
+                    strokeWidth={2.5}
+                    style={{ color: "#FF6B35" }}
+                  />
                 </div>
-                <div className="action-content">
-                  <div className="action-title">Pending Reviews</div>
-                  <div className="action-count">Awaiting your response</div>
+                <div className="perf-body">
+                  <div className="perf-title">Pending Reviews</div>
+                  <div className="perf-sub">Awaiting your response</div>
                 </div>
-                {stats.pendingReviews > 0 && (
-                  <span className="action-badge">{stats.pendingReviews}</span>
-                )}
+                <div className="perf-right">
+                  {stats.pendingReviews > 0 ? (
+                    <span className="perf-badge">{stats.pendingReviews}</span>
+                  ) : (
+                    <CheckCircle
+                      size={18}
+                      strokeWidth={2.5}
+                      style={{ color: "#10b981" }}
+                    />
+                  )}
+                  <ChevronRight
+                    size={15}
+                    strokeWidth={2.5}
+                    className="perf-chevron"
+                  />
+                </div>
               </div>
 
               <div
-                className="action-item"
-                onClick={() => navigate("/provider/jobs")}
+                className="perf-item"
+                onClick={() => navigate("/provider/reviews")}
               >
                 <div
-                  className="action-icon"
-                  style={{
-                    background: "rgba(37, 99, 235, 0.1)",
-                    color: "#2563EB",
-                  }}
+                  className="perf-icon"
+                  style={{ background: "rgba(16,185,129,0.1)" }}
                 >
-                  <Briefcase size={20} strokeWidth={2.5} />
+                  <CheckCircle
+                    size={18}
+                    strokeWidth={2.5}
+                    style={{ color: "#10b981" }}
+                  />
                 </div>
-                <div className="action-content">
-                  <div className="action-title">Active Jobs</div>
-                  <div className="action-count">Currently in progress</div>
+                <div className="perf-body">
+                  <div className="perf-title">Replied Reviews</div>
+                  <div className="perf-sub">
+                    {stats.repliedReviews} of {stats.totalReviews} responded
+                  </div>
                 </div>
-                {stats.activeJobs > 0 && (
-                  <span
-                    className="action-badge"
-                    style={{ background: "#2563EB" }}
-                  >
-                    {stats.activeJobs}
+                <div className="perf-right">
+                  <span className="perf-value" style={{ color: "#10b981" }}>
+                    {replyRate}%
                   </span>
-                )}
+                  <ChevronRight
+                    size={15}
+                    strokeWidth={2.5}
+                    className="perf-chevron"
+                  />
+                </div>
               </div>
 
               <div
-                className="action-item"
+                className="perf-item"
                 onClick={() => navigate("/provider/jobs")}
               >
                 <div
-                  className="action-icon"
-                  style={{
-                    background: "rgba(21, 128, 61, 0.1)",
-                    color: "#15803D",
-                  }}
+                  className="perf-icon"
+                  style={{ background: "rgba(37,99,235,0.1)" }}
                 >
-                  <CheckCircle size={20} strokeWidth={2.5} />
+                  <Briefcase
+                    size={18}
+                    strokeWidth={2.5}
+                    style={{ color: "#2563EB" }}
+                  />
                 </div>
-                <div className="action-content">
-                  <div className="action-title">Completed Jobs</div>
-                  <div className="action-count">
-                    {stats.completedJobs} total finished
-                  </div>
+                <div className="perf-body">
+                  <div className="perf-title">Active Jobs</div>
+                  <div className="perf-sub">Currently in progress</div>
+                </div>
+                <div className="perf-right">
+                  <ChevronRight
+                    size={15}
+                    strokeWidth={2.5}
+                    className="perf-chevron"
+                  />
                 </div>
               </div>
 
               <div
-                className="action-item"
+                className="perf-item"
                 onClick={() => navigate("/provider/reviews")}
               >
                 <div
-                  className="action-icon"
-                  style={{
-                    background: "rgba(234, 179, 8, 0.1)",
-                    color: "#EAB308",
-                  }}
+                  className="perf-icon"
+                  style={{ background: "rgba(234,179,8,0.1)" }}
                 >
-                  <Star size={20} strokeWidth={2.5} />
+                  <Star
+                    size={18}
+                    strokeWidth={2.5}
+                    style={{ color: "#EAB308" }}
+                  />
                 </div>
-                <div className="action-content">
-                  <div className="action-title">Your Rating</div>
-                  <div className="action-count">
-                    {stats.avgRating}/5.0 • {stats.totalReviews} reviews
+                <div className="perf-body">
+                  <div className="perf-title">Your Rating</div>
+                  <div className="perf-sub">
+                    {stats.totalReviews} total reviews
                   </div>
+                </div>
+                <div className="perf-right">
+                  <span className="perf-value">{stats.avgRating || "—"}</span>
+                  <ChevronRight
+                    size={15}
+                    strokeWidth={2.5}
+                    className="perf-chevron"
+                  />
                 </div>
               </div>
 
-              <div className="action-item">
+              <div className="perf-item">
                 <div
-                  className="action-icon"
-                  style={{
-                    background: "rgba(139, 92, 246, 0.1)",
-                    color: "#7C3AED",
-                  }}
-                ></div>
-                <div className="action-content">
-                  <div className="action-title">Profile Views</div>
-                  <div className="action-count">
-                    {stats.totalViews.toLocaleString()} in selected period
-                  </div>
+                  className="perf-icon"
+                  style={{ background: "rgba(139,92,246,0.1)" }}
+                >
+                  <Eye
+                    size={18}
+                    strokeWidth={2.5}
+                    style={{ color: "#7C3AED" }}
+                  />
+                </div>
+                <div className="perf-body">
+                  <div className="perf-title">Profile Views</div>
+                  <div className="perf-sub">All time impressions</div>
+                </div>
+                <div className="perf-right">
+                  <span className="perf-value">
+                    {stats.totalViews.toLocaleString()}
+                  </span>
+                  <ChevronRight
+                    size={15}
+                    strokeWidth={2.5}
+                    className="perf-chevron"
+                  />
                 </div>
               </div>
             </div>

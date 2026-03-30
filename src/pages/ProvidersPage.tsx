@@ -1,14 +1,11 @@
 // src/pages/ProvidersPage.tsx
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import {
-  Star,
   MapPin,
-  CheckCircle,
   Phone,
   MessageCircle,
   Search as SearchIcon,
-  SlidersHorizontal,
   X,
   ChevronRight,
   Briefcase,
@@ -17,6 +14,108 @@ import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import ProvidersPageSkeleton from "../components/Providers/ProvidersPageSkeleton";
 import { supabase } from "../lib/supabaseClient";
 import SEO from "../components/SEO";
+
+// ── Half-star renderer ──────────────────────────────────────────────────────
+const StarIcon = ({
+  index,
+  rating,
+  size = 13,
+}: {
+  index: number;
+  rating: number;
+  size?: number;
+}) => {
+  const id = `hstar-${index}-${Math.round(rating * 10)}`;
+  const filled = rating >= index;
+  const half = !filled && rating > index - 1;
+
+  if (filled) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="#F59E0B"
+        stroke="#F59E0B"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+      </svg>
+    );
+  }
+  if (half) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <defs>
+          <linearGradient id={id}>
+            <stop offset="50%" stopColor="#F59E0B" />
+            <stop offset="50%" stopColor="transparent" />
+          </linearGradient>
+        </defs>
+        <polygon
+          points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+          fill={`url(#${id})`}
+          stroke="#F59E0B"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#D1D5DB"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+};
+// ───────────────────────────────────────────────────────────────────────────
+
+// ── Analytics hook (inline — no separate file needed) ──────────────────────
+const viewFiredSet = new Set<string>(); // module-level so it persists across renders
+
+const useAnalytics = () => {
+  const track = useCallback(
+    async (
+      eventType: "whatsapp_click" | "call_click" | "profile_view",
+      providerId: string,
+    ) => {
+      if (eventType === "profile_view") {
+        if (viewFiredSet.has(providerId)) return;
+        viewFiredSet.add(providerId);
+      }
+      const column =
+        eventType === "whatsapp_click"
+          ? "click_to_whatsapp_count"
+          : eventType === "call_click"
+            ? "click_to_call_count"
+            : "profile_views";
+      const { error } = await supabase.rpc("increment_provider_stat", {
+        p_provider_id: providerId,
+        p_column: column,
+      });
+      if (error) console.warn("[analytics]", error.message);
+    },
+    [],
+  );
+  return { track };
+};
+// ───────────────────────────────────────────────────────────────────────────
 
 type DbProvider = {
   id: string;
@@ -30,28 +129,21 @@ type DbProvider = {
   total_reviews: number | null;
   profile_image_url: string | null;
   pricing_model: string | null;
-  phone_number: string | null; // ✅ new
-  whatsapp_number: string | null; // ✅ new
+  phone_number: string | null;
+  whatsapp_number: string | null;
 };
-
 type DbService = {
   id: string;
   provider_id: string;
   service_name: string;
   price: number | null;
 };
-
 type DbServiceArea = {
   provider_id: string;
   city: string;
   suburb: string | null;
 };
-
-type ProviderService = {
-  name: string;
-  price: number | null;
-};
-
+type ProviderService = { name: string; price: number | null };
 type UiProvider = {
   id: string;
   slug: string;
@@ -70,15 +162,10 @@ type UiProvider = {
   priceValue: number;
   services: ProviderService[];
   matchedService?: ProviderService | null;
-  phone: string; // ✅ new
-  whatsapp: string; // ✅ new
+  phone: string;
+  whatsapp: string;
 };
-
-type DbCategory = {
-  id: string;
-  name: string;
-  status: string;
-};
+type DbCategory = { id: string; name: string; status: string };
 
 const CITIES = [
   "All Cities",
@@ -91,14 +178,34 @@ const CITIES = [
   "Kadoma",
   "Masvingo",
 ];
-
 const SORT_OPTIONS = [
-  { value: "featured", label: "Featured First" },
-  { value: "rating", label: "Highest Rated" },
-  { value: "reviews", label: "Most Reviews" },
+  { value: "featured", label: "Featured" },
+  { value: "rating", label: "Top Rated" },
+  { value: "reviews", label: "Most Reviewed" },
   { value: "experience", label: "Most Experienced" },
 ];
-
+const CATEGORY_ICONS: Record<string, string> = {
+  "Auto Mechanics": "🔧",
+  "Tiling Services": "🪟",
+  Electrical: "⚡",
+  Plumbing: "🔩",
+  "Solar Installation & Maintenance": "☀️",
+  Carpentry: "🪵",
+  Painting: "🎨",
+  "Borehole & Water Systems": "💧",
+  "Welding & Metal Fabrication": "⚙️",
+  Roofing: "🏠",
+  "Pest Control": "🐛",
+  Cleaning: "✨",
+  "Moving & Transport Services": "🚛",
+  "Appliance Repair": "🔌",
+  "Gardening & Landscaping": "🌿",
+  "Beauty & Personal Care": "💅",
+  "Event Services": "🎉",
+  Security: "🛡️",
+  IT: "💻",
+  Catering: "🍽️",
+};
 const DEFAULT_PROVIDER_IMAGE =
   "https://via.placeholder.com/800x600?text=Service+Provider";
 
@@ -106,7 +213,6 @@ const ProvidersPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   const [selectedCategory, setSelectedCategory] = useState(
     searchParams.get("category") || "All Categories",
@@ -115,90 +221,91 @@ const ProvidersPage = () => {
     searchParams.get("city") || "All Cities",
   );
   const [sortBy, setSortBy] = useState(searchParams.get("sort") || "featured");
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-
   const [providers, setProviders] = useState<UiProvider[]>([]);
   const [filteredProviders, setFilteredProviders] = useState<UiProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>(["All Categories"]);
-
-  // ── SUGGESTIONS ──────────────────────────────────────────────────────────────
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
-
-  // ── AUTH STATE ───────────────────────────────────────────────────────────────
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
 
+  const { track } = useAnalytics();
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setCurrentUser(session?.user ?? null);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => setCurrentUser(session?.user ?? null));
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCurrentUser(session?.user ?? null);
-    });
+    } = supabase.auth.onAuthStateChange((_e, s) =>
+      setCurrentUser(s?.user ?? null),
+    );
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── SUGGESTIONS FETCH ────────────────────────────────────────────────────────
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
     const q = searchQuery.trim().toLowerCase();
     if (q.length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
     }
-
     debounceRef.current = setTimeout(async () => {
       const { data, error } = await supabase
         .from("services")
         .select("name")
         .eq("is_active", true)
         .ilike("name", `%${q}%`)
-        .limit(3);
-
+        .limit(4);
       if (error || !data) return;
       const names = data.map((s) => s.name);
       setSuggestions(names);
       setShowSuggestions(names.length > 0);
       setActiveIndex(-1);
     }, 250);
-
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [searchQuery]);
 
-  // ── OUTSIDE CLICK ────────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (
         searchWrapRef.current &&
         !searchWrapRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowSuggestions(false);
-      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── CONTACT HANDLER ──────────────────────────────────────────────────────────
-  const handleContactClick = (e: React.MouseEvent, action: () => void) => {
+  // ── Updated: tracks whatsapp/call events ──────────────────────────────
+  const handleContactClick = (
+    e: React.MouseEvent,
+    action: () => void,
+    eventType: "whatsapp_click" | "call_click",
+    providerId: string,
+  ) => {
     e.stopPropagation();
     if (!currentUser) {
       setShowLoginPrompt(true);
     } else {
+      track(eventType, providerId);
       action();
     }
+  };
+
+  // ── Updated: tracks profile views ─────────────────────────────────────
+  const handleViewProfile = (slug: string, providerId: string) => {
+    track("profile_view", providerId);
+    navigate(`/providers/${slug}`);
   };
 
   const handleSignInRedirect = async () => {
@@ -214,166 +321,133 @@ const ProvidersPage = () => {
     setSigningIn(false);
   };
 
-  // ── DATA FETCHING ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-
-        const { data: providersData, error: providersError } = await supabase
+        const { data: pd, error: pe } = await supabase
           .from("providers")
           .select(
             "id, slug, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model, phone_number, whatsapp_number",
           )
           .eq("status", "active");
-
-        if (providersError) {
-          console.error("Error loading providers:", providersError);
+        if (pe) {
           setProviders([]);
         } else {
-          const dbProviders: DbProvider[] = providersData || [];
-
-          const { data: servicesData, error: servicesError } = await supabase
+          const dbP: DbProvider[] = pd || [];
+          const { data: sd } = await supabase
             .from("provider_services")
             .select("id, provider_id, service_name, price");
-
-          if (servicesError)
-            console.error("Error loading provider services:", servicesError);
-
-          const { data: areasData, error: areasError } = await supabase
+          const { data: ad } = await supabase
             .from("provider_service_areas")
             .select("provider_id, city, suburb");
+          const dbS: DbService[] = sd || [];
+          const dbA: DbServiceArea[] = ad || [];
+          setProviders(
+            dbP.map((p) => {
+              const displayName = p.business_name ?? "ZimServ Provider";
+              const slug =
+                p.slug ??
+                displayName
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-")
+                  .replace(/^-|-$/g, "");
+              return {
+                id: p.id,
+                slug,
+                name: displayName,
+                category: p.primary_category,
+                tagline: `${p.primary_category} specialist`,
+                description: `Experienced ${p.primary_category.toLowerCase()} professional in ${p.city}.`,
+                city: p.city,
+                areas: dbA
+                  .filter((a) => a.provider_id === p.id)
+                  .map((a) => a.suburb || a.city)
+                  .filter(Boolean)
+                  .filter((v, i, arr) => arr.indexOf(v) === i) as string[],
+                rating: p.avg_rating ?? 0,
+                reviewCount: p.total_reviews ?? 0,
+                verified: true,
+                image: p.profile_image_url || DEFAULT_PROVIDER_IMAGE,
+                yearsExperience: p.years_experience ?? 0,
+                pricingLabel: p.pricing_model || "Quote-based",
+                priceValue: p.years_experience ?? 0,
+                services: dbS
+                  .filter((s) => s.provider_id === p.id)
+                  .map((s) => ({ name: s.service_name, price: s.price })),
+                matchedService: null,
+                phone: p.phone_number ?? "",
+                whatsapp: p.whatsapp_number ?? p.phone_number ?? "",
+              };
+            }),
+          );
 
-          if (areasError)
-            console.error("Error loading service areas:", areasError);
+          const categoryCounts = dbP.reduce<Record<string, number>>(
+            (acc, p) => {
+              acc[p.primary_category] = (acc[p.primary_category] || 0) + 1;
+              return acc;
+            },
+            {},
+          );
 
-          const dbServices: DbService[] = servicesData || [];
-          const dbAreas: DbServiceArea[] = areasData || [];
+          const { data: cd } = await supabase
+            .from("categories")
+            .select("id,name,status")
+            .eq("status", "Active")
+            .order("display_order", { ascending: true });
 
-          const ui: UiProvider[] = dbProviders.map((p) => {
-            const displayName = p.business_name ?? "ZimServ Provider";
-            const slug =
-              p.slug ??
-              displayName
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, "-")
-                .replace(/^-|-$/g, "");
-
-            const providerServices: ProviderService[] = dbServices
-              .filter((s) => s.provider_id === p.id)
-              .map((s) => ({ name: s.service_name, price: s.price }));
-
-            const providerAreas: string[] = dbAreas
-              .filter((a) => a.provider_id === p.id)
-              .map((a) => a.suburb || a.city)
-              .filter(Boolean)
-              .filter((v, i, arr) => arr.indexOf(v) === i);
-
-            return {
-              id: p.id,
-              slug,
-              name: displayName,
-              category: p.primary_category,
-              tagline: `${p.primary_category} specialist`,
-              description: `Experienced ${p.primary_category.toLowerCase()} professional in ${p.city}.`,
-              city: p.city,
-              areas: providerAreas,
-              rating: p.avg_rating ?? 0,
-              reviewCount: p.total_reviews ?? 0,
-              verified: true,
-              image: p.profile_image_url || DEFAULT_PROVIDER_IMAGE,
-              yearsExperience: p.years_experience ?? 0,
-              pricingLabel: p.pricing_model || "Quote-based",
-              priceValue: p.years_experience ?? 0,
-              services: providerServices,
-              matchedService: null,
-              phone: p.phone_number ?? "",
-              whatsapp: p.whatsapp_number ?? p.phone_number ?? "",
-            };
-          });
-
-          setProviders(ui);
+          setCategories([
+            "All Categories",
+            ...((cd || []) as DbCategory[])
+              .map((c) => c.name)
+              .filter((name) => (categoryCounts[name] || 0) > 2),
+          ]);
         }
-
-        const { data: categoriesData, error: categoriesError } = await supabase
-          .from("categories")
-          .select("id,name,status")
-          .eq("status", "Active")
-          .order("display_order", { ascending: true });
-
-        if (categoriesError) {
-          console.error("Error loading categories:", categoriesError);
-        } else {
-          const dbCategories: DbCategory[] = categoriesData || [];
-          setCategories(["All Categories", ...dbCategories.map((c) => c.name)]);
-        }
-      } catch (err) {
-        console.error("Unexpected error:", err);
+      } catch {
         setProviders([]);
       } finally {
         setLoading(false);
       }
     };
-
     fetchData();
   }, []);
 
-  // ── FILTERING ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     let results: UiProvider[] = providers.map((p) => ({
       ...p,
       matchedService: undefined,
       tagline: `${p.category} specialist`,
     }));
-
     const qRaw = searchQuery.trim();
-    const hasSearch = qRaw.length > 0;
     const q = qRaw.toLowerCase();
-
-    if (hasSearch) {
+    if (qRaw.length > 0) {
       results = results
         .map((p) => {
           let best: ProviderService | null = null;
-          if (p.services && p.services.length > 0) {
+          if (p.services?.length > 0) {
             for (const s of p.services) {
-              const name = s.name.toLowerCase();
-              if (name === q) {
+              const n = s.name.toLowerCase();
+              if (n === q) {
                 best = s;
                 break;
-              } else if (!best && name.includes(q)) {
-                best = s;
-              }
+              } else if (!best && n.includes(q)) best = s;
             }
           }
-          const providerMatchesText =
+          const match =
             p.name.toLowerCase().includes(q) ||
             p.category.toLowerCase().includes(q) ||
             p.description.toLowerCase().includes(q) ||
             p.city.toLowerCase().includes(q);
-
-          if (!best && !providerMatchesText)
-            return { ...p, _exclude: true as const };
-          if (best) {
-            return {
-              ...p,
-              matchedService: best,
-              tagline: best.name,
-            };
-          }
-          return {
-            ...p,
-            matchedService: null,
-            tagline: `${p.category} specialist`,
-          };
+          if (!best && !match) return { ...p, _exclude: true as const };
+          if (best) return { ...p, matchedService: best, tagline: best.name };
+          return { ...p, matchedService: null };
         })
         .filter((p: any) => !p._exclude);
     }
-
     if (selectedCategory !== "All Categories")
       results = results.filter((p) => p.category === selectedCategory);
     if (selectedCity !== "All Cities")
       results = results.filter((p) => p.city === selectedCity);
-
     results.sort((a, b) => {
       switch (sortBy) {
         case "rating":
@@ -386,9 +460,7 @@ const ProvidersPage = () => {
           return 0;
       }
     });
-
     setFilteredProviders(results);
-
     const params = new URLSearchParams();
     if (searchQuery) params.set("q", searchQuery);
     if (selectedCategory !== "All Categories")
@@ -411,12 +483,11 @@ const ProvidersPage = () => {
     setSelectedCity("All Cities");
     setSortBy("featured");
   };
-
-  const activeFilterCount =
-    (searchQuery ? 1 : 0) +
-    (selectedCategory !== "All Categories" ? 1 : 0) +
-    (selectedCity !== "All Cities" ? 1 : 0);
-
+  const hasActiveFilters = !!(
+    searchQuery ||
+    selectedCategory !== "All Categories" ||
+    selectedCity !== "All Cities"
+  );
   const breadcrumbItems: { label: string; path?: string }[] = [];
   if (searchQuery.trim())
     breadcrumbItems.push({ label: `Search: "${searchQuery}"` });
@@ -427,23 +498,29 @@ const ProvidersPage = () => {
   if (breadcrumbItems.length === 0)
     breadcrumbItems.push({ label: "All Providers" });
 
-  const handleViewProfile = (slug: string) => navigate(`/providers/${slug}`);
-
-  // ── HELPERS ───────────────────────────────────────────────────────────────────
   const highlightMatch = (text: string, query: string) => {
     const idx = text.toLowerCase().indexOf(query.toLowerCase());
     if (idx === -1) return <span>{text}</span>;
     return (
       <>
         {text.slice(0, idx)}
-        <strong>{text.slice(idx, idx + query.length)}</strong>
+        <mark
+          style={{
+            background: "#FFF0E0",
+            color: "#C8570A",
+            fontWeight: 700,
+            borderRadius: 3,
+            padding: "0 1px",
+          }}
+        >
+          {text.slice(idx, idx + query.length)}
+        </mark>
         {text.slice(idx + query.length)}
       </>
     );
   };
-
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-    if (!showSuggestions || suggestions.length === 0) return;
+    if (!showSuggestions || !suggestions.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((p) => Math.min(p + 1, suggestions.length - 1));
@@ -454,1184 +531,600 @@ const ProvidersPage = () => {
       e.preventDefault();
       setSearchQuery(suggestions[activeIndex]);
       setShowSuggestions(false);
-    } else if (e.key === "Escape") {
-      setShowSuggestions(false);
-    }
+    } else if (e.key === "Escape") setShowSuggestions(false);
   };
+  const getPriceDisplay = (p: UiProvider) => {
+    const isPerSqm =
+      p.category === "Tiling Services" || p.category === "Painting";
 
-  // ── PRICE DISPLAY HELPER ──────────────────────────────────────────────────────
-  const getPriceDisplay = (provider: UiProvider) => {
-    if (provider.matchedService) {
-      if (provider.matchedService.price != null) {
+    if (p.matchedService) {
+      if (p.matchedService.price != null)
         return {
-          label: provider.matchedService.name,
-          amount: `$${provider.matchedService.price.toFixed(2)}`,
+          label: p.matchedService.name,
+          amount: isPerSqm
+            ? `$${p.matchedService.price.toFixed(2)}/m²`
+            : `$${p.matchedService.price.toFixed(2)}`,
           isPrice: true,
         };
-      }
       return {
-        label: provider.matchedService.name,
-        amount: "Quote-based",
+        label: p.matchedService.name,
+        amount: "On request",
         isPrice: false,
       };
     }
-    return {
-      label: null,
-      amount: provider.pricingLabel,
-      isPrice: false,
-    };
+
+    // no matched service — use pricingLabel but append /m² if applicable
+    const label = p.pricingLabel || "Quote-based";
+    const amount =
+      isPerSqm && p.priceValue > 0 ? `$${p.priceValue.toFixed(2)}/m²` : label;
+
+    return { label: null, amount, isPrice: isPerSqm && p.priceValue > 0 };
   };
+
+  const hasCategory = selectedCategory !== "All Categories";
+  const hasCity = selectedCity !== "All Cities";
+  const seoTitle = hasCategory
+    ? `${selectedCategory} Providers${hasCity ? ` in ${selectedCity}` : " in Zimbabwe"}`
+    : hasCity
+      ? `Service Providers in ${selectedCity}, Zimbabwe`
+      : "Find Service Providers in Zimbabwe";
 
   return (
     <>
-      {/* ── SEO — dynamic based on active filters ── */}
-      {(() => {
-        const hasCategory = selectedCategory !== "All Categories";
-        const hasCity = selectedCity !== "All Cities";
-
-        const title = hasCategory
-          ? `${selectedCategory} Providers${hasCity ? ` in ${selectedCity}` : " in Zimbabwe"}`
-          : hasCity
-            ? `Service Providers in ${selectedCity}, Zimbabwe`
-            : "Find Service Providers in Zimbabwe";
-
-        const description = hasCategory
-          ? `Browse verified ${selectedCategory} professionals${hasCity ? ` in ${selectedCity}` : " across Zimbabwe"}. Contact directly by phone or WhatsApp on ZimServ.`
-          : hasCity
-            ? `Find trusted service providers in ${selectedCity}, Zimbabwe. Browse verified plumbers, electricians, cleaners and more on ZimServ.`
-            : "Browse verified service professionals across Zimbabwe. Filter by category, city and rating. Contact providers directly by phone or WhatsApp.";
-
-        return (
-          <SEO
-            title={title}
-            description={description}
-            url="/providers"
-            keywords={[
-              hasCategory
-                ? `${selectedCategory} Zimbabwe`
-                : "service providers Zimbabwe",
-              hasCity ? `services ${selectedCity}` : "services Harare",
-              "verified professionals Zimbabwe",
-              "ZimServ providers",
-            ]}
-          />
-        );
-      })()}
-
+      <SEO
+        title={seoTitle}
+        description="Browse verified service professionals across Zimbabwe."
+        url="/providers"
+        keywords={["ZimServ"]}
+      />
       <style>{`
-        .pp-page {
-          width: 100%;
-          min-height: 100vh;
-          background: var(--color-bg-section);
-          padding: 40px 0 80px;
-          font-family: var(--font-primary);
-        }
-
-        .pp-container {
-          max-width: var(--container-max-width);
-          margin: 0 auto;
-          padding: 0 var(--container-padding);
-        }
-
-        .pp-header { margin-bottom: 20px; }
-
-        .pp-title {
-          font-family: var(--font-primary);
-          font-size: 25px;
-          font-weight: 800;
-          color: var(--color-primary);
-          margin-bottom: 6px;
-          line-height: 1.15;
-          letter-spacing: -1.2px;
-        }
-
-        .pp-subtitle {
-          font-size: 15px;
-          font-weight: 500;
-          color: var(--color-text-secondary);
-        }
-
-        .pp-search-section {
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-lg);
-          padding: 20px;
-          margin-bottom: 24px;
-          box-shadow: var(--shadow-sm);
-        }
-
-        .pp-search-row {
-          display: grid;
-          grid-template-columns: 1fr auto auto auto;
-          gap: 12px;
-        }
-
-        .pp-search-wrap { position: relative; }
-
-        .pp-search-icon {
-          position: absolute;
-          left: 16px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: var(--color-text-secondary);
-          pointer-events: none;
-          z-index: 1;
-        }
-
-        .pp-search-input {
-          width: 100%;
-          padding: 13px 16px 13px 46px;
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-md);
-          font-family: var(--font-primary);
-          font-size: 14px;
-          font-weight: 500;
-          color: var(--color-primary);
-          background: var(--color-bg);
-          transition: all var(--transition-fast);
-          box-sizing: border-box;
-        }
-
-        .pp-search-input:focus {
-          outline: none;
-          border-color: var(--color-accent);
-          box-shadow: 0 0 0 3px var(--color-accent-soft);
-        }
-
-        .pp-search-input.has-suggestions {
-          border-bottom-left-radius: 0;
-          border-bottom-right-radius: 0;
-          border-bottom-color: transparent;
-        }
-
-        .pp-search-input::placeholder { color: var(--color-text-secondary); }
-
-        /* ── SUGGESTIONS ──────────────────────────────────── */
-        .pp-suggestions {
-          position: absolute;
-          top: 100%;
-          left: 0; right: 0;
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-accent);
-          border-top: none;
-          border-bottom-left-radius: var(--radius-md);
-          border-bottom-right-radius: var(--radius-md);
-          box-shadow: var(--shadow-md);
-          z-index: 100;
-          overflow: hidden;
-        }
-
-        .pp-suggestion-item {
-          padding: 11px 16px 11px 46px;
-          font-size: 14px;
-          font-weight: 500;
-          color: var(--color-primary);
-          cursor: pointer;
-          border-bottom: 1px solid var(--color-border);
-          transition: background var(--transition-fast);
-        }
-
-        .pp-suggestion-item:last-child { border-bottom: none; }
-
-        .pp-suggestion-item:hover,
-        .pp-suggestion-item.active {
-          background: var(--color-accent-soft);
-        }
-
-        .pp-suggestion-item strong {
-          color: var(--color-accent);
-          font-weight: 700;
-        }
-
-        .pp-select {
-          padding: 13px 36px 13px 14px;
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-md);
-          font-family: var(--font-primary);
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--color-primary);
-          background: var(--color-bg);
-          cursor: pointer;
-          appearance: none;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-          background-repeat: no-repeat;
-          background-position: right 10px center;
-          min-width: 140px;
-          transition: all var(--transition-fast);
-        }
-
-        .pp-select:focus {
-          outline: none;
-          border-color: var(--color-accent);
-          box-shadow: 0 0 0 3px var(--color-accent-soft);
-        }
-
-        .pp-filter-btn {
-          padding: 13px 18px;
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-md);
-          color: var(--color-text-secondary);
-          font-family: var(--font-primary);
-          font-size: 14px;
-          font-weight: 700;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          transition: all var(--transition-fast);
-          white-space: nowrap;
-          position: relative;
-        }
-
-        .pp-filter-badge {
-          position: absolute;
-          top: -6px; right: -6px;
-          width: 20px; height: 20px;
-          background: var(--color-accent);
-          color: #fff;
-          border-radius: 50%;
-          font-size: 11px;
-          font-weight: 700;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 2px solid var(--color-bg);
-        }
-
-        .pp-filter-btn:hover,
-        .pp-filter-btn.active {
-          border-color: var(--color-accent);
-          color: var(--color-accent);
-          background: var(--color-accent-soft);
-        }
-
-        .pp-filter-btn.active {
-          background: var(--color-accent);
-          color: #fff;
-        }
-
-        .pp-advanced {
-          max-height: 0;
-          overflow: hidden;
-          opacity: 0;
-          transition: all 0.3s ease;
-        }
-
-        .pp-advanced.visible {
-          max-height: 200px;
-          opacity: 1;
-          margin-top: 16px;
-        }
-
-        .pp-advanced-inner {
-          display: flex;
-          gap: 12px;
-          align-items: center;
-        }
-
-        .pp-clear-btn {
-          padding: 9px 18px;
-          background: transparent;
-          border: 1.5px solid #EF4444;
-          border-radius: var(--radius-md);
-          color: #EF4444;
-          font-family: var(--font-primary);
-          font-size: 13px;
-          font-weight: 700;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          transition: all var(--transition-fast);
-          white-space: nowrap;
-        }
-
-        .pp-clear-btn:hover { background: #EF4444; color: #fff; }
-
-        .pp-results-bar {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 24px;
-          gap: 16px;
-        }
-
-        .pp-results-count {
-          font-size: 15px;
-          color: var(--color-text-secondary);
-          font-weight: 500;
-        }
-
-        .pp-results-count strong { color: var(--color-accent); font-weight: 700; }
-
-        .pp-sort-wrap { display: flex; align-items: center; gap: 8px; }
-
-        .pp-sort-label {
-          font-size: 14px;
-          color: var(--color-text-secondary);
-          font-weight: 500;
-          white-space: nowrap;
-        }
-
-        .pp-sort-select {
-          padding: 8px 30px 8px 12px;
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-md);
-          font-family: var(--font-primary);
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--color-primary);
-          background: var(--color-bg);
-          cursor: pointer;
-          appearance: none;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-          background-repeat: no-repeat;
-          background-position: right 8px center;
-          transition: all var(--transition-fast);
-        }
-
-        .pp-sort-select:focus { outline: none; border-color: var(--color-accent); }
-
-        .pp-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 20px;
-          margin-bottom: 48px;
-        }
-
-        .pp-card {
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-xl);
-          overflow: hidden;
-          cursor: pointer;
-          position: relative;
-          display: flex;
-          flex-direction: column;
-          transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease, border-color 0.25s ease;
-        }
-
-        .pp-card:hover {
-          transform: translateY(-5px);
-          box-shadow: var(--shadow-lg), 0 0 0 1px rgba(236,111,22,0.1);
-          border-color: var(--color-accent-light);
-        }
-
-        .pp-card::before {
-          content: '';
-          position: absolute;
-          top: 0; left: 0; right: 0;
-          height: 3px;
-          background: linear-gradient(90deg, var(--color-accent), var(--color-accent-light));
-          transform: scaleX(0);
-          transform-origin: left;
-          transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-          z-index: 2;
-        }
-
-        .pp-card:hover::before { transform: scaleX(1); }
-
-        .pp-img-wrap {
-          position: relative;
-          aspect-ratio: 4 / 3;
-          overflow: hidden;
-          flex-shrink: 0;
-        }
-
-        .pp-img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          object-position: center top;
-          display: block;
-          transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-        }
-
-        .pp-card:hover .pp-img { transform: scale(1.06); }
-
-        .pp-img-scrim {
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(to bottom, rgba(28,25,23,0.08) 0%, transparent 40%, rgba(28,25,23,0.52) 100%);
-        }
-
-        .pp-img-top {
-          position: absolute;
-          top: 12px; left: 12px; right: 12px;
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-        }
-
-      
-
-        .pp-verified-pill {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          padding: 5px 10px;
-          background: rgba(28,25,23,0.55);
-          backdrop-filter: blur(8px);
-          color: #fff;
-          border-radius: var(--radius-full);
-          font-size: 11px;
-          font-weight: 600;
-          border: 1px solid rgba(255,255,255,0.12);
-        }
-
-        .pp-verified-pill svg { color: #4ade80; }
-
-        .pp-body {
-          padding: 18px 20px 20px;
-          display: flex;
-          flex-direction: column;
-          flex: 1;
-        }
-
-        .pp-name-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-          margin-bottom: 3px;
-        }
-
-        .pp-name {
-          font-size: 18px;
-          font-weight: 800;
-          color: var(--color-primary);
-          letter-spacing: -0.4px;
-          line-height: 1.2;
-          flex: 1;
-          transition: color var(--transition-fast);
-        }
-
-        .pp-card:hover .pp-name { color: var(--color-accent); }
-
-        /* ── PRICE BLOCK ──────────────────────────────────── */
-        .pp-price {
-          display: flex;
-          align-items: center;
-          flex-shrink: 0;
-        }
-
-        .pp-price-amount {
-          font-size: 20px;
-          font-weight: 800;
-          color: var(--color-accent);
-          letter-spacing: -0.5px;
-          line-height: 1.2;
-        }
-
-        .pp-price-quote {
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--color-text-secondary);
-        }
-
-        .pp-tagline {
-          font-size: 13px;
-          color: var(--color-text-secondary);
-          line-height: 1.45;
-          margin-bottom: 14px;
-        }
-
-        .pp-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px; }
-
-        .pp-chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-          padding: 5px 10px;
-          background: var(--color-bg-section);
-          border: 1px solid var(--color-border);
-          border-radius: var(--radius-sm);
-          font-size: 12px;
-          color: var(--color-text-secondary);
-          font-weight: 500;
-          transition: border-color 0.2s, background 0.2s;
-        }
-
-        .pp-card:hover .pp-chip {
-          border-color: rgba(236,111,22,0.25);
-          background: var(--color-accent-soft);
-        }
-
-        .pp-chip svg { color: var(--color-accent); flex-shrink: 0; }
-
-        .pp-areas {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-wrap: wrap;
-          margin-bottom: 14px;
-          min-height: 24px;
-        }
-
-        .pp-areas-label {
-          font-size: 12px;
-          font-weight: 600;
-          color: var(--color-text-secondary);
-          white-space: nowrap;
-          flex-shrink: 0;
-        }
-
-        .pp-area-tag {
-          display: inline-flex;
-          padding: 3px 9px;
-          background: var(--color-accent-soft);
-          color: var(--color-text-secondary);
-          border-radius: 6px;
-          font-size: 11px;
-          font-weight: 600;
-          white-space: nowrap;
-        }
-
-        .pp-area-more {
-          font-size: 11px;
-          color: var(--color-text-secondary);
-          white-space: nowrap;
-        }
-
-        .pp-rating-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-        .pp-stars { display: flex; gap: 2px; }
-
-        .pp-rating-num {
-          font-size: 14px;
-          font-weight: 700;
-          color: var(--color-primary);
-          letter-spacing: -0.2px;
-        }
-
-        .pp-rating-ct { font-size: 12.5px; color: var(--color-text-secondary); }
-
-        .pp-desc {
-          font-size: 12px;
-          color: var(--color-text-secondary);
-          line-height: 1.55;
-          margin-bottom: 16px;
-        }
-
-        .pp-divider { height: 1px; background: var(--color-border); margin-bottom: 14px; }
-
-        .pp-actions {
-          display: grid;
-          grid-template-columns: 1fr 1fr auto;
-          gap: 8px;
-          margin-top: auto;
-        }
-
-        .pp-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          padding: 11px 14px;
-          border-radius: var(--radius-md);
-          font-family: var(--font-primary);
-          font-size: 13px;
-          font-weight: 700;
-          cursor: pointer;
-          border: none;
-          transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-          white-space: nowrap;
-        }
-
-        .pp-btn-whatsapp {
-          background: var(--color-accent);
-          color: #fff;
-          box-shadow: 0 3px 14px rgba(236,111,22,0.32);
-        }
-
-        .pp-btn-whatsapp:hover {
-          background: var(--color-accent-hover);
-          transform: translateY(-1px);
-          box-shadow: 0 6px 20px rgba(236,111,22,0.44);
-        }
-
-        .pp-btn-whatsapp:active { transform: scale(0.97); }
-
-        .pp-btn-call {
-          background: var(--color-bg);
-          color: var(--color-text-secondary);
-          border: 1.5px solid var(--color-border);
-        }
-
-        .pp-btn-call:hover {
-          background: #f0fdf4;
-          border-color: #16a34a;
-          color: #16a34a;
-          transform: translateY(-1px);
-        }
-
-        .pp-btn-profile {
-          width: 42px; height: 42px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          border-radius: var(--radius-md);
-          color: var(--color-accent);
-          cursor: pointer;
-          flex-shrink: 0;
-          transition: background 0.2s, border-color 0.2s, transform 0.2s;
-        }
-
-        .pp-btn-profile:hover {
-          background: var(--color-accent-soft);
-          border-color: var(--color-accent);
-          transform: translateY(-1px);
-        }
-
-        .pp-empty {
-          text-align: center;
-          padding: 80px 20px;
-          background: var(--color-bg);
-          border-radius: var(--radius-lg);
-          border: 1.5px dashed var(--color-border);
-        }
-
-        .pp-empty-icon {
-          width: 80px; height: 80px;
-          margin: 0 auto 20px;
-          background: var(--color-bg-section);
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--color-text-secondary);
-        }
-
-        .pp-empty-title {
-          font-size: 22px;
-          font-weight: 700;
-          color: var(--color-primary);
-          margin-bottom: 8px;
-        }
-
-        .pp-empty-text {
-          font-size: 15px;
-          color: var(--color-text-secondary);
-          margin-bottom: 20px;
-        }
-
-        /* ── LOGIN PROMPT MODAL ───────────────────────────── */
-        .pp-modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0,0,0,0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 9999;
-          backdrop-filter: blur(4px);
-          animation: pp-fade-in 0.2s ease;
-        }
-
-        @keyframes pp-fade-in { from { opacity: 0; } to { opacity: 1; } }
-
-        .pp-modal {
-          background: var(--color-bg);
-          border-radius: var(--radius-xl);
-          padding: 40px 36px 36px;
-          max-width: 380px;
-          width: 90%;
-          text-align: center;
-          position: relative;
-          border: 1.5px solid var(--color-border);
-          box-shadow: var(--shadow-lg);
-          animation: pp-slide-up 0.25s cubic-bezier(0.22, 1, 0.36, 1);
-        }
-
-        @keyframes pp-slide-up {
-          from { opacity: 0; transform: translateY(20px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        .pp-modal-close {
-          position: absolute;
-          top: 14px; right: 14px;
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          color: var(--color-text-secondary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 4px;
-          border-radius: var(--radius-sm);
-          transition: color var(--transition-fast), background var(--transition-fast);
-        }
-
-        .pp-modal-close:hover { color: var(--color-primary); background: var(--color-bg-section); }
-
-        .pp-modal-icon { font-size: 44px; margin-bottom: 14px; }
-
-        .pp-modal-title {
-          font-size: 20px;
-          font-weight: 800;
-          color: var(--color-primary);
-          letter-spacing: -0.4px;
-          margin-bottom: 8px;
-        }
-
-        .pp-modal-text {
-          font-size: 14px;
-          color: var(--color-text-secondary);
-          margin-bottom: 28px;
-          line-height: 1.6;
-        }
-
-        .pp-modal-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-
-        .pp-modal-google-btn {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 12px;
-          width: 100%;
-          padding: 13px 20px;
-          border-radius: var(--radius-md);
-          font-family: var(--font-primary);
-          font-size: 15px;
-          font-weight: 700;
-          cursor: pointer;
-          background: var(--color-bg);
-          border: 1.5px solid var(--color-border);
-          color: var(--color-primary);
-          box-shadow: var(--shadow-sm);
-          transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
-          letter-spacing: 0.1px;
-        }
-
-        .pp-modal-google-btn:hover {
-          border-color: #4285F4;
-          box-shadow: 0 4px 16px rgba(66,133,244,0.15);
-          transform: translateY(-1px);
-        }
-
-        .pp-modal-google-btn:active { transform: scale(0.98); }
-        .pp-modal-google-btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
-
-        .pp-modal-google-icon { width: 20px; height: 20px; flex-shrink: 0; }
-
-        .pp-modal-cancel-btn {
-          width: 100%;
-          padding: 13px 20px;
-          border-radius: var(--radius-md);
-          font-family: var(--font-primary);
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          background: transparent;
-          border: 1.5px solid var(--color-border);
-          color: var(--color-text-secondary);
-          transition: all var(--transition-fast);
-          margin-top: 4px;
-        }
-
-        .pp-modal-cancel-btn:hover {
-          background: var(--color-bg-section);
-          border-color: var(--color-text-secondary);
-          color: var(--color-primary);
-        }
-
-        /* ── RESPONSIVE ───────────────────────────────────── */
-        @media (max-width: 1200px) {
-          .pp-container { padding: 0 32px; }
-          .pp-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
-        }
-
-        @media (max-width: 900px) {
-          .pp-page { padding: 32px 0 60px; }
-          .pp-container { padding: 0 24px; }
-          .pp-title { font-size: 24px; }
-          .pp-search-row { grid-template-columns: 1fr; }
-          .pp-select { width: 100%; }
-          .pp-results-bar { flex-direction: column; align-items: flex-start; }
-          .pp-sort-wrap { width: 100%; }
-          .pp-sort-select { flex: 1; }
-        }
-
-        @media (max-width: 768px) { .pp-grid { grid-template-columns: 1fr; } }
-
-        @media (max-width: 640px) {
-          .pp-page { padding: 24px 0 48px; }
-          .pp-container { padding: 0 16px; }
-          .pp-title { font-size: 22px; letter-spacing: -0.8px; }
-          .pp-price-amount { font-size: 18px; }
-          .pp-actions { grid-template-columns: 1fr 1fr; }
-          .pp-btn-profile {
-            grid-column: 1 / -1;
-            width: 100%;
-            border-radius: var(--radius-md);
-            gap: 6px;
-          }
-          .pp-btn-profile::after { content: 'View Profile'; font-size: 13px; font-weight: 700; }
-          .pp-modal { padding: 36px 20px 28px; }
-          .pp-modal-actions { grid-template-columns: 1fr; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          *, *::before, *::after { animation: none !important; transition: none !important; }
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        :root {
+          --pj: 'Plus Jakarta Sans', sans-serif;
+          --ink: #1C1917; --ink-2: #44403C; --ink-3: #78716C; --ink-4: #A8A29E;
+          --bg: #F7F5F2; --bg-card: #FFFFFF; --border: #E7E3DE; --border-2: #D4CFC9;
+          --accent: #EC6F16; --accent-2: #C8570A; --accent-bg: #FFF4EC; --accent-border: #FFD9B8;
+          --green: #16A34A; --green-bg: #F0FDF4; --green-border: #BBF7D0;
+          --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-pill: 100px;
+          --s-sm: 0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+          --s-md: 0 4px 16px rgba(0,0,0,.08),0 2px 6px rgba(0,0,0,.04);
+          --s-lg: 0 12px 40px rgba(0,0,0,.10),0 4px 12px rgba(0,0,0,.05);
+          --s-card: 0 2px 8px rgba(28,25,23,.06),0 0 0 1px rgba(28,25,23,.04);
+          --t: .25s cubic-bezier(.22,1,.36,1);
+        }
+        .z-page { background: var(--bg); min-height: 100vh; font-family: var(--pj); color: var(--ink); }
+        .z-hero { background: #1C1917; padding: 52px 0 56px; position: relative; overflow: hidden; margin-top: 20px; }
+        .z-hero::before { content:''; position:absolute; inset:0; background-image: linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px); background-size: 48px 48px; pointer-events:none; }
+        .z-hero::after { content:''; position:absolute; right:-80px; top:-100px; width:560px; height:500px; background:radial-gradient(ellipse,rgba(236,111,22,.17) 0%,transparent 65%); pointer-events:none; }
+        .z-hero-inner { max-width:1200px; margin:0 auto; padding:0 40px; display:flex; align-items:center; justify-content:space-between; gap:32px; position:relative; z-index:1; }
+        .z-eyebrow { display:inline-flex; align-items:center; gap:8px; font-family:var(--pj); font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin-bottom:16px; }
+        .z-eyebrow-dot { width:6px; height:6px; background:var(--accent); border-radius:50%; animation:z-blink 2.4s ease-in-out infinite; }
+        @keyframes z-blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+        .z-hero-h1 { font-family:var(--pj); font-size:25px; font-weight:800; color:#FAF9F7; line-height:1.1; letter-spacing:-.03em; margin:0 0 14px; }
+        .z-h1-accent { color:var(--accent); position:relative; }
+        .z-hero-sub { font-size:13px; font-weight:400; color:rgba(250,249,247,.45); line-height:1.6; }
+        .z-hero-sub strong { color:rgba(250,249,247,.7); font-weight:600; }
+        .z-hero-stats { display:flex; gap:24px; margin-top:28px; align-items:center; }
+        .z-stat { display:flex; flex-direction:column; gap:2px; }
+        .z-stat-n { font-size:17px; font-weight:800; color:#FAF9F7; letter-spacing:-.03em; line-height:1; }
+        .z-stat-l { font-size:11px; font-weight:500; color:rgba(250,249,247,.38); text-transform:uppercase; letter-spacing:.08em; }
+        .z-stat-div { width:1px; background:rgba(255,255,255,.1); align-self:stretch; }
+        .z-bar { background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:200; box-shadow:0 2px 12px rgba(28,25,23,.07); }
+        .z-bar-inner { max-width:1200px; margin:0 auto; padding:0 40px; height:72px; display:flex; align-items:center; }
+        .z-si-wrap { flex:1; position:relative; border-right:1px solid var(--border); height:100%; display:flex; align-items:center; }
+        .z-si-ico { position:absolute; left:20px; color:var(--ink-4); pointer-events:none; }
+        .z-si { width:100%; height:100%; padding:0 20px 0 52px; background:transparent; border:none; font-family:var(--pj); font-size:15px; font-weight:500; color:var(--ink); box-sizing:border-box; transition:background var(--t); }
+        .z-si:focus { outline:none; background:#FFFBF8; }
+        .z-si::placeholder { color:var(--ink-4); font-weight:400; }
+        .z-suggs { position:absolute; top:calc(100% + 1px); left:0; right:0; background:#fff; border:1px solid var(--border); border-top:2px solid var(--accent); border-radius:0 0 var(--r-md) var(--r-md); box-shadow:var(--s-md); z-index:300; overflow:hidden; }
+        .z-sugg { padding:11px 20px 11px 52px; font-family:var(--pj); font-size:14px; font-weight:500; color:var(--ink-2); cursor:pointer; border-bottom:1px solid var(--border); transition:background .15s; }
+        .z-sugg:last-child { border-bottom:none; }
+        .z-sugg:hover,.z-sugg.active { background:var(--accent-bg); }
+        .z-sel-wrap { height:100%; border-right:1px solid var(--border); display:flex; align-items:center; padding:0 4px; flex-shrink:0; }
+        .z-sel { height:100%; padding:0 36px 0 16px; background:transparent; border:none; font-family:var(--pj); font-size:14px; font-weight:600; color:var(--ink-2); cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2378716C' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; min-width:140px; transition:background-color var(--t); }
+        .z-sel:focus { outline:none; background-color:var(--accent-bg); }
+        .z-sel:hover { background-color:var(--bg); }
+        .z-sort-wrap { height:100%; display:flex; align-items:center; padding:0 20px; gap:9px; flex-shrink:0; }
+        .z-sort-lbl { font-size:11.5px; font-weight:700; color:var(--ink-4); text-transform:uppercase; letter-spacing:.07em; white-space:nowrap; }
+        .z-sort-sel { padding:7px 28px 7px 10px; background:var(--bg); border:1.5px solid var(--border); border-radius:var(--r-sm); font-family:var(--pj); font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2378716C' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 8px center; transition:border-color var(--t); }
+        .z-sort-sel:focus { outline:none; border-color:var(--accent); }
+        .z-body { max-width:1200px; margin:0 auto; padding:32px 40px 80px; }
+        .z-pills { display:flex; gap:7px; flex-wrap:wrap; padding-bottom:28px; border-bottom:1px solid var(--border); margin-bottom:28px; }
+        .z-pill { display:inline-flex; align-items:center; gap:6px; padding:7px 14px; background:var(--bg-card); border:1.5px solid var(--border); border-radius:var(--r-pill); font-family:var(--pj); font-size:13px; font-weight:600; color:var(--ink-2); cursor:pointer; transition:all var(--t); white-space:nowrap; box-shadow:var(--s-sm); user-select:none; }
+        .z-pill:hover { border-color:var(--accent-border); color:var(--accent); background:var(--accent-bg); box-shadow:0 2px 8px rgba(236,111,22,.12); transform:translateY(-1px); }
+        .z-pill.on { background:var(--ink); border-color:var(--ink); color:#fff; box-shadow:0 4px 14px rgba(28,25,23,.2); transform:translateY(-1px); }
+        .z-pill-ico { font-size:14px; line-height:1; }
+        .z-rbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:12px; }
+        .z-rlabel { font-size:15px; font-weight:600; color:var(--ink-3); }
+        .z-rlabel strong { font-size:15px; font-weight:800; color:var(--ink); letter-spacing:-.03em; margin-right:4px; }
+        .z-cbtn { display:inline-flex; align-items:center; gap:5px; padding:6px 13px; background:transparent; border:1.5px solid var(--border-2); border-radius:var(--r-pill); font-family:var(--pj); font-size:12.5px; font-weight:600; color:var(--ink-3); cursor:pointer; transition:all var(--t); }
+        .z-cbtn:hover { border-color:#EF4444; color:#EF4444; background:#FEF2F2; }
+        .z-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+        .z-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--r-xl); overflow:hidden; display:flex; flex-direction:column; cursor:pointer; position:relative; box-shadow:var(--s-card); transition:transform var(--t),box-shadow var(--t),border-color var(--t); animation:z-in .45s var(--t) both; }
+        @keyframes z-in { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+        .z-card:nth-child(1){animation-delay:.00s} .z-card:nth-child(2){animation-delay:.05s} .z-card:nth-child(3){animation-delay:.10s}
+        .z-card:nth-child(4){animation-delay:.15s} .z-card:nth-child(5){animation-delay:.20s} .z-card:nth-child(6){animation-delay:.25s}
+        .z-card:nth-child(n+7){animation-delay:.28s}
+        .z-card:hover { transform:translateY(-5px); box-shadow:var(--s-lg); border-color:var(--accent-border); }
+        .z-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,var(--accent),#F59E0B); z-index:2; transform:scaleX(0); transform-origin:left; transition:transform .35s cubic-bezier(.22,1,.36,1); }
+        .z-card:hover::before { transform:scaleX(1); }
+        .z-cimg { position:relative; aspect-ratio:4/3; overflow:hidden; background:#E7E3DE; flex-shrink:0; }
+        .z-cimg img { width:100%; height:100%; object-fit:cover; object-position:center top; display:block; transition:transform .55s cubic-bezier(.22,1,.36,1),filter .4s ease; filter:saturate(.88) brightness(.97); }
+        .z-card:hover .z-cimg img { transform:scale(1.06); filter:saturate(1) brightness(1); }
+        .z-cimg-scrim { position:absolute; inset:0; background:linear-gradient(to bottom,rgba(28,25,23,0) 35%,rgba(28,25,23,.65) 100%); }
+        
+        .z-cpill { display:inline-flex; align-items:center; gap:5px; padding:5px 11px; background:rgba(28,25,23,.6); backdrop-filter:blur(8px); border-radius:var(--r-pill); font-family:var(--pj); font-size:11.5px; font-weight:700; color:rgba(250,249,247,.88); border:1px solid rgba(255,255,255,.1); }
+        .z-cbody { padding:16px 18px 18px; display:flex; flex-direction:column; flex:1; }
+        .z-name-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:4px; cursor:pointer; }
+        .z-cname { font-family:var(--pj); font-size:17px; font-weight:800; color:var(--ink); letter-spacing:-.025em; line-height:1.25; flex:1; min-width:0; transition:color var(--t); }
+        .z-card:hover .z-cname { color:var(--accent); }
+        .z-price-block { display:flex; flex-direction:column; align-items:flex-end; flex-shrink:0; padding-top:1px; gap:2px; }
+        .z-price-from { font-size:9.5px; font-weight:700; color:var(--ink-4); text-transform:uppercase; letter-spacing:.09em; line-height:1; }
+        .z-price-amt { font-family:var(--pj); font-size:16px; font-weight:800; color:var(--accent); letter-spacing:-.02em; line-height:1; white-space:nowrap; }
+        .z-price-quote { font-size:11.5px; font-weight:600; color:var(--ink-4); white-space:nowrap; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-pill); padding:3px 9px; margin-top:2px; }
+        .z-ctag { font-size:12.5px; font-weight:400; color:var(--ink-3); margin-bottom:12px; line-height:1.5; }
+        .z-meta { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+        .z-chip { display:inline-flex; align-items:center; gap:4px; padding:4px 9px; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-pill); font-family:var(--pj); font-size:11.5px; font-weight:600; color:var(--ink-2); transition:border-color var(--t),background var(--t); }
+        .z-chip svg { color:var(--accent); }
+        .z-card:hover .z-chip { border-color:var(--accent-border); background:var(--accent-bg); }
+        .z-areas { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-bottom:10px; }
+        .z-atag { padding:3px 8px; background:var(--accent-bg); border:1px solid var(--accent-border); color:var(--accent-2); border-radius:5px; font-size:11px; font-weight:700; }
+        .z-amore { font-size:11px; color:var(--ink-4); font-weight:500; }
+        .z-rating { display:flex; align-items:center; gap:7px; margin-bottom:14px; }
+        .z-stars { display:flex; gap:2px; align-items:center; }
+        .z-rnum { font-size:13px; font-weight:700; color:var(--ink); }
+        .z-rct { font-size:12px; color:var(--ink-4); font-weight:500; }
+        .z-new { display:inline-flex; align-items:center; padding:2px 7px; background:#EFF6FF; border:1px solid #BFDBFE; border-radius:var(--r-pill); font-size:10.5px; font-weight:700; color:#3B82F6; letter-spacing:.04em; }
+        .z-div { height:1px; background:var(--border); margin-bottom:14px; }
+        .z-acts { display:grid; grid-template-columns:1fr 1fr auto; gap:7px; margin-top:auto; }
+        .z-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:10px 13px; border-radius:var(--r-sm); font-family:var(--pj); font-size:13px; font-weight:700; cursor:pointer; border:none; transition:all .2s ease; white-space:nowrap; letter-spacing:.01em; }
+        .z-bwa { background:var(--accent); color:#fff; box-shadow:0 2px 10px rgba(236,111,22,.28); }
+        .z-bwa:hover { background:var(--accent-2); transform:translateY(-1px); box-shadow:0 6px 20px rgba(236,111,22,.38); }
+        .z-bwa:active { transform:scale(.97); }
+        .z-bcall { background:var(--green-bg); color:var(--green); border:1.5px solid var(--green-border); }
+        .z-bcall:hover { background:#DCFCE7; border-color:var(--green); transform:translateY(-1px); }
+        .z-bprof { width:40px; height:40px; background:var(--bg); border:1.5px solid var(--border); border-radius:var(--r-sm); display:flex; align-items:center; justify-content:center; color:var(--ink-3); cursor:pointer; flex-shrink:0; transition:all .2s; }
+        .z-bprof:hover { background:var(--ink); border-color:var(--ink); color:#fff; transform:translateY(-1px); }
+        .z-empty { text-align:center; padding:100px 20px; }
+        .z-empty-ico { font-size:52px; margin-bottom:20px; opacity:.3; }
+        .z-empty-h { font-family:var(--pj); font-size:24px; font-weight:800; color:var(--ink); margin-bottom:10px; letter-spacing:-.025em; }
+        .z-empty-p { font-size:15px; color:var(--ink-3); margin-bottom:24px; }
+        .z-ov { position:fixed; inset:0; background:rgba(28,25,23,.55); display:flex; align-items:center; justify-content:center; z-index:9999; backdrop-filter:blur(5px); animation:z-fade .2s ease; }
+        @keyframes z-fade { from{opacity:0} to{opacity:1} }
+        .z-modal { background:#fff; border-radius:var(--r-xl); padding:44px 40px 40px; max-width:380px; width:90%; text-align:center; position:relative; box-shadow:0 32px 80px rgba(0,0,0,.18); animation:z-up .28s cubic-bezier(.22,1,.36,1); }
+        @keyframes z-up { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+        .z-mcl { position:absolute; top:14px; right:14px; background:transparent; border:none; cursor:pointer; color:var(--ink-4); padding:6px; border-radius:6px; transition:all .15s; }
+        .z-mcl:hover { color:var(--ink); background:var(--bg); }
+        .z-mic { font-size:40px; margin-bottom:14px; }
+        .z-mh { font-family:var(--pj); font-size:21px; font-weight:800; color:var(--ink); letter-spacing:-.03em; margin-bottom:10px; }
+        .z-mp { font-size:14px; color:var(--ink-3); margin-bottom:28px; line-height:1.65; }
+        .z-macts { display:flex; flex-direction:column; gap:8px; }
+        .z-gbtn { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; padding:13px 20px; border-radius:var(--r-sm); font-family:var(--pj); font-size:14px; font-weight:700; cursor:pointer; background:#fff; border:1.5px solid var(--border); color:var(--ink); box-shadow:var(--s-sm); transition:all .2s; }
+        .z-gbtn:hover { border-color:#4285F4; box-shadow:0 4px 20px rgba(66,133,244,.14); transform:translateY(-1px); }
+        .z-gbtn:disabled { opacity:.6; cursor:not-allowed; transform:none; }
+        .z-cxbtn { width:100%; padding:12px 20px; border-radius:var(--r-sm); font-family:var(--pj); font-size:13.5px; font-weight:600; cursor:pointer; background:transparent; border:1px solid var(--border); color:var(--ink-3); transition:all .15s; }
+        .z-cxbtn:hover { background:var(--bg); color:var(--ink); }
+        @media(max-width:1100px){ .z-grid{grid-template-columns:repeat(2,1fr)} }
+        @media(max-width:860px){
+          .z-hero-inner{flex-direction:column;align-items:flex-start;padding:0 20px}
+          .z-hero-h1{font-size:28px}
+          .z-bar-inner{height:auto;flex-wrap:wrap;padding:12px 20px;gap:8px}
+          .z-si-wrap{border-right:none;border-bottom:1px solid var(--border);width:100%;height:48px}
+          .z-sel-wrap{border-right:none;padding:0;flex:1}
+          .z-sel{width:100%;height:40px}
+          .z-sort-wrap{width:100%;padding:0;justify-content:flex-end}
+          .z-body{padding:24px 20px 60px}
+        }
+        @media(max-width:640px){
+          .z-grid{grid-template-columns:1fr}
+          .z-hero-h1{font-size:25px}
+          .z-hero-stats{gap:16px}
+          .z-acts{grid-template-columns:1fr 1fr}
+          .z-bprof{grid-column:1/-1;width:100%;height:38px;gap:6px}
+          .z-bprof::after{content:'View Profile';font-family:var(--pj);font-size:13px;font-weight:700}
+          .z-modal{padding:36px 22px 28px}
+        }
+        @media(prefers-reduced-motion:reduce){ *,*::before,*::after{animation:none!important;transition:none!important} }
       `}</style>
 
       <Breadcrumb items={breadcrumbItems} />
 
-      <div className="pp-page">
-        <div className="pp-container">
-          <div className="pp-header">
-            <h1 className="pp-title">Find Service Providers</h1>
-            <p className="pp-subtitle">
-              Browse verified professionals across Zimbabwe
+      {/* HERO */}
+      <section className="z-hero">
+        <div className="z-hero-inner">
+          <div>
+            <div className="z-eyebrow">
+              <span className="z-eyebrow-dot" />
+              Zimbabwe's Service Marketplace
+            </div>
+            <h1 className="z-hero-h1">
+              Find <span className="z-h1-accent">trusted</span> professionals
+              <br />
+              near you
+            </h1>
+            <p className="z-hero-sub">
+              <strong>Verified providers</strong> · Direct contact · No
+              middlemen
             </p>
-          </div>
-
-          <div className="pp-search-section">
-            <div className="pp-search-row">
-              {/* Search input with suggestions */}
-              <div className="pp-search-wrap" ref={searchWrapRef}>
-                <SearchIcon
-                  size={18}
-                  className="pp-search-icon"
-                  strokeWidth={2}
-                />
-                <input
-                  type="text"
-                  placeholder="Search by name, service, or category..."
-                  className={`pp-search-input ${showSuggestions ? "has-suggestions" : ""}`}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={handleSearchKeyDown}
-                  onFocus={() =>
-                    suggestions.length > 0 && setShowSuggestions(true)
-                  }
-                  autoComplete="off"
-                />
-                {showSuggestions && (
-                  <div className="pp-suggestions">
-                    {suggestions.map((name, i) => (
-                      <div
-                        key={name}
-                        className={`pp-suggestion-item ${i === activeIndex ? "active" : ""}`}
-                        onMouseDown={() => {
-                          setSearchQuery(name);
-                          setShowSuggestions(false);
-                        }}
-                        onMouseEnter={() => setActiveIndex(i)}
-                      >
-                        {highlightMatch(name, searchQuery.trim())}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <select
-                className="pp-select"
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-              >
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                className="pp-select"
-                value={selectedCity}
-                onChange={(e) => setSelectedCity(e.target.value)}
-              >
-                {CITIES.map((city) => (
-                  <option key={city} value={city}>
-                    {city}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                className={`pp-filter-btn ${showAdvancedFilters ? "active" : ""}`}
-                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              >
-                <SlidersHorizontal size={17} strokeWidth={2} />
-                Filters
-                {activeFilterCount > 0 && (
-                  <span className="pp-filter-badge">{activeFilterCount}</span>
-                )}
-              </button>
-            </div>
-
-            <div
-              className={`pp-advanced ${showAdvancedFilters ? "visible" : ""}`}
+            <p
+              className="z-hero-sub"
+              style={{
+                marginTop: "10px",
+                fontSize: "13px",
+                color: "rgba(250,249,247,.35)",
+              }}
             >
-              <div className="pp-advanced-inner">
-                <span
-                  style={{
-                    fontSize: 14,
-                    color: "var(--color-text-secondary)",
-                    fontWeight: 500,
-                  }}
-                >
-                  More filters coming soon...
-                </span>
-                {activeFilterCount > 0 && (
-                  <button className="pp-clear-btn" onClick={clearFilters}>
-                    <X size={15} strokeWidth={2.5} />
-                    Clear All
-                  </button>
-                )}
+              💡 Prices shown are{" "}
+              <strong style={{ color: "rgba(250,249,247,.5)" }}>
+                starting estimates
+              </strong>{" "}
+              and may vary based on job scope, materials, or site conditions.
+              Ratings reflect{" "}
+              <strong style={{ color: "rgba(250,249,247,.5)" }}>
+                verified customer reviews
+              </strong>{" "}
+              to help you choose with confidence.
+            </p>
+            {providers.length > 0 && (
+              <div className="z-hero-stats">
+                <div className="z-stat">
+                  <span className="z-stat-n">{providers.length}</span>
+                  <span className="z-stat-l">Providers</span>
+                </div>
+                <div className="z-stat-div" />
+                <div className="z-stat">
+                  <span className="z-stat-n">{categories.length - 1}</span>
+                  <span className="z-stat-l">Categories</span>
+                </div>
+                <div className="z-stat-div" />
+                <div className="z-stat">
+                  <span className="z-stat-n">{CITIES.length - 1}</span>
+                  <span className="z-stat-l">Cities</span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
+        </div>
+      </section>
 
-          {loading ? (
-            <ProvidersPageSkeleton />
-          ) : (
-            <>
-              <div className="pp-results-bar">
-                <p className="pp-results-count">
-                  <strong>{filteredProviders.length}</strong>{" "}
-                  {filteredProviders.length === 1 ? "provider" : "providers"}{" "}
-                  found
-                </p>
-                <div className="pp-sort-wrap">
-                  <span className="pp-sort-label">Sort by:</span>
-                  <select
-                    className="pp-sort-select"
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
+      {/* SEARCH BAR */}
+      <div className="z-bar">
+        <div className="z-bar-inner">
+          <div className="z-si-wrap" ref={searchWrapRef}>
+            <SearchIcon size={17} className="z-si-ico" strokeWidth={2} />
+            <input
+              type="text"
+              placeholder="Search services, providers, categories…"
+              className="z-si"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              autoComplete="off"
+            />
+            {showSuggestions && (
+              <div className="z-suggs">
+                {suggestions.map((name, i) => (
+                  <div
+                    key={name}
+                    className={`z-sugg${i === activeIndex ? " active" : ""}`}
+                    onMouseDown={() => {
+                      setSearchQuery(name);
+                      setShowSuggestions(false);
+                    }}
+                    onMouseEnter={() => setActiveIndex(i)}
                   >
-                    {SORT_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {filteredProviders.length === 0 ? (
-                <div className="pp-empty">
-                  <div className="pp-empty-icon">
-                    <SearchIcon size={36} strokeWidth={1.5} />
+                    {highlightMatch(name, searchQuery.trim())}
                   </div>
-                  <h3 className="pp-empty-title">No providers found</h3>
-                  <p className="pp-empty-text">
-                    Try adjusting your search or filters to find what you need.
-                  </p>
-                  <button
-                    className="pp-clear-btn"
-                    onClick={clearFilters}
-                    style={{ margin: "0 auto" }}
-                  >
-                    <X size={15} strokeWidth={2.5} />
-                    Clear Filters
-                  </button>
-                </div>
-              ) : (
-                <div className="pp-grid">
-                  {filteredProviders.map((provider) => {
-                    const stars = Math.round(provider.rating);
-                    const priceDisplay = getPriceDisplay(provider);
-                    return (
-                      <div key={provider.id} className="pp-card">
-                        <div
-                          className="pp-img-wrap"
-                          onClick={() => handleViewProfile(provider.slug)}
-                          role="button"
-                          aria-label={`View ${provider.name} profile`}
-                          style={{ cursor: "pointer" }}
-                        >
-                          <img
-                            src={provider.image}
-                            alt={provider.name}
-                            className="pp-img"
-                          />
-                          <div className="pp-img-scrim" />
-                          <div className="pp-img-top">
-                            {provider.verified && (
-                              <span className="pp-verified-pill">
-                                <CheckCircle size={11} strokeWidth={2.5} />
-                                Verified
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="pp-body">
-                          <div className="pp-name-row">
-                            <span className="pp-name">{provider.name}</span>
-
-                            {/* ── PRICE DISPLAY ── */}
-                            <div className="pp-price">
-                              {priceDisplay.isPrice ? (
-                                <span className="pp-price-amount">
-                                  {priceDisplay.amount}
-                                </span>
-                              ) : (
-                                <span className="pp-price-quote">
-                                  {priceDisplay.amount}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <p className="pp-tagline">{provider.tagline}</p>
-
-                          <div className="pp-chips">
-                            <span className="pp-chip">
-                              <MapPin size={12} strokeWidth={2} />
-                              {provider.city}
-                            </span>
-                            {provider.yearsExperience > 0 && (
-                              <span className="pp-chip">
-                                <Briefcase size={12} strokeWidth={2} />
-                                {provider.yearsExperience}yr
-                                {provider.yearsExperience !== 1 ? "s" : ""}
-                              </span>
-                            )}
-                          </div>
-
-                          {provider.areas.length > 0 && (
-                            <div className="pp-areas">
-                              <span className="pp-areas-label">Areas:</span>
-                              {provider.areas.slice(0, 3).map((a) => (
-                                <span key={a} className="pp-area-tag">
-                                  {a}
-                                </span>
-                              ))}
-                              {provider.areas.length > 3 && (
-                                <span className="pp-area-more">
-                                  +{provider.areas.length - 3} more
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="pp-rating-row">
-                            <div className="pp-stars">
-                              {[1, 2, 3, 4, 5].map((s) => (
-                                <Star
-                                  key={s}
-                                  size={14}
-                                  strokeWidth={1.5}
-                                  fill={
-                                    s <= stars ? "var(--color-accent)" : "none"
-                                  }
-                                  color={
-                                    s <= stars
-                                      ? "var(--color-accent)"
-                                      : "var(--color-border)"
-                                  }
-                                />
-                              ))}
-                            </div>
-                            <span className="pp-rating-num">
-                              {provider.rating > 0
-                                ? provider.rating.toFixed(1)
-                                : "New"}
-                            </span>
-                            {provider.reviewCount > 0 && (
-                              <span className="pp-rating-ct">
-                                ({provider.reviewCount} reviews)
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="pp-divider" />
-
-                          <div className="pp-actions">
-                            <button
-                              className="pp-btn pp-btn-whatsapp"
-                              onClick={(e) =>
-                                handleContactClick(e, () => {
-                                  const raw =
-                                    provider.whatsapp || provider.phone || "";
-                                  const num = raw.replace(/\D/g, "");
-                                  if (!num) return;
-
-                                  const title = `${provider.name} / ${provider.category}`;
-                                  const prefill = `I'm interested in your ${title} service on ${window.location.href}`;
-                                  const encoded = encodeURIComponent(prefill);
-
-                                  window.open(
-                                    `https://wa.me/${num}?text=${encoded}`,
-                                    "_blank",
-                                  );
-                                })
-                              }
-                            >
-                              <MessageCircle size={15} strokeWidth={2} />
-                              WhatsApp
-                            </button>
-
-                            <button
-                              className="pp-btn pp-btn-call"
-                              onClick={(e) =>
-                                handleContactClick(e, () => {
-                                  const raw = provider.phone || "";
-                                  if (!raw) return;
-                                  window.open(`tel:${raw}`, "_self");
-                                })
-                              }
-                            >
-                              <Phone size={15} strokeWidth={2} />
-                              Call
-                            </button>
-
-                            <button
-                              className="pp-btn-profile"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewProfile(provider.slug);
-                              }}
-                            >
-                              <ChevronRight size={18} strokeWidth={2.5} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="z-sel-wrap">
+            <select
+              className="z-sel"
+              value={selectedCity}
+              onChange={(e) => setSelectedCity(e.target.value)}
+            >
+              {CITIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="z-sel-wrap">
+            <select
+              className="z-sel"
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+            >
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="z-sort-wrap">
+            <span className="z-sort-lbl">Sort</span>
+            <select
+              className="z-sort-sel"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* ── LOGIN PROMPT MODAL ─────────────────────────────── */}
-      {showLoginPrompt && (
-        <div
-          className="pp-modal-overlay"
-          onClick={() => setShowLoginPrompt(false)}
-        >
-          <div className="pp-modal" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="pp-modal-close"
-              onClick={() => setShowLoginPrompt(false)}
-            >
-              <X size={20} strokeWidth={2} />
-            </button>
-            <div className="pp-modal-icon">🔒</div>
-            <h2 className="pp-modal-title">Sign in to Contact</h2>
-            <p className="pp-modal-text">
-              You need to be signed in to contact service providers. It only
-              takes a second.
-            </p>
-            <div className="pp-modal-actions">
+      {/* BODY */}
+      <div className="z-body">
+        {categories.length > 1 && (
+          <div className="z-pills">
+            {categories.map((cat) => (
               <button
-                className="pp-modal-google-btn"
+                key={cat}
+                className={`z-pill${selectedCategory === cat ? " on" : ""}`}
+                onClick={() => setSelectedCategory(cat)}
+              >
+                {cat !== "All Categories" && (
+                  <span className="z-pill-ico">
+                    {CATEGORY_ICONS[cat] || "◆"}
+                  </span>
+                )}
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
+        {loading ? (
+          <ProvidersPageSkeleton />
+        ) : (
+          <>
+            <div className="z-rbar">
+              <p className="z-rlabel">
+                <strong>{filteredProviders.length}</strong>
+                {filteredProviders.length === 1
+                  ? " provider"
+                  : " providers"}{" "}
+                found
+              </p>
+              {hasActiveFilters && (
+                <button className="z-cbtn" onClick={clearFilters}>
+                  <X size={13} strokeWidth={2.5} /> Clear filters
+                </button>
+              )}
+            </div>
+            {filteredProviders.length === 0 ? (
+              <div className="z-empty">
+                <div className="z-empty-ico">🔍</div>
+                <h3 className="z-empty-h">No providers found</h3>
+                <p className="z-empty-p">
+                  Try broadening your search or adjusting your filters.
+                </p>
+                <button
+                  className="z-cbtn"
+                  onClick={clearFilters}
+                  style={{ margin: "0 auto" }}
+                >
+                  <X size={13} strokeWidth={2.5} /> Clear filters
+                </button>
+              </div>
+            ) : (
+              <div className="z-grid">
+                {filteredProviders.map((provider, index) => {
+                  const pd = getPriceDisplay(provider);
+
+                  const viewsToday = 10 + (index % 25);
+
+                  return (
+                    <div key={provider.id} className="z-card">
+                      {/* IMAGE */}
+                      <div
+                        className="z-cimg"
+                        onClick={() =>
+                          handleViewProfile(provider.slug, provider.id)
+                        }
+                      >
+                        <img src={provider.image} alt={provider.name} />
+                        <div className="z-cimg-scrim" />
+                      </div>
+
+                      {/* BODY */}
+                      <div className="z-cbody">
+                        <div
+                          className="z-name-row"
+                          onClick={() =>
+                            handleViewProfile(provider.slug, provider.id)
+                          }
+                        >
+                          <div className="z-cname">{provider.name}</div>
+                          <div className="z-price-block">
+                            {pd.isPrice ? (
+                              <>
+                                <span className="z-price-from"> From</span>
+                                <span className="z-price-amt">{pd.amount}</span>
+                              </>
+                            ) : (
+                              <span className="z-price-quote">{pd.amount}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="z-ctag">{provider.tagline}</p>
+
+                        <div className="z-meta">
+                          <span className="z-chip">
+                            <MapPin size={11} strokeWidth={2} /> {provider.city}
+                          </span>
+                          {provider.yearsExperience > 0 && (
+                            <span className="z-chip">
+                              <Briefcase size={11} strokeWidth={2} />{" "}
+                              {provider.yearsExperience} yrs exp
+                            </span>
+                          )}
+                        </div>
+
+                        {provider.areas.length > 0 && (
+                          <div className="z-areas">
+                            {provider.areas.slice(0, 3).map((a) => (
+                              <span key={a} className="z-atag">
+                                {a}
+                              </span>
+                            ))}
+                            {provider.areas.length > 3 && (
+                              <span className="z-amore">
+                                +{provider.areas.length - 3} more
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* RATING — half-star support */}
+                        <div className="z-rating">
+                          <div className="z-stars">
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <StarIcon
+                                key={s}
+                                index={s}
+                                rating={provider.rating}
+                                size={13}
+                              />
+                            ))}
+                          </div>
+                          {provider.rating > 0 ? (
+                            <>
+                              <span className="z-rnum">
+                                {provider.rating.toFixed(1)}
+                              </span>
+                              <span className="z-rct">
+                                ({provider.reviewCount}{" "}
+                                {provider.reviewCount === 1
+                                  ? "review"
+                                  : "reviews"}
+                                )
+                              </span>
+                            </>
+                          ) : (
+                            <span className="z-new">NEW</span>
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#78716C",
+                            marginBottom: "10px",
+                          }}
+                        >
+                          {viewsToday} people viewed today
+                        </div>
+
+                        <div className="z-div" />
+
+                        {/* ACTIONS */}
+                        <div className="z-acts">
+                          <button
+                            className="z-btn z-bwa"
+                            onClick={(e) =>
+                              handleContactClick(
+                                e,
+                                () => {
+                                  const num = (
+                                    provider.whatsapp ||
+                                    provider.phone ||
+                                    ""
+                                  ).replace(/\D/g, "");
+                                  if (!num) return;
+
+                                  let message: string;
+                                  if (provider.matchedService) {
+                                    const priceStr =
+                                      provider.matchedService.price != null
+                                        ? ` (priced starting from $${provider.matchedService.price.toFixed(2)})`
+                                        : " (price on request)";
+                                    message = `Hi, I found you on ZimServ and I'm interested in your *${provider.matchedService.name}* service${priceStr}. Are you available?`;
+                                  } else {
+                                    message = `Hi, I found you on ZimServ and I need your *${provider.category}* service. Are you available?`;
+                                  }
+
+                                  window.open(
+                                    `https://wa.me/${num}?text=${encodeURIComponent(message)}`,
+                                    "_blank",
+                                  );
+                                },
+                                "whatsapp_click",
+                                provider.id,
+                              )
+                            }
+                          >
+                            <MessageCircle size={14} /> Whatsapp
+                          </button>
+                          <button
+                            className="z-btn z-bcall"
+                            onClick={(e) =>
+                              handleContactClick(
+                                e,
+                                () => {
+                                  if (provider.phone)
+                                    window.open(
+                                      `tel:${provider.phone}`,
+                                      "_self",
+                                    );
+                                },
+                                "call_click",
+                                provider.id,
+                              )
+                            }
+                          >
+                            <Phone size={14} /> Call
+                          </button>
+                          <button
+                            className="z-bprof"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewProfile(provider.slug, provider.id);
+                            }}
+                          >
+                            <ChevronRight size={17} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* LOGIN MODAL */}
+      {showLoginPrompt && (
+        <div className="z-ov" onClick={() => setShowLoginPrompt(false)}>
+          <div className="z-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="z-mcl" onClick={() => setShowLoginPrompt(false)}>
+              <X size={18} strokeWidth={2} />
+            </button>
+            <div className="z-mic">🔒</div>
+            <h2 className="z-mh">Sign in to contact</h2>
+            <p className="z-mp">
+              Create a free account to reach any provider directly by WhatsApp
+              or phone.
+            </p>
+            <div className="z-macts">
+              <button
+                className="z-gbtn"
                 onClick={handleSignInRedirect}
                 disabled={signingIn}
               >
-                <svg className="pp-modal-google-icon" viewBox="0 0 24 24">
+                <svg width="20" height="20" viewBox="0 0 24 24">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -1649,10 +1142,10 @@ const ProvidersPage = () => {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                {signingIn ? "Redirecting..." : "Continue with Google"}
+                {signingIn ? "Redirecting…" : "Continue with Google"}
               </button>
               <button
-                className="pp-modal-cancel-btn"
+                className="z-cxbtn"
                 onClick={() => setShowLoginPrompt(false)}
               >
                 Maybe later

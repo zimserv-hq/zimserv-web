@@ -34,8 +34,10 @@ interface OnboardingStepsProps {
     selectedServices: ServiceEntry[],
     pricingModel: string,
   ) => Promise<void>;
-  onSaveAreasDraft?: (areas: string[]) => Promise<void>;
-
+  onSaveAreasDraft?: (
+    areas: string[],
+    worksNationwide: boolean | null,
+  ) => Promise<void>;
   // ── Eager file upload callbacks ──────────────────────────────────────────
   onUploadPortfolio?: (files: File[]) => Promise<void>;
   onUploadIdFile?: (file: File) => Promise<void>;
@@ -142,6 +144,7 @@ const OnboardingSteps = ({
   );
   const [languageInput, setLanguageInput] = useState("");
   const [showLanguageInput, setShowLanguageInput] = useState(false);
+  const PER_SQM_CATEGORIES = ["Tiling Services", "Painting"];
 
   // ── Step 3: Services ─────────────────────────────────────────────────────
   const [selectedServices, setSelectedServices] = useState<ServiceEntry[]>(
@@ -163,6 +166,9 @@ const OnboardingSteps = ({
   const [areaInput, setAreaInput] = useState("");
   const [showAreaInput, setShowAreaInput] = useState(false);
   const [isSavingAreas, setIsSavingAreas] = useState(false);
+  const [worksNationwide, setWorksNationwide] = useState<boolean | null>(
+    formData.worksNationwide ?? null,
+  );
 
   // ── Step 5: Portfolio / ID ───────────────────────────────────────────────
   const [portfolioFiles, setPortfolioFiles] = useState<File[]>(
@@ -193,6 +199,7 @@ const OnboardingSteps = ({
     setSelectedServices(formData.selectedServices);
     setPricingModel(formData.pricingModel ?? "Quote-based");
     setAreas(formData.areas);
+    setWorksNationwide(formData.worksNationwide ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData]);
 
@@ -485,7 +492,14 @@ const OnboardingSteps = ({
       );
       return;
     }
-    if (areas.length < 2) {
+    if (worksNationwide === null) {
+      showError(
+        "Question unanswered",
+        "Please answer whether you are willing to travel outside your city.",
+      );
+      return;
+    }
+    if (!worksNationwide && areas.length < 2) {
       showError("Not enough areas", "Please add at least 2 service areas.");
       return;
     }
@@ -497,11 +511,11 @@ const OnboardingSteps = ({
       return;
     }
 
-    updateFormData({ areas });
+    updateFormData({ areas, worksNationwide });
 
     if (onSaveAreasDraft) {
       setIsSavingAreas(true);
-      await onSaveAreasDraft(areas);
+      await onSaveAreasDraft(areas, worksNationwide);
       setIsSavingAreas(false);
     }
 
@@ -754,7 +768,7 @@ const OnboardingSteps = ({
                 type="text"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="e.g., Zimserv Plumbing"
+                placeholder="e.g., Pedzaworks Plumbers"
                 className="form-input"
               />
             </div>
@@ -1238,6 +1252,12 @@ const OnboardingSteps = ({
                 <strong>starting price only</strong> — it gives customers an
                 idea of your rates. The final price will be agreed upon between
                 you and the customer based on the specific job requirements.
+                {PER_SQM_CATEGORIES.includes(formData.category) && (
+                  <span style={{ display: "block", marginTop: 6 }}>
+                    📐 <strong>Your category charges per m²</strong> — enter
+                    your price per square metre for each service.
+                  </span>
+                )}
               </p>
             </div>
 
@@ -1268,6 +1288,9 @@ const OnboardingSteps = ({
                       (s) => s.name === serviceName,
                     );
                     const isSelected = !!entry;
+                    const isPerSqm = PER_SQM_CATEGORIES.includes(
+                      formData.category,
+                    );
                     return (
                       <div
                         key={serviceName}
@@ -1289,11 +1312,15 @@ const OnboardingSteps = ({
                         </div>
                         {isSelected && (
                           <div className="service-price-row">
-                            <span className="service-price-currency">$</span>
+                            <span className="service-price-currency">
+                              {isPerSqm ? "$/m²" : "$"}
+                            </span>
                             <input
                               type="number"
                               className="service-price-input"
-                              placeholder="Starting price"
+                              placeholder={
+                                isPerSqm ? "Price per m²" : "Starting price"
+                              }
                               min={1}
                               required
                               value={entry?.price ?? ""}
@@ -1326,36 +1353,46 @@ const OnboardingSteps = ({
               </div>
               {customServices.length > 0 && (
                 <div className="custom-services-list">
-                  {customServices.map((svc) => (
-                    <div key={svc.name} className="custom-service-item">
-                      <div className="custom-service-name">
-                        <span className="custom-badge">Custom</span> {svc.name}
-                      </div>
-                      <div className="custom-service-right">
-                        <div className="service-price-row">
-                          <span className="service-price-currency">$</span>
-                          <input
-                            type="number"
-                            className="service-price-input"
-                            placeholder="Starting price"
-                            min={0}
-                            value={svc.price}
-                            onChange={(e) =>
-                              updateServicePrice(svc.name, e.target.value)
-                            }
-                          />
+                  {customServices.map((svc) => {
+                    const isPerSqm = PER_SQM_CATEGORIES.includes(
+                      formData.category,
+                    );
+                    return (
+                      <div key={svc.name} className="custom-service-item">
+                        <div className="custom-service-name">
+                          <span className="custom-badge">Custom</span>{" "}
+                          {svc.name}
                         </div>
-                        <button
-                          type="button"
-                          className="custom-service-remove"
-                          onClick={() => removeCustomService(svc.name)}
-                          aria-label="Remove"
-                        >
-                          <X size={14} strokeWidth={2.5} />
-                        </button>
+                        <div className="custom-service-right">
+                          <div className="service-price-row">
+                            <span className="service-price-currency">
+                              {isPerSqm ? "$/m²" : "$"}
+                            </span>
+                            <input
+                              type="number"
+                              className="service-price-input"
+                              placeholder={
+                                isPerSqm ? "Price per m²" : "Starting price"
+                              }
+                              min={0}
+                              value={svc.price}
+                              onChange={(e) =>
+                                updateServicePrice(svc.name, e.target.value)
+                              }
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="custom-service-remove"
+                            onClick={() => removeCustomService(svc.name)}
+                            aria-label="Remove"
+                          >
+                            <X size={14} strokeWidth={2.5} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {showCustomInput ? (
@@ -1452,12 +1489,14 @@ const OnboardingSteps = ({
               Your primary city comes from your application. Add the suburbs or
               areas you serve.
             </p>
+
             <div className="form-group">
               <label className="form-label">
                 Primary City (from application)
               </label>
               <input type="text" value={city} className="form-input" disabled />
             </div>
+
             <div className="form-group">
               <div
                 style={{
@@ -1468,7 +1507,10 @@ const OnboardingSteps = ({
                 }}
               >
                 <label className="form-label required" style={{ margin: 0 }}>
-                  Add Service Areas (at least 2)
+                  Add Service Areas{" "}
+                  {worksNationwide === true
+                    ? "(Optional — you travel nationwide)"
+                    : "(at least 2)"}
                 </label>
                 <span
                   style={{
@@ -1569,6 +1611,69 @@ const OnboardingSteps = ({
 
               <span className="input-hint">
                 Start typing a suburb or area — select from the dropdown.
+              </span>
+            </div>
+
+            {/* Nationwide yes/no question */}
+            <div className="form-group">
+              <label className="form-label required">
+                Are you willing to travel outside your primary city to serve
+                customers?
+              </label>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setWorksNationwide(true)}
+                  style={{
+                    flex: 1,
+                    padding: "12px 0",
+                    borderRadius: 10,
+                    border: `2px solid ${worksNationwide === true ? "var(--color-accent)" : "var(--color-border)"}`,
+                    background:
+                      worksNationwide === true
+                        ? "rgba(236,111,22,0.07)"
+                        : "var(--color-bg-section)",
+                    color:
+                      worksNationwide === true
+                        ? "var(--color-accent)"
+                        : "var(--color-text-secondary)",
+                    fontFamily: "var(--font-primary)",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  🌍 Yes, I can travel across Zimbabwe
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorksNationwide(false)}
+                  style={{
+                    flex: 1,
+                    padding: "12px 0",
+                    borderRadius: 10,
+                    border: `2px solid ${worksNationwide === false && worksNationwide !== null ? "var(--color-accent)" : "var(--color-border)"}`,
+                    background:
+                      worksNationwide === false && worksNationwide !== null
+                        ? "rgba(236,111,22,0.07)"
+                        : "var(--color-bg-section)",
+                    color:
+                      worksNationwide === false && worksNationwide !== null
+                        ? "var(--color-accent)"
+                        : "var(--color-text-secondary)",
+                    fontFamily: "var(--font-primary)",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  📍 No, I only serve {city} and nearby areas
+                </button>
+              </div>
+              <span className="input-hint">
+                This helps customers outside {city} know if they can hire you.
               </span>
             </div>
 

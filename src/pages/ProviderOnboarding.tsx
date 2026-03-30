@@ -41,6 +41,7 @@ export interface OnboardingData {
   // Step 4: Areas
   city: string;
   areas: string[];
+  worksNationwide: boolean | null;
 
   // Step 5: Portfolio
   portfolioFiles: File[];
@@ -64,6 +65,7 @@ export interface OnboardingDraftPatch {
   selectedServices?: ServiceEntry[];
   pricingModel?: string;
   areas?: string[];
+  worksNationwide?: boolean | null;
   portfolioPaths?: string[];
   idFilePath?: string;
 }
@@ -132,6 +134,7 @@ const ProviderOnboarding = () => {
     pricingModel: "Quote-based",
     city: "",
     areas: [],
+    worksNationwide: null,
     portfolioFiles: [],
     licenseFiles: [],
     idFile: null,
@@ -235,6 +238,7 @@ const ProviderOnboarding = () => {
           selected_services: patch.selectedServices,
           pricing_model: patch.pricingModel,
           areas: patch.areas,
+          works_nationwide: patch.worksNationwide ?? null,
           portfolio_paths: patch.portfolioPaths,
           id_file_path: patch.idFilePath,
           updated_at: new Date().toISOString(),
@@ -282,6 +286,7 @@ const ProviderOnboarding = () => {
         selectedServices: draft.selected_services ?? prev.selectedServices,
         pricingModel: draft.pricing_model ?? prev.pricingModel,
         areas: draft.areas ?? prev.areas,
+        worksNationwide: draft.works_nationwide ?? prev.worksNationwide,
       }));
 
       setDraftFilePaths({
@@ -424,8 +429,11 @@ const ProviderOnboarding = () => {
     await saveStepDraft(3, { selectedServices, pricingModel });
   };
 
-  const handleSaveAreasDraft = async (areas: string[]): Promise<void> => {
-    await saveStepDraft(4, { areas });
+  const handleSaveAreasDraft = async (
+    areas: string[],
+    worksNationwide: boolean | null,
+  ): Promise<void> => {
+    await saveStepDraft(4, { areas, worksNationwide });
   };
 
   const handleUploadPortfolio = async (files: File[]): Promise<void> => {
@@ -532,6 +540,7 @@ const ProviderOnboarding = () => {
         website: profileData.website || null,
         languages: profileData.languages,
         profile_completed: true,
+        works_nationwide: profileData.worksNationwide ?? false,
       };
 
       const { data: providerInsert, error: providerError } = await supabase
