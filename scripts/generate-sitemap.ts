@@ -1,4 +1,5 @@
 // scripts/generate-sitemap.ts
+
 import { createClient } from "@supabase/supabase-js";
 import * as fs from "fs";
 import * as path from "path";
@@ -13,9 +14,23 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_ANON_KEY!
 );
 
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+
 function formatDate(date: string | null): string {
   if (!date) return new Date().toISOString().split("T")[0];
   return new Date(date).toISOString().split("T")[0];
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function buildUrl(
@@ -33,20 +48,24 @@ function buildUrl(
   </url>`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Main Generator
+// ─────────────────────────────────────────────────────────────
+
 async function generateSitemap() {
   console.log("🗺️  Generating sitemap...");
 
   const today = new Date().toISOString().split("T")[0];
 
-  // ── Static pages ──────────────────────────────────────────────────────────
+  // ── Static pages ────────────────────────────────────────────
   const staticUrls = [
-    buildUrl(`${SITE_URL}/`,                  today, "weekly",  "1.0"),
-    buildUrl(`${SITE_URL}/providers`,         today, "daily",   "0.9"),
-    buildUrl(`${SITE_URL}/categories`,        today, "weekly",  "0.8"),
-    buildUrl(`${SITE_URL}/become-provider`,   today, "monthly", "0.7"),
+    buildUrl(`${SITE_URL}/`,                today, "weekly",  "1.0"),
+    buildUrl(`${SITE_URL}/providers`,       today, "daily",   "0.9"),
+    buildUrl(`${SITE_URL}/categories`,      today, "weekly",  "0.9"),
+    buildUrl(`${SITE_URL}/become-provider`, today, "monthly", "0.6"),
   ];
 
-  // ── Provider pages ────────────────────────────────────────────────────────
+  // ── Providers ───────────────────────────────────────────────
   const { data: providers, error: providersError } = await supabase
     .from("providers")
     .select("slug, updated_at")
@@ -54,13 +73,13 @@ async function generateSitemap() {
     .not("slug", "is", null);
 
   if (providersError) {
-    console.error("❌ Error fetching providers:", providersError.message);
+    console.error("❌ Providers fetch error:", providersError.message);
     process.exit(1);
   }
 
-  console.log(`✅ Found ${providers.length} active providers`);
+  console.log(`✅ Providers: ${providers.length}`);
 
-  const providerUrls = providers.map((p: { slug: string; updated_at: string }) =>
+  const providerUrls = providers.map((p: any) =>
     buildUrl(
       `${SITE_URL}/providers/${p.slug}`,
       formatDate(p.updated_at),
@@ -69,51 +88,81 @@ async function generateSitemap() {
     )
   );
 
-  // ── Category pages ────────────────────────────────────────────────────────
-  const { data: categories, error: categoriesError } = await supabase
-    .from("categories")
-    .select("name, updated_at")
-    .eq("status", "Active");
+  // ── Category + City (REAL combinations only) ─────────────────
+  const { data: combos, error: combosError } = await supabase
+    .from("providers")
+    .select("primary_category, city, updated_at")
+    .eq("status", "active");
 
-  if (categoriesError) {
-    console.error("❌ Error fetching categories:", categoriesError.message);
+  if (combosError) {
+    console.error("❌ Combos fetch error:", combosError.message);
     process.exit(1);
   }
 
-  console.log(`✅ Found ${categories.length} active categories`);
+  const seen = new Set<string>();
+  const categoryUrls: string[] = [];
 
-  const categoryUrls = categories.map((c: { name: string; updated_at: string }) =>
-    buildUrl(
-      `${SITE_URL}/providers?category=${encodeURIComponent(c.name)}`,
-      formatDate(c.updated_at),
-      "weekly",
-      "0.7"
-    )
-  );
+  for (const p of combos as any[]) {
+    const catSlug = slugify(p.primary_category || "");
+    const citySlug = slugify(p.city || "");
 
-  // ── Assemble XML ──────────────────────────────────────────────────────────
+    if (!catSlug || !citySlug) continue;
+
+    // ── Category page (/services/plumbing)
+    if (!seen.has(catSlug)) {
+      seen.add(catSlug);
+      categoryUrls.push(
+        buildUrl(
+          `${SITE_URL}/services/${catSlug}`,
+          today,
+          "daily",
+          "0.85"
+        )
+      );
+    }
+
+    // ── Category + City page (/services/plumbing/harare)
+    const key = `${catSlug}::${citySlug}`;
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      categoryUrls.push(
+        buildUrl(
+          `${SITE_URL}/services/${catSlug}/${citySlug}`,
+          formatDate(p.updated_at),
+          "daily",
+          "0.9"
+        )
+      );
+    }
+  }
+
+  // ── XML Assembly ────────────────────────────────────────────
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset
   xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
-    http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+  http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
 ${staticUrls.join("")}
 ${categoryUrls.join("")}
 ${providerUrls.join("")}
 </urlset>`;
 
-  // ── Write to /public ──────────────────────────────────────────────────────
+  // ── Write file ──────────────────────────────────────────────
   const outputPath = path.resolve(process.cwd(), "public", "sitemap.xml");
   fs.writeFileSync(outputPath, xml, "utf-8");
 
-  const totalUrls = staticUrls.length + categoryUrls.length + providerUrls.length;
-  console.log(`✅ Sitemap generated: ${outputPath}`);
-  console.log(`📊 Total URLs: ${totalUrls}`);
-  console.log(`   - Static pages: ${staticUrls.length}`);
-  console.log(`   - Category pages: ${categoryUrls.length}`);
-  console.log(`   - Provider pages: ${providerUrls.length}`);
+  const total = staticUrls.length + categoryUrls.length + providerUrls.length;
+
+  console.log(`✅ Sitemap generated at: ${outputPath}`);
+  console.log(`📊 Total URLs: ${total}`);
+  console.log(`   - Static:    ${staticUrls.length}`);
+  console.log(`   - Services:  ${categoryUrls.length}`);
+  console.log(`   - Providers: ${providerUrls.length}`);
 }
+
+// ─────────────────────────────────────────────────────────────
 
 generateSitemap().catch((err) => {
   console.error("❌ Unexpected error:", err);

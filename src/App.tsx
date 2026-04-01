@@ -44,6 +44,8 @@ import ProviderJobs from "./pages/provider/ProviderJobs";
 import ProviderReviews from "./pages/provider/ProviderReviews";
 import ProviderProfile from "./pages/provider/ProviderProfile";
 
+import ServiceCategoryPage from "./pages/ServiceCategoryPage";
+
 function App() {
   return (
     <>
@@ -184,6 +186,28 @@ function App() {
             </>
           }
         />
+
+        <Route
+          path="/services/:category"
+          element={
+            <>
+              <Header />
+              <ServiceCategoryPage />
+              <Footer />
+            </>
+          }
+        />
+        <Route
+          path="/services/:category/:city"
+          element={
+            <>
+              <Header />
+              <ServiceCategoryPage />
+              <Footer />
+            </>
+          }
+        />
+
         <Route
           path="/providers/:slug"
           element={

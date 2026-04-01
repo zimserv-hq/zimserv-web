@@ -573,9 +573,21 @@ const ProvidersPage = () => {
     <>
       <SEO
         title={seoTitle}
-        description="Browse verified service professionals across Zimbabwe."
+        description={
+          hasCategory && hasCity
+            ? `Find verified ${selectedCategory} providers in ${selectedCity}, Zimbabwe. Compare ratings, reviews and contact directly.`
+            : hasCategory
+              ? `Hire trusted ${selectedCategory} specialists across Zimbabwe. Browse profiles, reviews and contact directly.`
+              : hasCity
+                ? `Find verified service providers in ${selectedCity}, Zimbabwe. Plumbers, electricians and more.`
+                : "Browse verified plumbers, electricians, painters and more across Zimbabwe. Compare reviews and contact directly."
+        }
+        keywords={[
+          "service providers Zimbabwe",
+          "hire professionals Zimbabwe",
+          "ZimServ",
+        ]}
         url="/providers"
-        keywords={["ZimServ"]}
       />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -1104,6 +1116,22 @@ const ProvidersPage = () => {
           </>
         )}
       </div>
+
+      <section
+        style={{
+          maxWidth: "800px",
+          margin: "40px auto",
+          fontSize: "13px",
+          textAlign: "center",
+          color: "#78716C",
+        }}
+      >
+        <p>
+          {hasCategory && hasCity
+            ? `Find trusted ${selectedCategory.toLowerCase()} professionals in ${selectedCity}. Browse verified providers, compare reviews and contact directly.`
+            : "Browse verified service providers across Zimbabwe including plumbers, electricians, cleaners and more."}
+        </p>
+      </section>
 
       {/* LOGIN MODAL */}
       {showLoginPrompt && (
