@@ -14,7 +14,6 @@ import type {
   ProviderGalleryImage,
 } from "../types/provider";
 
-// Matches the handle exposed by ProviderContent via useImperativeHandle
 interface ProviderContentHandle {
   switchToReviews: () => void;
 }
@@ -29,18 +28,13 @@ const ProviderProfilePage = () => {
   const [error, setError] = useState<string | null>(null);
   const [contentVisible, setContentVisible] = useState(false);
 
-  // Ref to ProviderContent so we can imperatively switch its tab
   const providerContentRef = useRef<ProviderContentHandle>(null);
 
-  // Called by ProviderInfoCard when the rating / reviews stat is clicked
-  const handleReviewsClick = () => {
-    providerContentRef.current?.switchToReviews();
-  };
-
-  // ── AUTH STATE ──────────────────────────────────────────────────────────
+  // ── AUTH STATE ────────────────────────────────────────────────────────────
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const [canReview, setCanReview] = useState(false); // silent anti-spam gate
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -48,19 +42,27 @@ const ProviderProfilePage = () => {
     });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCurrentUser(session?.user ?? null);
-    });
+    } = supabase.auth.onAuthStateChange((_event, session) =>
+      setCurrentUser(session?.user ?? null),
+    );
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleContactClick = (action: () => void) => {
-    if (!currentUser) {
-      setShowLoginPrompt(true);
-    } else {
-      action();
-    }
-  };
+  // Silently check if user has a WhatsApp/call lead > 3 hours old for this provider.
+  // Result is passed to ProviderContent to gate the review form — never shown to user.
+  useEffect(() => {
+    if (!currentUser || !provider) return;
+
+    const checkReviewEligibility = async () => {
+      const { data, error } = await supabase.rpc("can_user_review_provider", {
+        p_user_id: currentUser.id,
+        p_provider_id: provider.id,
+      });
+      if (!error) setCanReview(!!data);
+    };
+
+    checkReviewEligibility();
+  }, [currentUser, provider]);
 
   const handleSignInRedirect = async () => {
     setSigningIn(true);
@@ -74,7 +76,7 @@ const ProviderProfilePage = () => {
     });
     setSigningIn(false);
   };
-  // ───────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (slug) {
@@ -101,29 +103,12 @@ const ProviderProfilePage = () => {
         .from("providers")
         .select(
           `
-          id,
-          slug,
-          full_name,
-          business_name,
-          email,
-          phone_number,
-          whatsapp_number,
-          primary_category,
-          city,
-          bio,
-          years_experience,
-          profile_image_url,
-          website,
-          languages,
-          pricing_model,
-          verification_level,
-          avg_rating,
-          total_reviews,
-          total_jobs_completed,
-          response_time_minutes,
-          call_available,
-          whatsapp_available,
-          created_at
+          id, slug, full_name, business_name, email,
+          phone_number, whatsapp_number, primary_category, city, bio,
+          years_experience, profile_image_url, website, languages,
+          pricing_model, verification_level, avg_rating, total_reviews,
+          total_jobs_completed, response_time_minutes,
+          call_available, whatsapp_available, created_at
         `,
         )
         .eq("slug", slugValue)
@@ -138,24 +123,20 @@ const ProviderProfilePage = () => {
         .from("provider_service_areas")
         .select("city, suburb")
         .eq("provider_id", providerId);
-
       if (areasError) throw areasError;
 
       const { data: services, error: servicesError } = await supabase
         .from("provider_services")
         .select("service_name, price")
         .eq("provider_id", providerId);
-
       if (servicesError) throw servicesError;
 
       const { data: media, error: mediaError } = await supabase
         .from("provider_media")
         .select("id, file_path, media_type, is_verified")
         .eq("provider_id", providerId);
-
       if (mediaError) throw mediaError;
 
-      // Fetch reviews to get a live count + avg that matches what ProviderContent will show
       const { data: reviewsData } = await supabase
         .from("reviews")
         .select("rating")
@@ -184,7 +165,6 @@ const ProviderProfilePage = () => {
 
       const portfolioMedia =
         media?.filter((m: any) => m.media_type === "portfolio") ?? [];
-
       const gallery: ProviderGalleryImage[] = portfolioMedia.map((m: any) => ({
         id: m.id,
         url: getMediaUrl(m.file_path),
@@ -211,10 +191,8 @@ const ProviderProfilePage = () => {
         description: providerData.bio || "No description available",
         city: providerData.city,
         areas:
-          serviceAreas
-            ?.map((area: any) => area.suburb || area.city)
-            .filter(Boolean) || [],
-        // Use live counts from the reviews table
+          serviceAreas?.map((a: any) => a.suburb || a.city).filter(Boolean) ||
+          [],
         rating: liveAvgRating,
         reviewCount: liveReviewCount,
         verified: providerData.verification_level !== "Basic",
@@ -293,7 +271,7 @@ const ProviderProfilePage = () => {
     );
   };
 
-  // ── ERROR STATE ─────────────────────────────────────────────────────────
+  // ── ERROR STATE ───────────────────────────────────────────────────────────
   if (!loading && (error || !provider)) {
     return (
       <div
@@ -394,13 +372,11 @@ const ProviderProfilePage = () => {
           background: var(--color-bg-section);
           padding: 40px 0 80px; font-family: var(--font-primary); box-sizing: border-box;
         }
-
         .profile-container {
           max-width: var(--container-max-width);
           margin: 0 auto; padding: 0 40px;
           overflow-x: hidden; box-sizing: border-box;
         }
-
         .back-btn {
           display: inline-flex; align-items: center; gap: 8px;
           padding: 10px 20px; background: var(--color-bg);
@@ -408,44 +384,32 @@ const ProviderProfilePage = () => {
           color: var(--color-text-secondary); font-size: 14px; font-weight: 600;
           cursor: pointer; transition: all var(--transition-fast); margin-bottom: 28px;
         }
-
         .back-btn:hover {
           border-color: var(--color-accent); color: var(--color-accent);
           background: var(--color-accent-soft); transform: translateX(-4px);
         }
-
         .content-wrapper { opacity: 0; transition: opacity 0.4s ease; width: 100%; box-sizing: border-box; }
         .content-wrapper.visible { opacity: 1; }
-
         .profile-grid {
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           gap: 28px; align-items: start; width: 100%; box-sizing: border-box;
         }
-
         .profile-grid-sticky {
           position: sticky; top: 24px; isolation: isolate;
           min-width: 0; width: 100%; box-sizing: border-box;
         }
-
         .profile-grid-scroll {
           position: static; isolation: isolate;
           min-width: 0; width: 100%; box-sizing: border-box;
         }
-
         @media (max-width: 1200px) { .profile-container { padding: 0 32px; } .profile-grid { gap: 24px; } }
-
         @media (max-width: 1024px) {
-          .profile-grid {
-            grid-template-columns: 1fr; gap: 20px;
-            align-items: stretch; width: 100%; max-width: 100%; overflow: hidden;
-          }
+          .profile-grid { grid-template-columns: 1fr; gap: 20px; align-items: stretch; width: 100%; max-width: 100%; overflow: hidden; }
           .profile-grid-sticky { position: static !important; top: auto !important; isolation: auto; width: 100%; max-width: 100%; }
           .profile-grid-scroll { position: static; isolation: auto; width: 100%; max-width: 100%; }
         }
-
         @media (max-width: 920px) { .profile-page { padding: 32px 0 60px; } .profile-container { padding: 0 24px; } }
-
         @media (max-width: 640px) {
           .profile-page { padding: 20px 0 60px; }
           .profile-container { padding: 0 16px; }
@@ -453,16 +417,12 @@ const ProviderProfilePage = () => {
           .back-btn { margin-bottom: 20px; }
           .pp-modal { padding: 36px 20px 28px; }
         }
-
-        /* ── LOGIN PROMPT MODAL ── */
         .pp-modal-overlay {
           position: fixed; inset: 0; background: rgba(0,0,0,0.5);
           display: flex; align-items: center; justify-content: center;
           z-index: 9999; backdrop-filter: blur(4px); animation: pp-fade-in 0.2s ease;
         }
-
         @keyframes pp-fade-in { from { opacity: 0; } to { opacity: 1; } }
-
         .pp-modal {
           background: var(--color-bg); border-radius: var(--radius-xl);
           padding: 40px 36px 36px; max-width: 380px; width: 90%;
@@ -470,15 +430,12 @@ const ProviderProfilePage = () => {
           border: 1.5px solid var(--color-border); box-shadow: var(--shadow-lg);
           animation: pp-slide-up 0.25s cubic-bezier(0.22, 1, 0.36, 1); box-sizing: border-box;
         }
-
         @keyframes pp-slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-
         .pp-modal-stripe {
           position: absolute; top: 0; left: 0; right: 0; height: 4px;
           background: linear-gradient(90deg, var(--color-accent), var(--color-accent-light));
           border-radius: var(--radius-xl) var(--radius-xl) 0 0;
         }
-
         .pp-modal-close {
           position: absolute; top: 14px; right: 14px;
           background: transparent; border: none; cursor: pointer;
@@ -487,23 +444,11 @@ const ProviderProfilePage = () => {
           padding: 4px; border-radius: var(--radius-sm);
           transition: color var(--transition-fast), background var(--transition-fast);
         }
-
         .pp-modal-close:hover { color: var(--color-primary); background: var(--color-bg-section); }
-
         .pp-modal-icon { font-size: 44px; margin-bottom: 14px; }
-
-        .pp-modal-title {
-          font-size: 20px; font-weight: 800; color: var(--color-primary);
-          letter-spacing: -0.4px; margin-bottom: 8px;
-        }
-
-        .pp-modal-text {
-          font-size: 14px; color: var(--color-text-secondary);
-          margin-bottom: 28px; line-height: 1.6;
-        }
-
+        .pp-modal-title { font-size: 20px; font-weight: 800; color: var(--color-primary); letter-spacing: -0.4px; margin-bottom: 8px; }
+        .pp-modal-text { font-size: 14px; color: var(--color-text-secondary); margin-bottom: 28px; line-height: 1.6; }
         .pp-modal-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-
         .pp-modal-google-btn {
           display: flex; align-items: center; justify-content: center; gap: 12px;
           width: 100%; padding: 13px 20px; border-radius: var(--radius-md);
@@ -513,24 +458,17 @@ const ProviderProfilePage = () => {
           transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
           box-sizing: border-box;
         }
-
         .pp-modal-google-btn:hover { border-color: #4285F4; box-shadow: 0 4px 16px rgba(66,133,244,0.15); transform: translateY(-1px); }
         .pp-modal-google-btn:active { transform: scale(0.98); }
         .pp-modal-google-btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
-
         .pp-modal-google-icon { width: 20px; height: 20px; flex-shrink: 0; }
-
         .pp-modal-cancel-btn {
           width: 100%; padding: 13px 20px; border-radius: var(--radius-md);
           font-family: var(--font-primary); font-size: 14px; font-weight: 600;
           cursor: pointer; background: transparent; border: 1.5px solid var(--color-border);
           color: var(--color-text-secondary); transition: all var(--transition-fast); box-sizing: border-box;
         }
-
-        .pp-modal-cancel-btn:hover {
-          background: var(--color-bg-section); border-color: var(--color-text-secondary); color: var(--color-primary);
-        }
-
+        .pp-modal-cancel-btn:hover { background: var(--color-bg-section); border-color: var(--color-text-secondary); color: var(--color-primary); }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       `}</style>
 
@@ -564,21 +502,21 @@ const ProviderProfilePage = () => {
               <div className="profile-grid-sticky">
                 <ProviderInfoCard
                   provider={provider}
-                  currentUser={currentUser}
-                  onContactClick={handleContactClick}
-                  onReviewsClick={handleReviewsClick}
+                  onReviewsClick={() => {}}
                 />
               </div>
               <div className="profile-grid-scroll">
-                {/* ref wires up switchToReviews from ProviderContent */}
-                <ProviderContent ref={providerContentRef} provider={provider} />
+                <ProviderContent
+                  ref={providerContentRef}
+                  provider={provider}
+                  canReview={canReview}
+                />
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Login Prompt Modal */}
       {showLoginPrompt && (
         <div
           className="pp-modal-overlay"

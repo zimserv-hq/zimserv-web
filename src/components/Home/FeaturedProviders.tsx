@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useScrollReveal } from "../../hooks/useScrollReveal";
 import { supabase } from "../../lib/supabaseClient";
+import { useAnalytics } from "../../hooks/useAnalytics";
 
 type FeaturedProvider = {
   id: string;
@@ -32,9 +33,13 @@ type FeaturedProvider = {
   whatsapp: string;
 };
 
+// Categories that should not show a raw numeric price on featured cards
+const PER_SQM_CATEGORIES = new Set(["Tiling Services", "Painting"]);
+
 const FeaturedProviders = () => {
   const navigate = useNavigate();
   const { elementRef: headerRef, isVisible: headerVisible } = useScrollReveal();
+  const { track } = useAnalytics();
 
   const [providers, setProviders] = useState<FeaturedProvider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,27 +53,43 @@ const FeaturedProviders = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setCurrentUser(session?.user ?? null);
     });
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setCurrentUser(session?.user ?? null);
     });
+
     return () => subscription.unsubscribe();
   }, []);
 
   // ── CONTACT HANDLER ───────────────────────────────────────────────────────────
-  const handleContactClick = (e: React.MouseEvent, action: () => void) => {
+  const handleContactClick = (
+    e: React.MouseEvent,
+    action: () => void,
+    eventType: "whatsapp_click" | "call_click",
+    providerId: string,
+  ) => {
     e.stopPropagation();
+
     if (!currentUser) {
       setShowLoginPrompt(true);
-    } else {
-      action();
+      return;
     }
+
+    track(eventType, providerId);
+    action();
+  };
+
+  const handleViewProfile = (slug: string, providerId: string) => {
+    track("profile_view", providerId);
+    navigate(`/providers/${slug}`);
   };
 
   const handleSignInRedirect = async () => {
     setSigningIn(true);
     sessionStorage.setItem("returnTo", window.location.pathname);
+
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -76,6 +97,7 @@ const FeaturedProviders = () => {
         queryParams: { access_type: "offline", prompt: "consent" },
       },
     });
+
     setSigningIn(false);
   };
 
@@ -106,6 +128,7 @@ const FeaturedProviders = () => {
 
         const mapped: FeaturedProvider[] = providersData.map((p: any) => {
           const displayName = p.business_name ?? "ZimServ Provider";
+
           const slug =
             p.slug ??
             displayName
@@ -123,6 +146,7 @@ const FeaturedProviders = () => {
             .slice(0, 3);
 
           const rawPricing = (p.pricing_model || "").trim();
+
           const pricingMap: Record<string, string> = {
             hourly: "Hourly Rate",
             "hourly rate": "Hourly Rate",
@@ -136,12 +160,23 @@ const FeaturedProviders = () => {
             "daily rate": "Daily Rate",
             monthly: "Monthly Rate",
             "monthly rate": "Monthly Rate",
+            "per m²": "Per m²",
+            "per m2": "Per m²",
+            "per square metre": "Per m²",
+            "per square meter": "Per m²",
           };
+
           const pricingKey = rawPricing.toLowerCase();
           const looksLikePrice = /^\$?\d/.test(rawPricing);
-          const pricing = looksLikePrice
-            ? "Quote-based"
-            : pricingMap[pricingKey] || rawPricing || "Quote-based";
+          const isPerSqm = PER_SQM_CATEGORIES.has(p.primary_category);
+
+          const pricing = isPerSqm
+            ? pricingMap[pricingKey] ||
+              (looksLikePrice ? "Quote-based" : rawPricing) ||
+              "Quote-based"
+            : looksLikePrice
+              ? "Quote-based"
+              : pricingMap[pricingKey] || rawPricing || "Quote-based";
 
           return {
             id: p.id,
@@ -339,7 +374,7 @@ const FeaturedProviders = () => {
           padding: 24px;
           display: flex;
           gap: 20px;
-          cursor: pointer;
+          cursor: default;
           position: relative;
           overflow: hidden;
           transition:
@@ -451,6 +486,8 @@ const FeaturedProviders = () => {
           font-weight: 700;
           color: var(--color-text-secondary);
           margin-top: 4px;
+          white-space: nowrap;
+          flex-shrink: 0;
         }
 
         .fp-tagline {
@@ -811,7 +848,6 @@ const FeaturedProviders = () => {
         }
       `}</style>
 
-      {/* ── LOGIN MODAL ───────────────────────────────────────────────────────── */}
       {showLoginPrompt && (
         <div
           className="fp-modal-overlay"
@@ -859,6 +895,7 @@ const FeaturedProviders = () => {
                 </svg>
                 {signingIn ? "Redirecting…" : "Continue with Google"}
               </button>
+
               <button
                 className="fp-modal-cancel-btn"
                 onClick={() => setShowLoginPrompt(false)}
@@ -872,7 +909,6 @@ const FeaturedProviders = () => {
 
       <section className="fp-section">
         <div className="fp-container">
-          {/* Header */}
           <div
             ref={headerRef as any}
             className={`fp-header scroll-reveal ${headerVisible ? "visible" : ""}`}
@@ -888,7 +924,6 @@ const FeaturedProviders = () => {
             </p>
           </div>
 
-          {/* Skeleton */}
           {loading && (
             <div className="fp-grid">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -931,7 +966,6 @@ const FeaturedProviders = () => {
             </div>
           )}
 
-          {/* Coming Soon */}
           {!loading && providers.length === 0 && (
             <div className="fp-coming-soon">
               <div className="fp-coming-soon-icon">
@@ -956,14 +990,15 @@ const FeaturedProviders = () => {
             </div>
           )}
 
-          {/* Grid */}
           {!loading && providers.length > 0 && (
             <div className="fp-grid">
               {providers.map((provider) => (
                 <div key={provider.id} className="fp-card">
                   <div
                     className="fp-img-wrap"
-                    onClick={() => navigate(`/providers/${provider.slug}`)}
+                    onClick={() =>
+                      handleViewProfile(provider.slug, provider.id)
+                    }
                     role="button"
                     aria-label={`View ${provider.name} profile`}
                     style={{ cursor: "pointer" }}
@@ -980,6 +1015,7 @@ const FeaturedProviders = () => {
                         {provider.name.charAt(0).toUpperCase()}
                       </div>
                     )}
+
                     {provider.verified && (
                       <div className="fp-verified-badge">
                         <CheckCircle size={12} strokeWidth={2.5} />
@@ -1003,6 +1039,7 @@ const FeaturedProviders = () => {
                           ({provider.reviewCount})
                         </span>
                       </div>
+
                       <div className="fp-location">
                         <MapPin
                           size={13}
@@ -1011,6 +1048,7 @@ const FeaturedProviders = () => {
                         />
                         <span>{provider.city}</span>
                       </div>
+
                       <span className="fp-category-badge">
                         {provider.category}
                       </span>
@@ -1023,43 +1061,55 @@ const FeaturedProviders = () => {
                     )}
 
                     <div className="fp-actions">
-                      {/* ── Contact — requires sign-in ── */}
                       <button
                         className="fp-btn fp-btn-primary"
                         onClick={(e) =>
-                          handleContactClick(e, () => {
-                            if (provider.phone)
-                              window.location.href = `tel:${provider.phone}`;
-                          })
+                          handleContactClick(
+                            e,
+                            () => {
+                              if (provider.phone) {
+                                window.location.href = `tel:${provider.phone}`;
+                              }
+                            },
+                            "call_click",
+                            provider.id,
+                          )
                         }
                       >
                         <Phone size={14} strokeWidth={2.5} />
                         Contact
                       </button>
 
-                      {/* ── WhatsApp — requires sign-in ── */}
                       <button
                         className="fp-btn fp-btn-secondary"
                         onClick={(e) =>
-                          handleContactClick(e, () => {
-                            if (provider.whatsapp)
+                          handleContactClick(
+                            e,
+                            () => {
+                              const num = provider.whatsapp.replace(/\D/g, "");
+                              if (!num) return;
+
+                              const message = `Hi, I found you on ZimServ and I need your *${provider.category}* service. Are you available?`;
+
                               window.open(
-                                `https://wa.me/${provider.whatsapp.replace(/\D/g, "")}`,
+                                `https://wa.me/${num}?text=${encodeURIComponent(message)}`,
                                 "_blank",
                               );
-                          })
+                            },
+                            "whatsapp_click",
+                            provider.id,
+                          )
                         }
                       >
                         <MessageCircle size={14} strokeWidth={2.5} />
                         WhatsApp
                       </button>
 
-                      {/* ── View Profile — always accessible ── */}
                       <button
                         className="fp-btn fp-btn-profile"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/providers/${provider.slug}`);
+                          handleViewProfile(provider.slug, provider.id);
                         }}
                       >
                         View
@@ -1072,7 +1122,6 @@ const FeaturedProviders = () => {
             </div>
           )}
 
-          {/* Footer */}
           <div className="fp-footer">
             <button
               className="fp-view-all btn-magnetic"

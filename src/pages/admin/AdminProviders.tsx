@@ -8,18 +8,28 @@ import {
   XCircle,
   X,
   AlertCircle,
+  TrendingUp,
+  Phone,
+  MessageCircle,
 } from "lucide-react";
 import PageHeader from "../../components/Admin/PageHeader";
 import StatCard from "../../components/Admin/StatCard";
 import ProvidersTable, {
   type Provider,
 } from "../../components/Admin/ProvidersTable";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { useToast } from "../../contexts/ToastContext";
 
-// ── Skeleton Components ────────────────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────────────
+interface ProviderLeadStats {
+  provider_id: string;
+  calls: number;
+  whatsapp: number;
+  totalLeads: number;
+}
 
+// ── Skeletons ──────────────────────────────────────────────────────────────
 const SkeletonStatCard = () => (
   <div className="sk-stat-card">
     <div className="sk-stat-top">
@@ -32,6 +42,12 @@ const SkeletonStatCard = () => (
 
 const SkeletonTableRow = () => (
   <tr className="sk-table-row">
+    <td>
+      <div
+        className="sk-block"
+        style={{ width: 28, height: 28, borderRadius: 6 }}
+      />
+    </td>
     <td>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div
@@ -51,9 +67,7 @@ const SkeletonTableRow = () => (
       <div className="sk-block" style={{ width: 80, height: 14 }} />
     </td>
     <td>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <div className="sk-block" style={{ width: 70, height: 14 }} />
-      </div>
+      <div className="sk-block" style={{ width: 70, height: 14 }} />
     </td>
     <td>
       <div className="sk-block sk-pill" />
@@ -67,17 +81,27 @@ const SkeletonTableRow = () => (
   </tr>
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ── Component ──────────────────────────────────────────────────────────────
 const AdminProviders = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { showSuccess, showError } = useToast();
+
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [leadStats, setLeadStats] = useState<Map<string, ProviderLeadStats>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState(true);
   const [showFilter, setShowFilter] = useState(false);
   const [filterStatus, setFilterStatus] = useState<
     "All" | "Active" | "Pending" | "Suspended" | "Needs Review"
   >("All");
+
+  // Read sort from URL — "leads" | "default"
+  const [sortMode, setSortMode] = useState<"leads" | "default">(
+    searchParams.get("sort") === "leads" ? "leads" : "default",
+  );
+
   const [searchQuery, setSearchQuery] = useState("");
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(
@@ -87,75 +111,103 @@ const AdminProviders = () => {
 
   const filterDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Keep URL in sync with sort mode
+  useEffect(() => {
+    if (sortMode === "leads") {
+      setSearchParams({ sort: "leads" }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  }, [sortMode]);
+
   useEffect(() => {
     fetchProviders();
+    fetchLeadStats();
   }, []);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handler = (e: MouseEvent) => {
       if (
         filterDropdownRef.current &&
-        !filterDropdownRef.current.contains(event.target as Node)
+        !filterDropdownRef.current.contains(e.target as Node)
       ) {
         setShowFilter(false);
       }
     };
-    if (showFilter) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    if (showFilter) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [showFilter]);
 
-  // Update the fetchProviders function
+  // ── Fetch providers ────────────────────────────────────────────────────
   async function fetchProviders() {
     try {
       setLoading(true);
       const { data, error } = await supabase.rpc("get_providers_with_stats");
       if (error) throw error;
 
-      const mappedProviders: Provider[] = (data || []).map((p: any) => {
-        // Here profile_image_url is already a full public URL
-        const profileImageUrl: string | null = p.profile_image_url ?? null;
+      const mapped: Provider[] = (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.business_name || p.full_name,
+        email: p.email || "",
+        phone: p.phone_number,
+        category: p.primary_category,
+        city: p.city,
+        rating: Number(p.average_rating) || 0,
+        reviewCount: Number(p.review_count) || 0,
+        jobsCompleted: 0,
+        status: mapStatus(p.status),
+        verified: p.status === "active",
+        joinedDate: new Date(p.created_at),
+        profileImage:
+          p.profile_image_url ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            p.business_name || p.full_name,
+          )}&background=FF6B35&color=fff&size=128`,
+        hasPendingEdits: p.has_pending_edits || false,
+      }));
 
-        return {
-          id: p.id,
-          name: p.business_name || p.full_name,
-          email: p.email || "",
-          phone: p.phone_number,
-          category: p.primary_category,
-          city: p.city,
-          rating: Number(p.average_rating) || 0,
-          reviewCount: Number(p.review_count) || 0,
-          jobsCompleted: 0,
-          status: mapStatus(p.status),
-          verified: p.status === "active",
-          joinedDate: new Date(p.created_at),
-
-          // Use the same URL stored by ProviderProfile, fallback to avatar
-          profileImage:
-            profileImageUrl ||
-            `https://ui-avatars.com/api/?name=${encodeURIComponent(
-              p.business_name || p.full_name,
-            )}&background=FF6B35&color=fff&size=128`,
-
-          hasPendingEdits: p.has_pending_edits || false,
-        };
-      });
-
-      setProviders(mappedProviders);
-    } catch (error: any) {
-      console.error("Error fetching providers:", error);
-      showError("Error", error.message || "Failed to load providers");
+      setProviders(mapped);
+    } catch (err: any) {
+      showError("Error", err.message || "Failed to load providers");
     } finally {
       setLoading(false);
     }
   }
 
-  function mapStatus(dbStatus: string): "Active" | "Pending" | "Suspended" {
-    switch (dbStatus) {
+  // ── Fetch lead stats (last 90 days) ───────────────────────────────────
+  async function fetchLeadStats() {
+    const from = new Date();
+    from.setDate(from.getDate() - 90);
+
+    const { data } = await supabase
+      .from("provider_lead_events")
+      .select("provider_id, event_type")
+      .in("event_type", ["call_click", "whatsapp_click"])
+      .gte("created_at", from.toISOString());
+
+    if (!data) return;
+
+    const map = new Map<string, ProviderLeadStats>();
+    for (const e of data) {
+      const existing = map.get(e.provider_id) ?? {
+        provider_id: e.provider_id,
+        calls: 0,
+        whatsapp: 0,
+        totalLeads: 0,
+      };
+      if (e.event_type === "call_click") existing.calls++;
+      if (e.event_type === "whatsapp_click") existing.whatsapp++;
+      existing.totalLeads = existing.calls + existing.whatsapp;
+      map.set(e.provider_id, existing);
+    }
+    setLeadStats(map);
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  function mapStatus(s: string): "Active" | "Pending" | "Suspended" {
+    switch (s) {
       case "active":
         return "Active";
-      case "pending_review":
-      case "needs_changes":
-        return "Pending";
       case "suspended":
       case "banned":
         return "Suspended";
@@ -164,12 +216,10 @@ const AdminProviders = () => {
     }
   }
 
-  function mapStatusToDb(uiStatus: "Active" | "Pending" | "Suspended"): string {
-    switch (uiStatus) {
+  function mapStatusToDb(s: "Active" | "Pending" | "Suspended"): string {
+    switch (s) {
       case "Active":
         return "active";
-      case "Pending":
-        return "pending_review";
       case "Suspended":
         return "suspended";
       default:
@@ -177,9 +227,62 @@ const AdminProviders = () => {
     }
   }
 
+  const rankEmoji = (i: number) =>
+    i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
+
+  // ── Filter + Sort ──────────────────────────────────────────────────────
+  const getFilteredProviders = (): (Provider & { _rank?: number })[] => {
+    let filtered = [...providers];
+
+    if (filterStatus === "Needs Review") {
+      filtered = filtered.filter((p) => p.hasPendingEdits);
+    } else if (filterStatus !== "All") {
+      filtered = filtered.filter((p) => p.status === filterStatus);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.email.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q) ||
+          p.city.toLowerCase().includes(q),
+      );
+    }
+
+    if (sortMode === "leads") {
+      // Sort by total leads descending, assign rank
+      filtered.sort((a, b) => {
+        const aLeads = leadStats.get(a.id)?.totalLeads ?? 0;
+        const bLeads = leadStats.get(b.id)?.totalLeads ?? 0;
+        return bLeads - aLeads;
+      });
+      return filtered.map((p, i) => ({ ...p, _rank: i + 1 }));
+    }
+
+    // Default sort
+    filtered.sort((a, b) => {
+      if (a.hasPendingEdits && !b.hasPendingEdits) return -1;
+      if (!a.hasPendingEdits && b.hasPendingEdits) return 1;
+      return b.joinedDate.getTime() - a.joinedDate.getTime();
+    });
+    return filtered;
+  };
+
+  const filteredProviders = getFilteredProviders();
+
+  const stats = {
+    total: providers.length,
+    active: providers.filter((p) => p.status === "Active").length,
+    pending: providers.filter((p) => p.status === "Pending").length,
+    suspended: providers.filter((p) => p.status === "Suspended").length,
+    needsReview: providers.filter((p) => p.hasPendingEdits).length,
+  };
+
+  // ── Status change ──────────────────────────────────────────────────────
   const handleView = (provider: Provider) =>
     navigate(`/admin/providers/${provider.id}`);
-
   const handleToggleStatus = (provider: Provider) => {
     setSelectedProvider(provider);
     setShowStatusModal(true);
@@ -190,11 +293,7 @@ const AdminProviders = () => {
     setIsUpdating(true);
     try {
       const newStatus: "Active" | "Pending" | "Suspended" =
-        selectedProvider.status === "Pending" ||
-        selectedProvider.status === "Suspended"
-          ? "Active"
-          : "Suspended";
-
+        selectedProvider.status === "Active" ? "Suspended" : "Active";
       const dbStatus = mapStatusToDb(newStatus);
       const {
         data: { user },
@@ -222,7 +321,6 @@ const AdminProviders = () => {
         ),
       );
 
-      // ── Send "profile live" email when activating ─────────────
       if (newStatus === "Active") {
         const { data: providerRow } = await supabase
           .from("providers")
@@ -233,16 +331,10 @@ const AdminProviders = () => {
         const emailToSend = providerRow?.email || selectedProvider.email;
         const slugToSend = providerRow?.slug || selectedProvider.id;
 
-        console.log("Sending profile live email:", {
-          email: emailToSend,
-          fullName: selectedProvider.name,
-          slug: slugToSend,
-        });
-
         if (!emailToSend || !slugToSend) {
           showError(
             "Email failed",
-            "Provider activated but email or slug is missing — notification not sent.",
+            "Activated but email/slug missing — notification not sent.",
           );
         } else {
           const { error: fnError } = await supabase.functions.invoke(
@@ -258,88 +350,63 @@ const AdminProviders = () => {
           if (fnError) {
             showError(
               "Email failed",
-              "Provider activated but failed to send notification email.",
+              "Activated but notification email failed.",
             );
           } else {
             showSuccess(
               "Provider activated",
-              `Profile is now live. Notification sent to ${emailToSend}.`,
+              `Profile live. Notification sent to ${emailToSend}.`,
             );
           }
         }
       } else {
-        showSuccess(
-          "Provider suspended",
-          "Provider has been suspended successfully.",
-        );
+        showSuccess("Provider suspended", "Provider has been suspended.");
       }
-
-      // ─────────────────────────────────────────────────────────
 
       setShowStatusModal(false);
       setSelectedProvider(null);
-    } catch (error: any) {
-      showError("Error", error.message || "Failed to update provider status");
+    } catch (err: any) {
+      showError("Error", err.message || "Failed to update provider status");
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const getFilteredProviders = () => {
-    let filtered = providers;
-    if (filterStatus === "Needs Review") {
-      filtered = filtered.filter((p) => p.hasPendingEdits);
-    } else if (filterStatus !== "All") {
-      filtered = filtered.filter((p) => p.status === filterStatus);
-    }
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter(
-        (p) =>
-          p.name.toLowerCase().includes(query) ||
-          p.email.toLowerCase().includes(query) ||
-          p.category.toLowerCase().includes(query) ||
-          p.city.toLowerCase().includes(query),
-      );
-    }
-    return filtered.sort((a, b) => {
-      if (a.hasPendingEdits && !b.hasPendingEdits) return -1;
-      if (!a.hasPendingEdits && b.hasPendingEdits) return 1;
-      return b.joinedDate.getTime() - a.joinedDate.getTime();
-    });
-  };
+  const isFilterActive = filterStatus !== "All" || sortMode === "leads";
 
-  const filteredProviders = getFilteredProviders();
-
-  const stats = {
-    total: providers.length,
-    active: providers.filter((p) => p.status === "Active").length,
-    pending: providers.filter((p) => p.status === "Pending").length,
-    suspended: providers.filter((p) => p.status === "Suspended").length,
-    needsReview: providers.filter((p) => p.hasPendingEdits).length,
+  const getFilterLabel = () => {
+    const parts: string[] = [];
+    if (sortMode === "leads") parts.push("By Leads");
+    if (filterStatus !== "All") parts.push(filterStatus);
+    return parts.length ? parts.join(" · ") : "Filter";
   };
 
   return (
     <>
       <style>{`
-        /* ── Skeleton ─────────────────────────────────────────────── */
         @keyframes skShimmer {
           0%   { background-position: -700px 0; }
           100% { background-position:  700px 0; }
         }
+        @keyframes slideDown {
+          from { opacity: 0; transform: translateY(-8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(20px) scale(0.95); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
         .sk-block {
-          background: linear-gradient(
-            90deg,
-            var(--sk-base) 25%,
-            var(--sk-hi)   50%,
-            var(--sk-base) 75%
-          );
+          background: linear-gradient(90deg,
+            var(--sk-base) 25%, var(--sk-hi) 50%, var(--sk-base) 75%);
           background-size: 700px 100%;
           animation: skShimmer 1.6s ease-in-out infinite;
           border-radius: 6px;
           flex-shrink: 0;
         }
-        :root { --sk-base: #f0f0f0; --sk-hi: #e4e4e4; }
+        :root      { --sk-base: #f0f0f0; --sk-hi: #e4e4e4; }
         .dark-mode { --sk-base: #374151; --sk-hi: #4b5563; }
 
         .sk-stat-card {
@@ -347,10 +414,8 @@ const AdminProviders = () => {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
           border-radius: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          min-height: 110px;
+          display: flex; flex-direction: column;
+          gap: 16px; min-height: 110px;
           justify-content: space-between;
         }
         .sk-stat-top { display: flex; justify-content: space-between; align-items: center; }
@@ -360,54 +425,35 @@ const AdminProviders = () => {
           padding: 18px 20px;
           border-bottom: 1px solid var(--border-color);
         }
-        .sk-pill  { height: 26px; width: 80px;  border-radius: 20px; }
-        .sk-btn   { height: 32px; width: 72px;  border-radius: 8px;  }
+        .sk-pill { height: 26px; width: 80px;  border-radius: 20px; }
+        .sk-btn  { height: 32px; width: 72px;  border-radius: 8px;  }
 
-        /* ── Page Styles ──────────────────────────────────────────── */
+        /* ── Layout ──────────────────────────────────────────── */
         .admin-providers {
-          padding: 28px;
-          max-width: 1600px;
-          margin: 0 auto;
-          background: var(--bg-primary);
-          min-height: 100vh;
+          padding: 28px; max-width: 1600px;
+          margin: 0 auto; background: var(--bg-primary); min-height: 100vh;
         }
-
         .stats-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 20px;
-          margin-bottom: 24px;
+          gap: 20px; margin-bottom: 24px;
         }
 
+        /* ── Toolbar ─────────────────────────────────────────── */
         .toolbar {
           display: flex;
           gap: 12px;
           align-items: center;
           margin-bottom: 20px;
         }
+        .toolbar-left { flex: 1; display: flex; gap: 12px; }
 
-        .toolbar-left {
-          flex: 1;
-          display: flex;
-          gap: 12px;
-        }
-
-        .search-container {
-          position: relative;
-          flex: 1;
-          max-width: 500px;
-        }
-
+        .search-container { position: relative; flex: 1; max-width: 500px; }
         .search-input {
-          width: 100%;
-          padding: 13px 16px 13px 48px;
-          border-radius: 12px;
-          border: 1.5px solid var(--border-color);
-          background: var(--search-bg);
-          color: var(--text-primary);
-          font-size: 14px;
-          font-weight: 500;
-          outline: none;
+          width: 100%; padding: 13px 16px 13px 48px;
+          border-radius: 12px; border: 1.5px solid var(--border-color);
+          background: var(--search-bg); color: var(--text-primary);
+          font-size: 14px; font-weight: 500; outline: none;
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .search-input::placeholder { color: var(--text-tertiary); }
@@ -417,48 +463,37 @@ const AdminProviders = () => {
           box-shadow: 0 0 0 4px var(--orange-shadow);
           transform: translateY(-1px);
         }
-
         .search-icon {
-          position: absolute;
-          left: 16px; top: 50%;
+          position: absolute; left: 16px; top: 50%;
           transform: translateY(-50%);
-          color: var(--text-tertiary);
-          pointer-events: none;
+          color: var(--text-tertiary); pointer-events: none;
           transition: all 0.3s ease;
         }
         .search-input:focus ~ .search-icon {
           color: var(--orange-primary);
           transform: translateY(-50%) scale(1.1);
         }
-
         .clear-search {
-          position: absolute;
-          right: 12px; top: 50%;
+          position: absolute; right: 12px; top: 50%;
           transform: translateY(-50%);
           background: none; border: none; cursor: pointer;
-          color: var(--text-secondary);
-          padding: 6px;
+          color: var(--text-secondary); padding: 6px;
           display: flex; align-items: center; justify-content: center;
-          border-radius: 6px;
-          transition: all 0.2s ease;
+          border-radius: 6px; transition: all 0.2s ease;
         }
         .clear-search:hover {
-          background: var(--hover-bg);
-          color: var(--text-primary);
+          background: var(--hover-bg); color: var(--text-primary);
           transform: translateY(-50%) scale(1.1);
         }
 
+        /* ── Filter ──────────────────────────────────────────── */
         .filter-wrapper { position: relative; }
-
         .filter-btn {
-          padding: 13px 20px;
-          border-radius: 12px;
+          padding: 13px 20px; border-radius: 12px;
           border: 1.5px solid var(--border-color);
           background: var(--filter-btn-bg);
           color: var(--text-primary);
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
+          font-size: 14px; font-weight: 600; cursor: pointer;
           display: flex; align-items: center; gap: 10px;
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           white-space: nowrap;
@@ -474,117 +509,190 @@ const AdminProviders = () => {
           border-color: var(--orange-primary);
           color: var(--orange-primary);
         }
+        .filter-active-dot {
+          width: 7px; height: 7px;
+          border-radius: 50%;
+          background: var(--orange-primary);
+          display: inline-block;
+        }
 
         .filter-dropdown {
-          position: absolute;
-          top: calc(100% + 8px); right: 0;
+          position: absolute; top: calc(100% + 8px); right: 0;
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
-          border-radius: 12px;
+          border-radius: 14px;
           box-shadow: 0 12px 48px var(--dropdown-shadow);
-          padding: 8px;
-          min-width: 200px;
-          z-index: 100;
+          padding: 8px; min-width: 210px; z-index: 100;
           animation: slideDown 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-8px); }
-          to   { opacity: 1; transform: translateY(0); }
+        .filter-section-label {
+          font-size: 10.5px; font-weight: 700;
+          color: var(--text-tertiary);
+          text-transform: uppercase; letter-spacing: 0.7px;
+          padding: 8px 12px 4px;
         }
-
         .filter-option {
-          padding: 12px 14px;
-          cursor: pointer;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 500;
-          color: var(--text-primary);
+          padding: 10px 12px; cursor: pointer; border-radius: 8px;
+          font-size: 13px; font-weight: 500; color: var(--text-primary);
           transition: all 0.15s ease;
           display: flex; align-items: center; justify-content: space-between;
         }
-        .filter-option:hover {
-          background: var(--hover-bg);
-          color: var(--orange-primary);
-          transform: translateX(4px);
-        }
+        .filter-option:hover { background: var(--hover-bg); color: var(--orange-primary); }
         .filter-option.active {
           background: var(--orange-light-bg);
-          color: var(--orange-primary);
-          font-weight: 600;
+          color: var(--orange-primary); font-weight: 600;
         }
-        .filter-option.needs-review {
-          border-bottom: 1px solid var(--border-color);
-          margin-bottom: 4px;
-          padding-bottom: 12px;
-        }
+        .filter-option .check { font-size: 12px; opacity: 0; }
+        .filter-option.active .check { opacity: 1; }
+        .filter-divider { height: 1px; background: var(--border-color); margin: 6px 8px; }
 
         .filter-badge {
-          display: inline-flex;
-          align-items: center; justify-content: center;
-          min-width: 24px; height: 20px; padding: 0 6px;
-          border-radius: 10px;
-          font-size: 11px; font-weight: 700;
+          display: inline-flex; align-items: center; justify-content: center;
+          min-width: 22px; height: 20px; padding: 0 6px;
+          border-radius: 10px; font-size: 11px; font-weight: 700;
           background: var(--orange-primary); color: white;
         }
 
-        /* Modal */
+        /* ── Leads table ─────────────────────────────────────── */
+        .providers-leads-table {
+          width: 100%; border-collapse: collapse;
+          background: var(--card-bg);
+          border: 1.5px solid var(--border-color);
+          border-radius: 16px;
+          overflow: hidden;
+        }
+        .providers-leads-table thead tr {
+          background: var(--hover-bg);
+          border-bottom: 1.5px solid var(--border-color);
+        }
+        .providers-leads-table thead th {
+          padding: 13px 18px;
+          font-size: 11px; font-weight: 700;
+          color: var(--text-secondary);
+          text-transform: uppercase; letter-spacing: 0.5px;
+          text-align: left; white-space: nowrap;
+        }
+        .providers-leads-table thead th.num { text-align: right; }
+        .providers-leads-table thead th:first-child { width: 52px; text-align: center; }
+
+        .providers-leads-table tbody tr {
+          border-bottom: 1px solid var(--border-color);
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .providers-leads-table tbody tr:last-child { border-bottom: none; }
+        .providers-leads-table tbody tr:hover { background: var(--hover-bg); }
+
+        .providers-leads-table tbody td {
+          padding: 14px 18px; vertical-align: middle;
+        }
+        .providers-leads-table tbody td:first-child {
+          text-align: center; width: 52px; padding-left: 18px;
+        }
+        .providers-leads-table tbody td.num {
+          text-align: right;
+          font-size: 15px; font-weight: 700;
+          color: var(--text-primary);
+          font-variant-numeric: tabular-nums;
+        }
+
+        .rank-emoji  { font-size: 20px; line-height: 1; }
+        .rank-number {
+          font-size: 12px; font-weight: 800;
+          color: var(--text-tertiary);
+          width: 26px; height: 26px; border-radius: 7px;
+          background: var(--chip-bg);
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+
+        .prov-avatar {
+          width: 38px; height: 38px; border-radius: 10px;
+          object-fit: cover; flex-shrink: 0;
+        }
+        .prov-name-cell {
+          font-size: 14px; font-weight: 600; color: var(--text-primary);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          max-width: 220px; margin-bottom: 2px;
+        }
+        .prov-sub-cell { font-size: 12px; color: var(--text-tertiary); font-weight: 500; }
+
+        .lead-chip {
+          display: inline-flex; align-items: center; gap: 4px;
+          padding: 4px 9px; border-radius: 20px;
+          font-size: 12px; font-weight: 600;
+          font-variant-numeric: tabular-nums;
+        }
+        .lead-chip.call { background: rgba(21,128,61,0.1);  color: #15803D; }
+        .lead-chip.wa   { background: rgba(37,99,235,0.08); color: #2563EB; }
+
+        .status-pill {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 4px 10px; border-radius: 20px;
+          font-size: 12px; font-weight: 600;
+        }
+        .status-pill.Active    { background: rgba(16,185,129,0.1); color: #059669; }
+        .status-pill.Pending   { background: rgba(245,158,11,0.1); color: #D97706; }
+        .status-pill.Suspended { background: rgba(239,68,68,0.1);  color: #DC2626; }
+        .status-dot {
+          width: 6px; height: 6px; border-radius: 50%;
+          background: currentColor; display: inline-block;
+        }
+
+        .no-leads-row td {
+          padding: 56px 24px; text-align: center;
+          color: var(--text-tertiary); font-size: 14px;
+        }
+
+        /* ── Modal ───────────────────────────────────────────── */
         .modal-overlay {
           position: fixed; inset: 0;
           background: var(--modal-overlay);
           display: flex; align-items: center; justify-content: center;
-          z-index: 1000;
-          backdrop-filter: blur(8px);
+          z-index: 1000; backdrop-filter: blur(8px);
           animation: fadeIn 0.2s ease;
         }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
         .modal-content {
           background: var(--card-bg);
           border: 1.5px solid var(--border-color);
-          border-radius: 16px;
-          padding: 28px;
+          border-radius: 16px; padding: 28px;
           max-width: 460px; width: 90%;
           box-shadow: 0 24px 80px var(--modal-shadow);
           animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px) scale(0.95); }
-          to   { opacity: 1; transform: translateY(0) scale(1); }
-        }
-
         .modal-title {
-          font-size: 20px; font-weight: 700;
-          color: var(--text-primary);
-          margin-bottom: 16px;
-          display: flex; align-items: center; gap: 12px;
+          font-size: 20px; font-weight: 700; color: var(--text-primary);
+          margin-bottom: 16px; display: flex; align-items: center; gap: 12px;
         }
-        .modal-text { color: var(--text-secondary); line-height: 1.6; margin-bottom: 28px; font-size: 15px; }
+        .modal-text {
+          color: var(--text-secondary); line-height: 1.6;
+          margin-bottom: 28px; font-size: 15px;
+        }
         .modal-text strong { color: var(--text-primary); font-weight: 600; }
         .modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
-
         .btn-modal { padding: 12px 24px; border: none; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; }
         .btn-cancel { background: var(--btn-cancel-bg); color: var(--text-primary); }
         .btn-cancel:hover { background: var(--btn-cancel-hover); }
         .btn-confirm { color: #fff; }
         .btn-confirm.approve {
           background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+          box-shadow: 0 4px 16px rgba(16,185,129,0.3);
         }
-        .btn-confirm.approve:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4); }
+        .btn-confirm.approve:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(16,185,129,0.4); }
         .btn-confirm.suspend {
           background: linear-gradient(135deg, #ef4444 0%, #DC2626 100%);
-          box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+          box-shadow: 0 4px 16px rgba(239,68,68,0.3);
         }
-        .btn-confirm.suspend:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239, 68, 68, 0.4); }
+        .btn-confirm.suspend:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.4); }
         .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* CSS Variables */
+        /* ── CSS Variables ───────────────────────────────────── */
         :root {
           --bg-primary: #f8f9fa; --text-primary: #111827; --text-secondary: #6b7280;
           --text-tertiary: #9ca3af; --card-bg: #ffffff; --border-color: #e5e7eb;
           --border-hover: #d1d5db; --hover-bg: #f3f4f6; --search-bg: #f9fafb;
           --filter-btn-bg: #ffffff; --filter-btn-hover: #f9fafb;
           --card-shadow: rgba(0,0,0,0.1); --dropdown-shadow: rgba(0,0,0,0.15);
+          --chip-bg: #f3f4f6;
           --orange-primary: #FF6B35; --orange-light-bg: #FFF4ED;
           --orange-shadow: rgba(255,107,53,0.1);
           --modal-overlay: rgba(0,0,0,0.5); --modal-shadow: rgba(0,0,0,0.3);
@@ -596,12 +704,14 @@ const AdminProviders = () => {
           --border-hover: #4b5563; --hover-bg: #374151; --search-bg: #374151;
           --filter-btn-bg: #1f2937; --filter-btn-hover: #374151;
           --card-shadow: rgba(0,0,0,0.4); --dropdown-shadow: rgba(0,0,0,0.6);
+          --chip-bg: #374151;
           --orange-primary: #FF8A5B; --orange-light-bg: rgba(255,107,53,0.15);
           --orange-shadow: rgba(255,138,91,0.15);
           --modal-overlay: rgba(0,0,0,0.7); --modal-shadow: rgba(0,0,0,0.6);
           --btn-cancel-bg: #374151; --btn-cancel-hover: #4b5563;
         }
 
+        /* ── Responsive ──────────────────────────────────────── */
         @media (max-width: 768px) {
           .admin-providers { padding: 20px 16px; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -611,6 +721,7 @@ const AdminProviders = () => {
           .filter-btn { width: 100%; justify-content: center; }
           .modal-actions { flex-direction: column-reverse; }
           .btn-modal { width: 100%; }
+          .hide-mobile { display: none; }
         }
       `}</style>
 
@@ -621,51 +732,80 @@ const AdminProviders = () => {
           icon={Briefcase}
         />
 
-        {/* Stats — skeleton while loading */}
+        {/* ── Stat Cards ── clickable filters ───────────────────── */}
         <div className="stats-grid">
           {loading ? (
-            <>
-              <SkeletonStatCard />
-              <SkeletonStatCard />
-              <SkeletonStatCard />
-              <SkeletonStatCard />
-            </>
+            [1, 2, 3, 4].map((i) => <SkeletonStatCard key={i} />)
           ) : (
             <>
-              <StatCard
-                label="Total Providers"
-                value={stats.total}
-                icon={Briefcase}
-                iconColor="orange"
-              />
-              <StatCard
-                label="Active"
-                value={stats.active}
-                icon={CheckCircle}
-                iconColor="green"
-              />
-              <StatCard
-                label="Needs Review"
-                value={stats.needsReview}
-                icon={AlertCircle}
-                iconColor="orange"
-              />
-              <StatCard
-                label="Suspended"
-                value={stats.suspended}
-                icon={XCircle}
-                iconColor="red"
-              />
+              {/* Wrap each StatCard in a button-like div */}
+              {(
+                [
+                  {
+                    label: "Total Providers",
+                    value: stats.total,
+                    icon: Briefcase,
+                    iconColor: "orange" as const,
+                    filter: "All" as const,
+                  },
+                  {
+                    label: "Active",
+                    value: stats.active,
+                    icon: CheckCircle,
+                    iconColor: "green" as const,
+                    filter: "Active" as const,
+                  },
+                  {
+                    label: "Needs Review",
+                    value: stats.needsReview,
+                    icon: AlertCircle,
+                    iconColor: "orange" as const,
+                    filter: "Needs Review" as const,
+                  },
+                  {
+                    label: "Suspended",
+                    value: stats.suspended,
+                    icon: XCircle,
+                    iconColor: "red" as const,
+                    filter: "Suspended" as const,
+                  },
+                ] as const
+              ).map(({ label, value, icon, iconColor, filter }) => (
+                <div
+                  key={label}
+                  onClick={() =>
+                    setFilterStatus(filterStatus === filter ? "All" : filter)
+                  }
+                  style={{
+                    cursor: "pointer",
+                    borderRadius: 16,
+
+                    outlineOffset: 2,
+                    transition: "outline 0.15s ease, transform 0.15s ease",
+                    transform:
+                      filterStatus === filter ? "translateY(-2px)" : "none",
+                  }}
+                  title={`Filter by: ${label}`}
+                >
+                  <StatCard
+                    label={label}
+                    value={value}
+                    icon={icon}
+                    iconColor={iconColor}
+                  />
+                </div>
+              ))}
             </>
           )}
         </div>
 
+        {/* ── Toolbar ─────────────────────────────────────────────── */}
         <div className="toolbar">
           <div className="toolbar-left">
             <div className="search-container">
               <input
                 type="text"
-                placeholder="Search providers..."
+                placeholder="Search providers…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="search-input"
@@ -673,9 +813,8 @@ const AdminProviders = () => {
               <Search size={18} className="search-icon" strokeWidth={2.5} />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery("")}
                   className="clear-search"
-                  title="Clear search"
+                  onClick={() => setSearchQuery("")}
                 >
                   <X size={16} strokeWidth={2.5} />
                 </button>
@@ -684,26 +823,66 @@ const AdminProviders = () => {
 
             <div className="filter-wrapper" ref={filterDropdownRef}>
               <button
-                className={`filter-btn ${filterStatus !== "All" ? "active" : ""}`}
+                className={`filter-btn ${isFilterActive ? "active" : ""}`}
                 onClick={() => setShowFilter(!showFilter)}
               >
                 <Filter size={18} strokeWidth={2.5} />
-                {filterStatus === "All" ? "Filter" : filterStatus}
+                {getFilterLabel()}
+                {isFilterActive && <span className="filter-active-dot" />}
               </button>
 
               {showFilter && (
                 <div className="filter-dropdown">
+                  {/* Sort section */}
+                  <div className="filter-section-label">Sort by</div>
                   <div
-                    className={`filter-option needs-review ${filterStatus === "Needs Review" ? "active" : ""}`}
+                    className={`filter-option ${sortMode === "leads" ? "active" : ""}`}
+                    onClick={() => {
+                      setSortMode(sortMode === "leads" ? "default" : "leads");
+                      setShowFilter(false);
+                    }}
+                  >
+                    <span
+                      style={{ display: "flex", alignItems: "center", gap: 7 }}
+                    >
+                      <TrendingUp size={14} strokeWidth={2.5} />
+                      Most Leads (90 days)
+                    </span>
+                    <span className="check">✓</span>
+                  </div>
+                  <div
+                    className={`filter-option ${sortMode === "default" ? "active" : ""}`}
+                    onClick={() => {
+                      setSortMode("default");
+                      setShowFilter(false);
+                    }}
+                  >
+                    <span>Recently Joined</span>
+                    <span className="check">✓</span>
+                  </div>
+
+                  <div className="filter-divider" />
+
+                  {/* Status section */}
+                  <div className="filter-section-label">Status</div>
+                  <div
+                    className={`filter-option ${filterStatus === "Needs Review" ? "active" : ""}`}
                     onClick={() => {
                       setFilterStatus("Needs Review");
                       setShowFilter(false);
                     }}
                   >
                     <span>⚠️ Needs Review</span>
-                    {stats.needsReview > 0 && (
-                      <span className="filter-badge">{stats.needsReview}</span>
-                    )}
+                    <span
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      {stats.needsReview > 0 && (
+                        <span className="filter-badge">
+                          {stats.needsReview}
+                        </span>
+                      )}
+                      <span className="check">✓</span>
+                    </span>
                   </div>
                   {(["All", "Active", "Pending", "Suspended"] as const).map(
                     (s) => (
@@ -715,18 +894,38 @@ const AdminProviders = () => {
                           setShowFilter(false);
                         }}
                       >
-                        {s === "All" ? "All Providers" : s}
+                        <span>{s === "All" ? "All Providers" : s}</span>
+                        <span className="check">✓</span>
                       </div>
                     ),
                   )}
                 </div>
               )}
             </div>
+
+            {!loading && (
+              <span
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-tertiary)",
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  marginLeft: "auto",
+                  marginTop: "15px",
+                }}
+              >
+                <strong
+                  style={{ color: "var(--text-secondary)", fontWeight: 700 }}
+                >
+                  {filteredProviders.length}
+                </strong>{" "}
+                of {providers.length} providers
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Table — ProvidersTable already handles loading internally,
-            but we also show skeleton rows when loading for consistency */}
+        {/* ── Table ───────────────────────────────────────────────── */}
         {loading ? (
           <div
             style={{
@@ -745,6 +944,7 @@ const AdminProviders = () => {
                   }}
                 >
                   {[
+                    "#",
                     "Provider",
                     "Category",
                     "City",
@@ -755,9 +955,9 @@ const AdminProviders = () => {
                     <th
                       key={h}
                       style={{
-                        padding: "16px 20px",
+                        padding: "16px 18px",
                         textAlign: "left",
-                        fontSize: 13,
+                        fontSize: 11,
                         fontWeight: 700,
                         color: "var(--text-secondary)",
                         textTransform: "uppercase",
@@ -776,15 +976,122 @@ const AdminProviders = () => {
               </tbody>
             </table>
           </div>
+        ) : sortMode === "leads" ? (
+          /* ── Leads-ranked table ─────────────────────────────── */
+          <table className="providers-leads-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Provider</th>
+                <th className="hide-mobile">Category</th>
+                <th className="hide-mobile">City</th>
+                <th className="num">Total Leads</th>
+                <th className="num hide-mobile">WhatsApp</th>
+                <th className="num hide-mobile">Calls</th>
+                <th className="hide-mobile">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProviders.length === 0 ? (
+                <tr className="no-leads-row">
+                  <td colSpan={8}>No providers match your filters</td>
+                </tr>
+              ) : (
+                filteredProviders.map((provider, index) => {
+                  const ls = leadStats.get(provider.id);
+                  const rank = (provider as any)._rank ?? index + 1;
+                  const emoji = rankEmoji(index);
+                  return (
+                    <tr key={provider.id} onClick={() => handleView(provider)}>
+                      <td>
+                        {emoji ? (
+                          <span className="rank-emoji">{emoji}</span>
+                        ) : (
+                          <span className="rank-number">#{rank}</span>
+                        )}
+                      </td>
+                      <td>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 12,
+                          }}
+                        >
+                          <img
+                            src={provider.profileImage}
+                            alt={provider.name}
+                            className="prov-avatar"
+                          />
+                          <div>
+                            <div
+                              className="prov-name-cell"
+                              title={provider.name}
+                            >
+                              {provider.name}
+                            </div>
+                            <div className="prov-sub-cell">
+                              {provider.email}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td
+                        className="hide-mobile"
+                        style={{
+                          fontSize: 13,
+                          color: "var(--text-secondary)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {provider.category}
+                      </td>
+                      <td
+                        className="hide-mobile"
+                        style={{
+                          fontSize: 13,
+                          color: "var(--text-secondary)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {provider.city}
+                      </td>
+                      <td className="num">{ls?.totalLeads ?? 0}</td>
+                      <td className="num hide-mobile">
+                        <span className="lead-chip wa">
+                          <MessageCircle size={11} strokeWidth={2.5} />
+                          {ls?.whatsapp ?? 0}
+                        </span>
+                      </td>
+                      <td className="num hide-mobile">
+                        <span className="lead-chip call">
+                          <Phone size={11} strokeWidth={2.5} />
+                          {ls?.calls ?? 0}
+                        </span>
+                      </td>
+                      <td className="hide-mobile">
+                        <span className={`status-pill ${provider.status}`}>
+                          <span className="status-dot" />
+                          {provider.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         ) : (
+          /* ── Default ProvidersTable ─────────────────────────── */
           <ProvidersTable
             providers={filteredProviders}
-            loading={loading}
+            loading={false}
             onView={handleView}
             onToggleStatus={handleToggleStatus}
           />
         )}
 
+        {/* ── Status Modal ─────────────────────────────────────── */}
         {showStatusModal && selectedProvider && (
           <div
             className="modal-overlay"
@@ -822,7 +1129,7 @@ const AdminProviders = () => {
                   disabled={isUpdating}
                 >
                   {isUpdating
-                    ? "Processing..."
+                    ? "Processing…"
                     : selectedProvider.status === "Active"
                       ? "Suspend"
                       : "Approve"}

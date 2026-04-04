@@ -1,5 +1,5 @@
 // src/pages/ProvidersPage.tsx
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import {
   MapPin,
@@ -14,8 +14,8 @@ import Breadcrumb from "../components/Breadcrumb/Breadcrumb";
 import ProvidersPageSkeleton from "../components/Providers/ProvidersPageSkeleton";
 import { supabase } from "../lib/supabaseClient";
 import SEO from "../components/SEO";
+import { useAnalytics } from "../hooks/useAnalytics";
 
-// ── Half-star renderer ──────────────────────────────────────────────────────
 const StarIcon = ({
   index,
   rating,
@@ -28,7 +28,6 @@ const StarIcon = ({
   const id = `hstar-${index}-${Math.round(rating * 10)}`;
   const filled = rating >= index;
   const half = !filled && rating > index - 1;
-
   if (filled) {
     return (
       <svg
@@ -84,38 +83,6 @@ const StarIcon = ({
     </svg>
   );
 };
-// ───────────────────────────────────────────────────────────────────────────
-
-// ── Analytics hook (inline — no separate file needed) ──────────────────────
-const viewFiredSet = new Set<string>(); // module-level so it persists across renders
-
-const useAnalytics = () => {
-  const track = useCallback(
-    async (
-      eventType: "whatsapp_click" | "call_click" | "profile_view",
-      providerId: string,
-    ) => {
-      if (eventType === "profile_view") {
-        if (viewFiredSet.has(providerId)) return;
-        viewFiredSet.add(providerId);
-      }
-      const column =
-        eventType === "whatsapp_click"
-          ? "click_to_whatsapp_count"
-          : eventType === "call_click"
-            ? "click_to_call_count"
-            : "profile_views";
-      const { error } = await supabase.rpc("increment_provider_stat", {
-        p_provider_id: providerId,
-        p_column: column,
-      });
-      if (error) console.warn("[analytics]", error.message);
-    },
-    [],
-  );
-  return { track };
-};
-// ───────────────────────────────────────────────────────────────────────────
 
 type DbProvider = {
   id: string;
@@ -131,6 +98,7 @@ type DbProvider = {
   pricing_model: string | null;
   phone_number: string | null;
   whatsapp_number: string | null;
+  works_nationwide: boolean | null;
 };
 type DbService = {
   id: string;
@@ -153,13 +121,13 @@ type UiProvider = {
   description: string;
   city: string;
   areas: string[];
+  worksNationwide: boolean;
   rating: number;
   reviewCount: number;
   verified: boolean;
   image: string;
   yearsExperience: number;
   pricingLabel: string;
-  priceValue: number;
   services: ProviderService[];
   matchedService?: ProviderService | null;
   phone: string;
@@ -228,6 +196,7 @@ const ProvidersPage = () => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [savedQuery, setSavedQuery] = useState(""); // for Escape restore
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -236,6 +205,7 @@ const ProvidersPage = () => {
 
   const { track } = useAnalytics();
 
+  // Auth
   useEffect(() => {
     supabase.auth
       .getSession()
@@ -248,6 +218,7 @@ const ProvidersPage = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Suggestions autocomplete
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = searchQuery.trim().toLowerCase();
@@ -262,7 +233,7 @@ const ProvidersPage = () => {
         .select("name")
         .eq("is_active", true)
         .ilike("name", `%${q}%`)
-        .limit(4);
+        .limit(5);
       if (error || !data) return;
       const names = data.map((s) => s.name);
       setSuggestions(names);
@@ -274,6 +245,7 @@ const ProvidersPage = () => {
     };
   }, [searchQuery]);
 
+  // Close suggestions on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (
@@ -286,7 +258,23 @@ const ProvidersPage = () => {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Updated: tracks whatsapp/call events ──────────────────────────────
+  // Ref for the sticky bar itself
+  const stickyBarRef = useRef<HTMLDivElement>(null);
+
+  // Close suggestions when user scrolls (any scroll while open)
+  useEffect(() => {
+    const handleScroll = () => {
+      if (showSuggestions) setShowSuggestions(false);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [showSuggestions]);
+
+  const closeSuggestions = () => {
+    setShowSuggestions(false);
+    setActiveIndex(-1);
+  };
+
   const handleContactClick = (
     e: React.MouseEvent,
     action: () => void,
@@ -302,7 +290,6 @@ const ProvidersPage = () => {
     }
   };
 
-  // ── Updated: tracks profile views ─────────────────────────────────────
   const handleViewProfile = (slug: string, providerId: string) => {
     track("profile_view", providerId);
     navigate(`/providers/${slug}`);
@@ -321,6 +308,7 @@ const ProvidersPage = () => {
     setSigningIn(false);
   };
 
+  // Data fetch
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -328,7 +316,7 @@ const ProvidersPage = () => {
         const { data: pd, error: pe } = await supabase
           .from("providers")
           .select(
-            "id, slug, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model, phone_number, whatsapp_number",
+            "id, slug, business_name, primary_category, city, status, years_experience, avg_rating, total_reviews, profile_image_url, pricing_model, phone_number, whatsapp_number, works_nationwide",
           )
           .eq("status", "active");
         if (pe) {
@@ -365,13 +353,13 @@ const ProvidersPage = () => {
                   .map((a) => a.suburb || a.city)
                   .filter(Boolean)
                   .filter((v, i, arr) => arr.indexOf(v) === i) as string[],
+                worksNationwide: p.works_nationwide ?? false,
                 rating: p.avg_rating ?? 0,
                 reviewCount: p.total_reviews ?? 0,
                 verified: true,
                 image: p.profile_image_url || DEFAULT_PROVIDER_IMAGE,
                 yearsExperience: p.years_experience ?? 0,
                 pricingLabel: p.pricing_model || "Quote-based",
-                priceValue: p.years_experience ?? 0,
                 services: dbS
                   .filter((s) => s.provider_id === p.id)
                   .map((s) => ({ name: s.service_name, price: s.price })),
@@ -381,7 +369,6 @@ const ProvidersPage = () => {
               };
             }),
           );
-
           const categoryCounts = dbP.reduce<Record<string, number>>(
             (acc, p) => {
               acc[p.primary_category] = (acc[p.primary_category] || 0) + 1;
@@ -389,13 +376,11 @@ const ProvidersPage = () => {
             },
             {},
           );
-
           const { data: cd } = await supabase
             .from("categories")
             .select("id,name,status")
             .eq("status", "Active")
             .order("display_order", { ascending: true });
-
           setCategories([
             "All Categories",
             ...((cd || []) as DbCategory[])
@@ -412,6 +397,7 @@ const ProvidersPage = () => {
     fetchData();
   }, []);
 
+  // Filter + sort
   useEffect(() => {
     let results: UiProvider[] = providers.map((p) => ({
       ...p,
@@ -447,7 +433,9 @@ const ProvidersPage = () => {
     if (selectedCategory !== "All Categories")
       results = results.filter((p) => p.category === selectedCategory);
     if (selectedCity !== "All Cities")
-      results = results.filter((p) => p.city === selectedCity);
+      results = results.filter(
+        (p) => p.worksNationwide || p.city === selectedCity,
+      );
     results.sort((a, b) => {
       switch (sortBy) {
         case "rating":
@@ -488,6 +476,7 @@ const ProvidersPage = () => {
     selectedCategory !== "All Categories" ||
     selectedCity !== "All Cities"
   );
+
   const breadcrumbItems: { label: string; path?: string }[] = [];
   if (searchQuery.trim())
     breadcrumbItems.push({ label: `Search: "${searchQuery}"` });
@@ -498,45 +487,82 @@ const ProvidersPage = () => {
   if (breadcrumbItems.length === 0)
     breadcrumbItems.push({ label: "All Providers" });
 
+  // Highlight the COMPLETION (non-typed part) in orange, typed part stays normal
   const highlightMatch = (text: string, query: string) => {
     const idx = text.toLowerCase().indexOf(query.toLowerCase());
     if (idx === -1) return <span>{text}</span>;
+    const before = text.slice(0, idx);
+    const matched = text.slice(idx, idx + query.length);
+    const after = text.slice(idx + query.length);
     return (
       <>
-        {text.slice(0, idx)}
+        {before}
+        <span style={{ color: "var(--ink-2)" }}>{matched}</span>
         <mark
           style={{
-            background: "#FFF0E0",
-            color: "#C8570A",
+            background: "transparent",
+            color: "var(--accent)",
             fontWeight: 700,
-            borderRadius: 3,
-            padding: "0 1px",
+            padding: 0,
           }}
         >
-          {text.slice(idx, idx + query.length)}
+          {after}
         </mark>
-        {text.slice(idx + query.length)}
       </>
     );
   };
+
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      // Restore original typed query and close
+      setSearchQuery(savedQuery);
+      closeSuggestions();
+      return;
+    }
     if (!showSuggestions || !suggestions.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((p) => Math.min(p + 1, suggestions.length - 1));
+      // Save original query before first arrow navigation
+      if (activeIndex === -1) setSavedQuery(searchQuery);
+      const next = Math.min(activeIndex + 1, suggestions.length - 1);
+      setActiveIndex(next);
+      setSearchQuery(suggestions[next]); // live update input
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveIndex((p) => Math.max(p - 1, -1));
-    } else if (e.key === "Enter" && activeIndex >= 0) {
-      e.preventDefault();
-      setSearchQuery(suggestions[activeIndex]);
-      setShowSuggestions(false);
-    } else if (e.key === "Escape") setShowSuggestions(false);
+      if (activeIndex <= 0) {
+        // Back to no selection — restore saved query
+        setActiveIndex(-1);
+        setSearchQuery(savedQuery);
+      } else {
+        const prev = activeIndex - 1;
+        setActiveIndex(prev);
+        setSearchQuery(suggestions[prev]); // live update input
+      }
+    } else if (e.key === "Enter") {
+      if (activeIndex >= 0) {
+        e.preventDefault();
+        setSearchQuery(suggestions[activeIndex]);
+        closeSuggestions();
+      } else {
+        closeSuggestions();
+      }
+    }
   };
+
+  const handleSuggestionClick = (name: string) => {
+    setSearchQuery(name);
+    closeSuggestions();
+  };
+
+  const handleSearchFooterClick = () => {
+    // Keep current query, just close dropdown and let filter run
+    closeSuggestions();
+  };
+
+  // Price display
   const getPriceDisplay = (p: UiProvider) => {
     const isPerSqm =
       p.category === "Tiling Services" || p.category === "Painting";
-
     if (p.matchedService) {
       if (p.matchedService.price != null)
         return {
@@ -552,13 +578,11 @@ const ProvidersPage = () => {
         isPrice: false,
       };
     }
-
-    // no matched service — use pricingLabel but append /m² if applicable
-    const label = p.pricingLabel || "Quote-based";
-    const amount =
-      isPerSqm && p.priceValue > 0 ? `$${p.priceValue.toFixed(2)}/m²` : label;
-
-    return { label: null, amount, isPrice: isPerSqm && p.priceValue > 0 };
+    return {
+      label: null,
+      amount: p.pricingLabel || "Quote-based",
+      isPrice: false,
+    };
   };
 
   const hasCategory = selectedCategory !== "All Categories";
@@ -613,7 +637,7 @@ const ProvidersPage = () => {
         .z-eyebrow-dot { width:6px; height:6px; background:var(--accent); border-radius:50%; animation:z-blink 2.4s ease-in-out infinite; }
         @keyframes z-blink { 0%,100%{opacity:1} 50%{opacity:.35} }
         .z-hero-h1 { font-family:var(--pj); font-size:25px; font-weight:800; color:#FAF9F7; line-height:1.1; letter-spacing:-.03em; margin:0 0 14px; }
-        .z-h1-accent { color:var(--accent); position:relative; }
+        .z-h1-accent { color:var(--accent); }
         .z-hero-sub { font-size:13px; font-weight:400; color:rgba(250,249,247,.45); line-height:1.6; }
         .z-hero-sub strong { color:rgba(250,249,247,.7); font-weight:600; }
         .z-hero-stats { display:flex; gap:24px; margin-top:28px; align-items:center; }
@@ -629,9 +653,13 @@ const ProvidersPage = () => {
         .z-si:focus { outline:none; background:#FFFBF8; }
         .z-si::placeholder { color:var(--ink-4); font-weight:400; }
         .z-suggs { position:absolute; top:calc(100% + 1px); left:0; right:0; background:#fff; border:1px solid var(--border); border-top:2px solid var(--accent); border-radius:0 0 var(--r-md) var(--r-md); box-shadow:var(--s-md); z-index:300; overflow:hidden; }
-        .z-sugg { padding:11px 20px 11px 52px; font-family:var(--pj); font-size:14px; font-weight:500; color:var(--ink-2); cursor:pointer; border-bottom:1px solid var(--border); transition:background .15s; }
+        .z-sugg { display:flex; align-items:center; gap:10px; padding:11px 20px 11px 20px; font-family:var(--pj); font-size:14px; font-weight:500; color:var(--ink-2); cursor:pointer; border-bottom:1px solid var(--border); transition:background .15s; }
         .z-sugg:last-child { border-bottom:none; }
-        .z-sugg:hover,.z-sugg.active { background:var(--accent-bg); }
+        .z-sugg:hover, .z-sugg.active { background:var(--accent-bg); }
+        .z-sugg-ico { color:var(--ink-4); flex-shrink:0; }
+        .z-sugg-footer { color:var(--ink-3); font-size:13px; border-top: 1px solid var(--border); border-bottom:none; }
+        .z-sugg-footer:hover, .z-sugg-footer.active { background:var(--bg); }
+        .z-sugg-footer strong { color:var(--ink); }
         .z-sel-wrap { height:100%; border-right:1px solid var(--border); display:flex; align-items:center; padding:0 4px; flex-shrink:0; }
         .z-sel { height:100%; padding:0 36px 0 16px; background:transparent; border:none; font-family:var(--pj); font-size:14px; font-weight:600; color:var(--ink-2); cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2378716C' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; min-width:140px; transition:background-color var(--t); }
         .z-sel:focus { outline:none; background-color:var(--accent-bg); }
@@ -664,8 +692,6 @@ const ProvidersPage = () => {
         .z-cimg img { width:100%; height:100%; object-fit:cover; object-position:center top; display:block; transition:transform .55s cubic-bezier(.22,1,.36,1),filter .4s ease; filter:saturate(.88) brightness(.97); }
         .z-card:hover .z-cimg img { transform:scale(1.06); filter:saturate(1) brightness(1); }
         .z-cimg-scrim { position:absolute; inset:0; background:linear-gradient(to bottom,rgba(28,25,23,0) 35%,rgba(28,25,23,.65) 100%); }
-        
-        .z-cpill { display:inline-flex; align-items:center; gap:5px; padding:5px 11px; background:rgba(28,25,23,.6); backdrop-filter:blur(8px); border-radius:var(--r-pill); font-family:var(--pj); font-size:11.5px; font-weight:700; color:rgba(250,249,247,.88); border:1px solid rgba(255,255,255,.1); }
         .z-cbody { padding:16px 18px 18px; display:flex; flex-direction:column; flex:1; }
         .z-name-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:4px; cursor:pointer; }
         .z-cname { font-family:var(--pj); font-size:17px; font-weight:800; color:var(--ink); letter-spacing:-.025em; line-height:1.25; flex:1; min-width:0; transition:color var(--t); }
@@ -679,8 +705,9 @@ const ProvidersPage = () => {
         .z-chip { display:inline-flex; align-items:center; gap:4px; padding:4px 9px; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-pill); font-family:var(--pj); font-size:11.5px; font-weight:600; color:var(--ink-2); transition:border-color var(--t),background var(--t); }
         .z-chip svg { color:var(--accent); }
         .z-card:hover .z-chip { border-color:var(--accent-border); background:var(--accent-bg); }
-        .z-areas { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-bottom:10px; }
+        .z-areas { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-bottom:10px; min-height:26px; }
         .z-atag { padding:3px 8px; background:var(--accent-bg); border:1px solid var(--accent-border); color:var(--accent-2); border-radius:5px; font-size:11px; font-weight:700; }
+        .z-atag-nationwide { padding:3px 8px; background:var(--accent-bg); border:1px solid var(--accent-border); color:var(--accent); border-radius:5px; font-size:11px; font-weight:700; }
         .z-amore { font-size:11px; color:var(--ink-4); font-weight:500; }
         .z-rating { display:flex; align-items:center; gap:7px; margin-bottom:14px; }
         .z-stars { display:flex; gap:2px; align-items:center; }
@@ -799,8 +826,8 @@ const ProvidersPage = () => {
         </div>
       </section>
 
-      {/* SEARCH BAR */}
-      <div className="z-bar">
+      {/* STICKY SEARCH BAR */}
+      <div className="z-bar" ref={stickyBarRef}>
         <div className="z-bar-inner">
           <div className="z-si-wrap" ref={searchWrapRef}>
             <SearchIcon size={17} className="z-si-ico" strokeWidth={2} />
@@ -809,7 +836,11 @@ const ProvidersPage = () => {
               placeholder="Search services, providers, categories…"
               className="z-si"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSavedQuery(e.target.value); // keep savedQuery in sync while typing
+                if (e.target.value.trim().length === 0) closeSuggestions();
+              }}
               onKeyDown={handleSearchKeyDown}
               onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
               autoComplete="off"
@@ -820,15 +851,31 @@ const ProvidersPage = () => {
                   <div
                     key={name}
                     className={`z-sugg${i === activeIndex ? " active" : ""}`}
-                    onMouseDown={() => {
-                      setSearchQuery(name);
-                      setShowSuggestions(false);
-                    }}
+                    onMouseDown={() => handleSuggestionClick(name)}
                     onMouseEnter={() => setActiveIndex(i)}
                   >
-                    {highlightMatch(name, searchQuery.trim())}
+                    <SearchIcon
+                      size={13}
+                      className="z-sugg-ico"
+                      strokeWidth={2}
+                    />
+                    <span>{highlightMatch(name, savedQuery.trim())}</span>
                   </div>
                 ))}
+                {/* Footer row — broad search fallback */}
+                <div
+                  className="z-sugg z-sugg-footer"
+                  onMouseDown={handleSearchFooterClick}
+                >
+                  <SearchIcon
+                    size={13}
+                    className="z-sugg-ico"
+                    strokeWidth={2}
+                  />
+                  <span>
+                    Search for "<strong>{savedQuery.trim()}</strong>"
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -836,7 +883,10 @@ const ProvidersPage = () => {
             <select
               className="z-sel"
               value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
+              onChange={(e) => {
+                setSelectedCity(e.target.value);
+                closeSuggestions();
+              }}
             >
               {CITIES.map((c) => (
                 <option key={c} value={c}>
@@ -849,7 +899,10 @@ const ProvidersPage = () => {
             <select
               className="z-sel"
               value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+              onChange={(e) => {
+                setSelectedCategory(e.target.value);
+                closeSuggestions();
+              }}
             >
               {categories.map((c) => (
                 <option key={c} value={c}>
@@ -895,6 +948,7 @@ const ProvidersPage = () => {
             ))}
           </div>
         )}
+
         {loading ? (
           <ProvidersPageSkeleton />
         ) : (
@@ -913,6 +967,7 @@ const ProvidersPage = () => {
                 </button>
               )}
             </div>
+
             {filteredProviders.length === 0 ? (
               <div className="z-empty">
                 <div className="z-empty-ico">🔍</div>
@@ -932,9 +987,7 @@ const ProvidersPage = () => {
               <div className="z-grid">
                 {filteredProviders.map((provider, index) => {
                   const pd = getPriceDisplay(provider);
-
                   const viewsToday = 10 + (index % 25);
-
                   return (
                     <div key={provider.id} className="z-card">
                       {/* IMAGE */}
@@ -960,7 +1013,7 @@ const ProvidersPage = () => {
                           <div className="z-price-block">
                             {pd.isPrice ? (
                               <>
-                                <span className="z-price-from"> From</span>
+                                <span className="z-price-from">From</span>
                                 <span className="z-price-amt">{pd.amount}</span>
                               </>
                             ) : (
@@ -983,22 +1036,27 @@ const ProvidersPage = () => {
                           )}
                         </div>
 
-                        {provider.areas.length > 0 && (
-                          <div className="z-areas">
-                            {provider.areas.slice(0, 3).map((a) => (
-                              <span key={a} className="z-atag">
-                                {a}
-                              </span>
-                            ))}
-                            {provider.areas.length > 3 && (
-                              <span className="z-amore">
-                                +{provider.areas.length - 3} more
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        <div className="z-areas">
+                          {provider.worksNationwide ? (
+                            <span className="z-atag-nationwide">
+                              🌍 Nationwide
+                            </span>
+                          ) : provider.areas.length > 0 ? (
+                            <>
+                              {provider.areas.slice(0, 3).map((a) => (
+                                <span key={a} className="z-atag">
+                                  {a}
+                                </span>
+                              ))}
+                              {provider.areas.length > 3 && (
+                                <span className="z-amore">
+                                  +{provider.areas.length - 3} more
+                                </span>
+                              )}
+                            </>
+                          ) : null}
+                        </div>
 
-                        {/* RATING — half-star support */}
                         <div className="z-rating">
                           <div className="z-stars">
                             {[1, 2, 3, 4, 5].map((s) => (
@@ -1040,7 +1098,6 @@ const ProvidersPage = () => {
 
                         <div className="z-div" />
 
-                        {/* ACTIONS */}
                         <div className="z-acts">
                           <button
                             className="z-btn z-bwa"
@@ -1054,18 +1111,9 @@ const ProvidersPage = () => {
                                     ""
                                   ).replace(/\D/g, "");
                                   if (!num) return;
-
-                                  let message: string;
-                                  if (provider.matchedService) {
-                                    const priceStr =
-                                      provider.matchedService.price != null
-                                        ? ` (priced starting from $${provider.matchedService.price.toFixed(2)})`
-                                        : " (price on request)";
-                                    message = `Hi, I found you on ZimServ and I'm interested in your *${provider.matchedService.name}* service${priceStr}. Are you available?`;
-                                  } else {
-                                    message = `Hi, I found you on ZimServ and I need your *${provider.category}* service. Are you available?`;
-                                  }
-
+                                  const message = provider.matchedService
+                                    ? `Hi, I found you on ZimServ and I'm interested in your *${provider.matchedService.name}* service${provider.matchedService.price != null ? ` (from $${provider.matchedService.price.toFixed(2)})` : " (price on request)"}. Are you available?`
+                                    : `Hi, I found you on ZimServ and I need your *${provider.category}* service. Are you available?`;
                                   window.open(
                                     `https://wa.me/${num}?text=${encodeURIComponent(message)}`,
                                     "_blank",

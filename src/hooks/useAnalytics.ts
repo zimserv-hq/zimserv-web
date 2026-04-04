@@ -24,12 +24,26 @@ export const useAnalytics = () => {
       eventType === "website_click"  ? "click_to_website_count"  :
                                        "profile_views";
 
-    const { error } = await supabase.rpc("increment_provider_stat", {
-      p_provider_id: providerId,
-      p_column:      column,
-    });
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id ?? null;
 
-    if (error) console.warn("[analytics]", error.message);
+    const [{ error: rpcError }, { error: insertError }] = await Promise.all([
+      // 1. Increment the aggregate counter on providers table
+      supabase.rpc("increment_provider_stat", {
+        p_provider_id: providerId,
+        p_column:      column,
+      }),
+      // 2. Insert a timestamped event row for granular reporting
+      supabase.from("provider_lead_events").insert({
+        provider_id: providerId,
+        user_id:     userId,
+        event_type:  eventType,
+        // created_at is auto-set by Postgres
+      }),
+    ]);
+
+    if (rpcError)    console.warn("[analytics] rpc:", rpcError.message);
+    if (insertError) console.warn("[analytics] insert:", insertError.message);
   }, []);
 
   return { track };

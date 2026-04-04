@@ -32,6 +32,7 @@ import { supabase } from "../../lib/supabaseClient";
 
 interface ProviderContentProps {
   provider: ProviderPublic;
+  canReview?: boolean; // silent anti-spam gate — passed from ProviderProfilePage
 }
 
 export interface ProviderContentHandle {
@@ -50,7 +51,7 @@ type Review = {
 };
 
 const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
-  ({ provider }, ref) => {
+  ({ provider, canReview = false }, ref) => {
     const location = useLocation();
     const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -186,9 +187,10 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
       fetchReviews();
     }, [activeTab, provider.id]);
 
-    // ── Open form ──
+    // ── Open form — also silently blocked if canReview is false ──
     const handleOpenForm = async () => {
       if (!currentUser) return;
+      if (!canReview) return; // silent block — no message shown
       const limited = await checkRateLimit(currentUser.id);
       setRateLimited(limited);
       setShowForm(true);
@@ -210,11 +212,12 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
       setSigningIn(false);
     };
 
-    // ── Submit review ──
+    // ── Submit review — double-gated server-side by canReview ──
     const handleSubmitReview = async (e: React.FormEvent) => {
       e.preventDefault();
       setSubmitError(null);
       if (!currentUser) return;
+      if (!canReview) return; // silent block — belt-and-suspenders guard
       if (formRating === 0)
         return setSubmitError("Please select a star rating.");
       if (formComment.trim().length < 10)
@@ -296,8 +299,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             overflow: hidden;
             box-shadow: 0 4px 24px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
           }
-
-          /* ── TABS ── */
           .pc-tabs {
             display: flex;
             background: var(--color-bg-section);
@@ -353,8 +354,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
           .pc-tab.active .pc-tab-count {
             background: var(--color-accent); color: #fff; border-color: var(--color-accent);
           }
-
-          /* ── BODY ── */
           .pc-body { padding: 28px; }
           .pc-section-title {
             font-family: var(--font-primary);
@@ -374,7 +373,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             overflow-wrap: break-word; word-break: break-word; overflow: hidden; min-width: 0;
           }
           .pc-divider { height: 1px; background: var(--color-border); margin: 24px 0; }
-
           .pc-about-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -400,16 +398,10 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             font-size: 10px; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.6px; color: var(--color-text-secondary); margin-bottom: 3px;
           }
-          .pc-about-value {
-            font-size: 13px; color: var(--color-primary); font-weight: 600; line-height: 1.35;
-          }
+          .pc-about-value { font-size: 13px; color: var(--color-primary); font-weight: 600; line-height: 1.35; }
           .pc-about-value a { color: var(--color-accent); text-decoration: none; font-weight: 600; }
           .pc-about-value a:hover { text-decoration: underline; }
-
-          /* ── SERVICES ── */
-          .pc-services-grid {
-            display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 28px;
-          }
+          .pc-services-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 28px; }
           .pc-service-item {
             display: flex; align-items: center; gap: 10px;
             padding: 12px 14px; background: var(--color-bg-section);
@@ -432,27 +424,14 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             color: var(--color-accent); transition: background 0.2s, color 0.2s;
             border: 1px solid rgba(236,111,22,0.12);
           }
-          .pc-service-item:hover .pc-service-icon {
-            background: var(--color-accent); color: #fff; border-color: var(--color-accent);
-          }
-          .pc-service-name {
-            flex: 1; font-size: 12.5px; font-weight: 600;
-            color: var(--color-primary); min-width: 0; line-height: 1.3;
-          }
+          .pc-service-item:hover .pc-service-icon { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+          .pc-service-name { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--color-primary); min-width: 0; line-height: 1.3; }
           .pc-service-price {
             font-size: 13px; font-weight: 800; padding: 4px 10px;
             border-radius: 999px; white-space: nowrap; flex-shrink: 0; letter-spacing: 0.2px;
           }
-          .pc-service-price.has-price {
-            color: var(--color-primary); background: var(--color-accent-soft);
-            border: 1px solid rgba(236,111,22,0.2);
-          }
-          .pc-service-price.no-price {
-            color: var(--color-text-secondary); background: var(--color-bg);
-            border: 1px solid var(--color-border);
-          }
-
-          /* ── PRICING BOX ── */
+          .pc-service-price.has-price { color: var(--color-primary); background: var(--color-accent-soft); border: 1px solid rgba(236,111,22,0.2); }
+          .pc-service-price.no-price { color: var(--color-text-secondary); background: var(--color-bg); border: 1px solid var(--color-border); }
           .pc-pricing-box {
             display: flex; gap: 14px; align-items: flex-start;
             padding: 18px 20px; background: var(--color-bg-section);
@@ -465,17 +444,9 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             display: flex; align-items: center; justify-content: center;
             color: var(--color-accent); flex-shrink: 0; border: 1px solid rgba(236,111,22,0.15);
           }
-          .pc-pricing-label {
-            font-size: 10px; font-weight: 800; color: var(--color-text-secondary);
-            text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 5px;
-          }
+          .pc-pricing-label { font-size: 10px; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 5px; }
           .pc-pricing-text { font-size: 14px; color: black; line-height: 1.6; font-weight: 600; }
-
-          /* ── REVIEWS ── */
-          .pc-reviews-panel {
-            border: 1px solid var(--color-border); border-radius: 16px;
-            overflow: hidden; margin-bottom: 20px;
-          }
+          .pc-reviews-panel { border: 1px solid var(--color-border); border-radius: 16px; overflow: hidden; margin-bottom: 20px; }
           .pc-reviews-header { display: flex; align-items: stretch; }
           .pc-reviews-score-col {
             padding: 22px 26px; text-align: center;
@@ -484,30 +455,15 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             flex-shrink: 0; display: flex; flex-direction: column;
             align-items: center; justify-content: center; gap: 5px; min-width: 120px;
           }
-          .pc-reviews-big {
-            font-size: 52px; font-weight: 800; color: var(--color-primary);
-            letter-spacing: -4px; line-height: 1;
-          }
+          .pc-reviews-big { font-size: 52px; font-weight: 800; color: var(--color-primary); letter-spacing: -4px; line-height: 1; }
           .pc-reviews-stars { display: flex; gap: 3px; justify-content: center; }
-          .pc-reviews-ct {
-            font-size: 11.5px; color: var(--color-text-secondary); font-weight: 500; margin-top: 1px;
-          }
-          .pc-reviews-meta-col {
-            flex: 1; padding: 18px 22px; display: flex; flex-direction: column;
-            gap: 8px; justify-content: center;
-          }
-          .pc-reviews-meta-row {
-            display: flex; align-items: center; justify-content: space-between;
-            font-size: 13px; padding: 6px 10px; border-radius: 8px; transition: background 0.15s;
-          }
+          .pc-reviews-ct { font-size: 11.5px; color: var(--color-text-secondary); font-weight: 500; margin-top: 1px; }
+          .pc-reviews-meta-col { flex: 1; padding: 18px 22px; display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+          .pc-reviews-meta-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; padding: 6px 10px; border-radius: 8px; transition: background 0.15s; }
           .pc-reviews-meta-row:hover { background: var(--color-bg-section); }
-          .pc-reviews-meta-row-icon {
-            display: flex; align-items: center; gap: 7px; color: var(--color-text-secondary);
-          }
+          .pc-reviews-meta-row-icon { display: flex; align-items: center; gap: 7px; color: var(--color-text-secondary); }
           .pc-reviews-meta-row-icon svg { color: var(--color-accent); }
           .pc-reviews-meta-row strong { color: var(--color-primary); font-weight: 700; font-size: 13px; }
-
-          /* ── SIGN IN PROMPT ── */
           .pc-signin-prompt {
             display: flex; flex-direction: column; align-items: center;
             text-align: center; gap: 12px;
@@ -516,10 +472,7 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             border: 1.5px dashed var(--color-border);
             border-radius: 16px; margin-bottom: 24px;
           }
-          .pc-signin-prompt p {
-            font-size: 13.5px; color: var(--color-text-secondary);
-            line-height: 1.6; margin: 0; max-width: 300px;
-          }
+          .pc-signin-prompt p { font-size: 13.5px; color: var(--color-text-secondary); line-height: 1.6; margin: 0; max-width: 300px; }
           .pc-signin-prompt strong { color: var(--color-primary); }
           .pc-gbtn {
             display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -531,13 +484,8 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             box-shadow: 0 1px 4px rgba(0,0,0,0.06);
             transition: all 0.2s;
           }
-          .pc-gbtn:hover:not(:disabled) {
-            border-color: #4285F4; box-shadow: 0 4px 16px rgba(66,133,244,0.14);
-            transform: translateY(-1px);
-          }
+          .pc-gbtn:hover:not(:disabled) { border-color: #4285F4; box-shadow: 0 4px 16px rgba(66,133,244,0.14); transform: translateY(-1px); }
           .pc-gbtn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-          /* ── WRITE REVIEW BUTTON ── */
           .pc-write-review-btn {
             display: flex; align-items: center; justify-content: center; gap: 8px;
             width: 100%; padding: 13px 20px;
@@ -548,12 +496,8 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             margin-bottom: 24px;
             box-shadow: 0 2px 10px rgba(236,111,22,0.25);
           }
-          .pc-write-review-btn:hover {
-            background: #C8570A; transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(236,111,22,0.35);
-          }
-
-          /* ── REVIEW AS label ── */
+          .pc-write-review-btn:hover { background: #C8570A; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(236,111,22,0.35); }
+          .pc-write-review-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
           .pc-reviewing-as {
             display: flex; align-items: center; gap: 8px;
             font-size: 12.5px; color: var(--color-text-secondary);
@@ -562,8 +506,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             border: 1px solid var(--color-border); border-radius: 10px;
           }
           .pc-reviewing-as strong { color: var(--color-primary); font-weight: 700; }
-
-          /* ── RATE LIMITED ── */
           .pc-rate-limited {
             display: flex; align-items: flex-start; gap: 12px;
             padding: 16px 18px;
@@ -571,22 +513,14 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             border-radius: 12px; margin-bottom: 24px;
             font-size: 13.5px; font-weight: 600; color: #92400E;
           }
-
-          /* ── REVIEW FORM ── */
           .pc-review-form-wrap {
             border: 1.5px solid var(--color-accent); border-radius: 16px;
             padding: 22px; margin-bottom: 24px;
             background: var(--color-accent-soft);
             animation: pc-form-in 0.25s cubic-bezier(0.22,1,0.36,1);
           }
-          @keyframes pc-form-in {
-            from { opacity: 0; transform: translateY(-8px); }
-            to   { opacity: 1; transform: translateY(0); }
-          }
-          .pc-form-title {
-            font-size: 14px; font-weight: 800; color: var(--color-primary);
-            margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;
-          }
+          @keyframes pc-form-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+          .pc-form-title { font-size: 14px; font-weight: 800; color: var(--color-primary); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
           .pc-form-close {
             width: 28px; height: 28px; border-radius: 50%;
             background: var(--color-bg); border: 1px solid var(--color-border);
@@ -595,15 +529,10 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
           }
           .pc-form-close:hover { background: #FEF2F2; color: #EF4444; border-color: #EF4444; }
           .pc-form-field { margin-bottom: 14px; }
-          .pc-form-label {
-            display: block; font-size: 11.5px; font-weight: 700;
-            color: var(--color-text-secondary); text-transform: uppercase;
-            letter-spacing: 0.5px; margin-bottom: 6px;
-          }
+          .pc-form-label { display: block; font-size: 11.5px; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
           .pc-star-picker { display: flex; gap: 6px; align-items: center; }
           .pc-star-picker-star { cursor: pointer; transition: transform 0.15s; color: #D1D5DB; }
-          .pc-star-picker-star:hover,
-          .pc-star-picker-star.filled { color: #F59E0B; transform: scale(1.15); }
+          .pc-star-picker-star:hover, .pc-star-picker-star.filled { color: #F59E0B; transform: scale(1.15); }
           .pc-form-textarea {
             width: 100%; padding: 10px 14px;
             background: var(--color-bg); border: 1.5px solid var(--color-border);
@@ -613,11 +542,7 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             transition: border-color 0.2s;
           }
           .pc-form-textarea:focus { outline: none; border-color: var(--color-accent); background: #fff; }
-          .pc-form-error {
-            font-size: 12.5px; color: #EF4444;
-            background: #FEF2F2; border: 1px solid #FECACA;
-            border-radius: 8px; padding: 8px 12px; margin-bottom: 12px;
-          }
+          .pc-form-error { font-size: 12.5px; color: #EF4444; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
           .pc-form-submit {
             display: flex; align-items: center; justify-content: center; gap: 8px;
             width: 100%; padding: 11px 20px;
@@ -627,8 +552,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
           }
           .pc-form-submit:hover:not(:disabled) { background: #C8570A; transform: translateY(-1px); }
           .pc-form-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-
-          /* ── SUCCESS BANNER ── */
           .pc-review-success {
             display: flex; align-items: center; gap: 12px;
             padding: 14px 18px;
@@ -637,21 +560,10 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             font-size: 13.5px; font-weight: 600; color: #16A34A;
             animation: pc-form-in 0.25s ease;
           }
-
-          /* ── REVIEW LIST ── */
           .pc-review-list { display: flex; flex-direction: column; gap: 14px; }
-          .pc-review-card {
-            padding: 16px 18px; background: var(--color-bg-section);
-            border: 1px solid var(--color-border); border-radius: 14px;
-            transition: box-shadow 0.2s;
-          }
-          .pc-review-card:hover {
-            box-shadow: 0 4px 16px rgba(0,0,0,0.06); border-color: rgba(236,111,22,0.2);
-          }
-          .pc-review-top {
-            display: flex; align-items: flex-start;
-            justify-content: space-between; gap: 12px; margin-bottom: 10px;
-          }
+          .pc-review-card { padding: 16px 18px; background: var(--color-bg-section); border: 1px solid var(--color-border); border-radius: 14px; transition: box-shadow 0.2s; }
+          .pc-review-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); border-color: rgba(236,111,22,0.2); }
+          .pc-review-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
           .pc-review-author { display: flex; align-items: center; gap: 10px; }
           .pc-review-avatar {
             width: 36px; height: 36px; border-radius: 50%;
@@ -660,161 +572,52 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
             color: #fff; font-size: 13px; font-weight: 800; flex-shrink: 0;
           }
           .pc-review-name { font-size: 13.5px; font-weight: 700; color: var(--color-primary); }
-          .pc-review-date {
-            font-size: 11.5px; color: var(--color-text-secondary); font-weight: 400; margin-top: 1px;
-          }
+          .pc-review-date { font-size: 11.5px; color: var(--color-text-secondary); font-weight: 400; margin-top: 1px; }
           .pc-review-stars { display: flex; gap: 2px; }
-          .pc-review-verified {
-            display: inline-flex; align-items: center; gap: 4px;
-            font-size: 10.5px; font-weight: 700; color: #16A34A;
-            background: #F0FDF4; border: 1px solid #BBF7D0;
-            border-radius: 999px; padding: 2px 8px; margin-top: 4px;
-          }
-          .pc-review-comment {
-            font-size: 13.5px; color: var(--color-text-secondary); line-height: 1.7; margin: 0;
-          }
-
-          /* ── PROVIDER REPLY ── */
+          .pc-review-verified { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: #16A34A; background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 999px; padding: 2px 8px; margin-top: 4px; }
+          .pc-review-comment { font-size: 13.5px; color: var(--color-text-secondary); line-height: 1.7; margin: 0; }
           .pc-provider-reply {
-            margin-top: 12px;
-            padding: 10px 14px;
+            margin-top: 12px; padding: 10px 14px;
             background: var(--color-bg);
-            border-left: 3px solid var(--color-accent);
-            border-radius: 0 10px 10px 0;
             border: 1px solid var(--color-border);
             border-left: 3px solid var(--color-accent);
+            border-radius: 0 10px 10px 0;
           }
-          .pc-reply-header {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--color-accent);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-          }
-          .pc-reply-date {
-            margin-left: auto;
-            font-size: 11px;
-            font-weight: 500;
-            color: var(--color-text-secondary);
-            text-transform: none;
-            letter-spacing: 0;
-          }
-          .pc-reply-text {
-            font-size: 13px;
-            color: var(--color-text-secondary);
-            line-height: 1.6;
-            margin: 0;
-          }
-
-          .pc-review-empty {
-            display: flex; flex-direction: column; align-items: center;
-            text-align: center; padding: 36px 20px; gap: 8px;
-            border: 1px dashed var(--color-border); border-radius: 14px;
-            background: var(--color-bg-section);
-          }
+          .pc-reply-header { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+          .pc-reply-date { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--color-text-secondary); text-transform: none; letter-spacing: 0; }
+          .pc-reply-text { font-size: 13px; color: var(--color-text-secondary); line-height: 1.6; margin: 0; }
+          .pc-review-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 36px 20px; gap: 8px; border: 1px dashed var(--color-border); border-radius: 14px; background: var(--color-bg-section); }
           .pc-review-empty p { font-size: 14px; color: var(--color-text-secondary); margin: 0; }
-
-          /* ── GALLERY ── */
           .pc-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-          .pc-gal-item {
-            aspect-ratio: 4/3; border-radius: 14px; overflow: hidden;
-            position: relative; border: 1.5px solid var(--color-border);
-            cursor: pointer; transition: all 0.25s ease; background: var(--color-bg-section);
-          }
-          .pc-gal-item:hover {
-            border-color: var(--color-accent); transform: scale(1.015);
-            box-shadow: 0 8px 28px rgba(0,0,0,0.13);
-          }
-          .pc-gal-img {
-            width: 100%; height: 100%; object-fit: cover; object-position: center;
-            transition: transform 0.5s ease; display: block;
-          }
+          .pc-gal-item { aspect-ratio: 4/3; border-radius: 14px; overflow: hidden; position: relative; border: 1.5px solid var(--color-border); cursor: pointer; transition: all 0.25s ease; background: var(--color-bg-section); }
+          .pc-gal-item:hover { border-color: var(--color-accent); transform: scale(1.015); box-shadow: 0 8px 28px rgba(0,0,0,0.13); }
+          .pc-gal-img { width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform 0.5s ease; display: block; }
           .pc-gal-item:hover .pc-gal-img { transform: scale(1.07); }
-          .pc-gal-overlay {
-            position: absolute; inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.35) 0%, transparent 55%);
-            opacity: 0; transition: opacity 0.25s ease;
-            display: flex; align-items: center; justify-content: center;
-          }
+          .pc-gal-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.35) 0%, transparent 55%); opacity: 0; transition: opacity 0.25s ease; display: flex; align-items: center; justify-content: center; }
           .pc-gal-item:hover .pc-gal-overlay { opacity: 1; }
-          .pc-gal-zoom-icon {
-            width: 36px; height: 36px; border-radius: 50%;
-            background: rgba(255,255,255,0.9);
-            display: flex; align-items: center; justify-content: center;
-            color: var(--color-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-          }
-
-          /* ── LIGHTBOX ── */
-          .pc-lightbox-overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 10000;
-            display: flex; align-items: center; justify-content: center;
-            animation: pc-lb-fade 0.2s ease; backdrop-filter: blur(6px);
-          }
+          .pc-gal-zoom-icon { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center; color: var(--color-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+          .pc-lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 10000; display: flex; align-items: center; justify-content: center; animation: pc-lb-fade 0.2s ease; backdrop-filter: blur(6px); }
           @keyframes pc-lb-fade { from { opacity: 0; } to { opacity: 1; } }
-          .pc-lightbox-close {
-            position: absolute; top: 16px; right: 16px;
-            width: 40px; height: 40px; border-radius: 50%;
-            background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
-            color: #fff; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: background 0.2s; z-index: 2;
-          }
+          .pc-lightbox-close { position: absolute; top: 16px; right: 16px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; z-index: 2; }
           .pc-lightbox-close:hover { background: rgba(255,255,255,0.22); }
-          .pc-lightbox-counter {
-            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
-            color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; letter-spacing: 0.5px;
-          }
-          .pc-lightbox-img-wrap {
-            max-width: 90vw; max-height: 82vh;
-            display: flex; align-items: center; justify-content: center;
-            animation: pc-lb-scale 0.2s cubic-bezier(0.22,1,0.36,1);
-          }
-          @keyframes pc-lb-scale {
-            from { opacity: 0; transform: scale(0.95); }
-            to   { opacity: 1; transform: scale(1); }
-          }
-          .pc-lightbox-img {
-            max-width: 90vw; max-height: 82vh; object-fit: contain;
-            border-radius: 10px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); display: block;
-          }
-          .pc-lightbox-nav {
-            position: absolute; top: 50%; transform: translateY(-50%);
-            width: 44px; height: 44px; border-radius: 50%;
-            background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
-            color: #fff; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: background 0.2s; z-index: 2;
-          }
+          .pc-lightbox-counter { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; letter-spacing: 0.5px; }
+          .pc-lightbox-img-wrap { max-width: 90vw; max-height: 82vh; display: flex; align-items: center; justify-content: center; animation: pc-lb-scale 0.2s cubic-bezier(0.22,1,0.36,1); }
+          @keyframes pc-lb-scale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+          .pc-lightbox-img { max-width: 90vw; max-height: 82vh; object-fit: contain; border-radius: 10px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); display: block; }
+          .pc-lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; z-index: 2; }
           .pc-lightbox-nav:hover { background: rgba(255,255,255,0.22); }
           .pc-lightbox-nav.prev { left: 16px; }
           .pc-lightbox-nav.next { right: 16px; }
-
-          .pc-empty {
-            display: flex; flex-direction: column; align-items: center;
-            text-align: center; padding: 40px 20px; gap: 8px;
-            border: 1px dashed var(--color-border); border-radius: 14px;
-            background: var(--color-bg-section);
-          }
-          .pc-empty-icon {
-            width: 48px; height: 48px; background: var(--color-bg); border-radius: 12px;
-            border: 1px solid var(--color-border);
-            display: flex; align-items: center; justify-content: center;
-            color: var(--color-text-secondary); margin-bottom: 6px;
-          }
+          .pc-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px 20px; gap: 8px; border: 1px dashed var(--color-border); border-radius: 14px; background: var(--color-bg-section); }
+          .pc-empty-icon { width: 48px; height: 48px; background: var(--color-bg); border-radius: 12px; border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-secondary); margin-bottom: 6px; }
           .pc-empty p { font-size: 14px; color: var(--color-text-secondary); margin: 0; }
-
           @media (max-width: 900px) {
             .pc-body { padding: 20px; }
             .pc-services-grid { grid-template-columns: 1fr; }
             .pc-gallery-grid { grid-template-columns: 1fr; }
             .pc-about-grid { grid-template-columns: 1fr; }
             .pc-reviews-header { flex-direction: column; }
-            .pc-reviews-score-col {
-              border-right: none; border-bottom: 1px solid var(--color-border);
-              flex-direction: row; gap: 16px; padding: 16px 20px; min-width: auto;
-            }
+            .pc-reviews-score-col { border-right: none; border-bottom: 1px solid var(--color-border); flex-direction: row; gap: 16px; padding: 16px 20px; min-width: auto; }
             .pc-reviews-big { font-size: 40px; letter-spacing: -2px; }
           }
           @media (max-width: 640px) {
@@ -837,14 +640,13 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
               className={`pc-tab ${activeTab === "reviews" ? "active" : ""}`}
               onClick={() => setActiveTab("reviews")}
             >
-              Reviews
-              <span className="pc-tab-count">{reviewCount}</span>
+              Reviews <span className="pc-tab-count">{reviewCount}</span>
             </button>
             <button
               className={`pc-tab ${activeTab === "gallery" ? "active" : ""}`}
               onClick={() => setActiveTab("gallery")}
             >
-              Gallery
+              Gallery{" "}
               {hasGallery && (
                 <span className="pc-tab-count">{realGallery.length}</span>
               )}
@@ -872,7 +674,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                       </div>
                     </div>
                   </div>
-
                   {provider.languages.length > 0 && (
                     <div className="pc-about-item">
                       <div className="pc-about-icon">
@@ -886,7 +687,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                       </div>
                     </div>
                   )}
-
                   {provider.contact.website && (
                     <div className="pc-about-item">
                       <div className="pc-about-icon">
@@ -913,7 +713,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                 </div>
 
                 <div className="pc-divider" />
-
                 <div className="pc-section-title">Services Offered</div>
                 {hasServices ? (
                   <div className="pc-services-grid">
@@ -946,7 +745,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                 )}
 
                 <div className="pc-divider" />
-
                 <div className="pc-section-title">Pricing</div>
                 <div className="pc-pricing-box">
                   <div className="pc-pricing-icon">
@@ -991,7 +789,6 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                         {reviewCount} review{reviewCount !== 1 ? "s" : ""}
                       </div>
                     </div>
-
                     <div className="pc-reviews-meta-col">
                       <div className="pc-reviews-meta-row">
                         <div className="pc-reviews-meta-row-icon">
@@ -1017,7 +814,9 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                   </div>
                 )}
 
+                {/* ── REVIEW ACTION AREA ── */}
                 {!currentUser ? (
+                  // Not signed in → show sign-in prompt
                   <div className="pc-signin-prompt">
                     <MessageSquare
                       size={28}
@@ -1057,6 +856,7 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                     </button>
                   </div>
                 ) : rateLimited && !showForm ? (
+                  // Rate limited
                   <div className="pc-rate-limited">
                     <Clock
                       size={20}
@@ -1072,14 +872,17 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                     </div>
                   </div>
                 ) : !showForm ? (
+                  // Write review button — silently disabled if canReview is false
                   <button
                     className="pc-write-review-btn"
                     onClick={handleOpenForm}
+                    disabled={!canReview} // silent gate — no tooltip or explanation
                   >
                     <MessageSquare size={16} strokeWidth={2} />
                     Write a Review
                   </button>
                 ) : (
+                  // Review form
                   <div className="pc-review-form-wrap">
                     <div className="pc-form-title">
                       Share your experience
@@ -1177,7 +980,7 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                       <button
                         type="submit"
                         className="pc-form-submit"
-                        disabled={submitting}
+                        disabled={submitting || !canReview}
                       >
                         <Send size={14} strokeWidth={2} />
                         {submitting ? "Submitting…" : "Submit Review"}
@@ -1246,10 +1049,7 @@ const ProviderContent = forwardRef<ProviderContentHandle, ProviderContentProps>(
                             ))}
                           </div>
                         </div>
-
                         <p className="pc-review-comment">{review.comment}</p>
-
-                        {/* ── Provider reply ── */}
                         {review.provider_reply && (
                           <div className="pc-provider-reply">
                             <div className="pc-reply-header">

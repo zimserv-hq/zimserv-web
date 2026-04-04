@@ -19,6 +19,7 @@ type UiCategory = {
   name: string;
   description: string;
   image: string;
+  providerCount: number;
 };
 
 const DEFAULT_IMAGE =
@@ -62,28 +63,48 @@ const CategorySection = () => {
       try {
         setLoading(true);
 
-        const { data, error } = await supabase
-          .from("categories")
-          .select("id,name,description,status,icon_url,display_order")
-          .eq("status", "Active")
-          .order("display_order", { ascending: true });
+        // Fetch categories and active providers in parallel
+        const [{ data: catData, error: catError }, { data: provData }] =
+          await Promise.all([
+            supabase
+              .from("categories")
+              .select("id,name,description,status,icon_url,display_order")
+              .eq("status", "Active")
+              .order("display_order", { ascending: true }),
+            supabase
+              .from("providers")
+              .select("primary_category")
+              .eq("status", "active"),
+          ]);
 
-        if (error) {
-          console.error("Error loading home categories:", error);
+        if (catError) {
+          console.error("Error loading home categories:", catError);
           setCategories([]);
           return;
         }
 
-        const dbCategories: DbCategory[] = data || [];
+        // Build count map — same pattern as ProvidersPage categoryCounts
+        const categoryCounts = (provData || []).reduce<Record<string, number>>(
+          (acc, p) => {
+            acc[p.primary_category] = (acc[p.primary_category] || 0) + 1;
+            return acc;
+          },
+          {},
+        );
 
-        const uiCats: UiCategory[] = dbCategories.map((cat) => ({
-          id: cat.id,
-          name: cat.name,
-          description: cat.description || "Browse services in this category",
-          image: cat.icon_url || DEFAULT_IMAGE,
-        }));
+        const uiCats: UiCategory[] = ((catData as DbCategory[]) || [])
+          .map((cat) => ({
+            id: cat.id,
+            name: cat.name,
+            description: cat.description || "Browse services in this category",
+            image: cat.icon_url || DEFAULT_IMAGE,
+            providerCount: categoryCounts[cat.name] || 0,
+          }))
+          // Most providers first; ties fall back to display_order (already sorted above)
+          .sort((a, b) => b.providerCount - a.providerCount)
+          .slice(0, 8);
 
-        setCategories(uiCats.slice(0, 8));
+        setCategories(uiCats);
       } catch (err) {
         console.error("Unexpected error loading home categories:", err);
         setCategories([]);

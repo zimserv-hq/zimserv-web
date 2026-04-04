@@ -66,12 +66,19 @@ const CategoriesPage = () => {
       try {
         setLoading(true);
 
-        // 1. Fetch all active categories
-        const { data, error } = await supabase
-          .from("categories")
-          .select("id,name,description,status,icon_url,display_order")
-          .eq("status", "Active")
-          .order("display_order", { ascending: true });
+        // Fetch categories + active providers in parallel
+        const [{ data, error }, { data: providerRows, error: providerError }] =
+          await Promise.all([
+            supabase
+              .from("categories")
+              .select("id,name,description,status,icon_url,display_order")
+              .eq("status", "Active")
+              .order("display_order", { ascending: true }),
+            supabase
+              .from("providers")
+              .select("primary_category")
+              .eq("status", "active"),
+          ]);
 
         if (error) {
           console.error("Error loading categories:", error);
@@ -79,18 +86,8 @@ const CategoriesPage = () => {
           return;
         }
 
-        const dbCategories: DbCategory[] = data || [];
-
-        // 2. Fetch active providers — keyed by primary_category (text name)
-        //    primary_category_id is nullable/unpopulated for most rows,
-        //    so we count by the text name column instead.
-        const { data: providerRows, error: providerError } = await supabase
-          .from("providers")
-          .select("primary_category")
-          .eq("status", "active");
-
+        // Build count map
         const providerCountByName: Record<string, number> = {};
-
         if (!providerError && providerRows) {
           for (const row of providerRows as {
             primary_category: string | null;
@@ -102,14 +99,18 @@ const CategoriesPage = () => {
           }
         }
 
-        // 3. Map to UI shape — match category by name
-        const uiCats: UiCategory[] = dbCategories.map((cat) => ({
-          id: cat.id,
-          name: cat.name,
-          description: cat.description || "Browse services in this category",
-          providerCount: providerCountByName[cat.name] || 0,
-          image: cat.icon_url || DEFAULT_IMAGE,
-        }));
+        const uiCats: UiCategory[] = ((data as DbCategory[]) || [])
+          .map((cat) => ({
+            id: cat.id,
+            name: cat.name,
+            description: cat.description || "Browse services in this category",
+            providerCount: providerCountByName[cat.name] || 0,
+            image: cat.icon_url || DEFAULT_IMAGE,
+          }))
+          // Only show categories with more than 2 providers
+          .filter((cat) => cat.providerCount > 2)
+          // Sort by provider count descending — busiest first
+          .sort((a, b) => b.providerCount - a.providerCount);
 
         setCategories(uiCats);
       } catch (err) {

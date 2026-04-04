@@ -32,52 +32,42 @@ const Hero = () => {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [savedQuery, setSavedQuery] = useState(""); // for Escape restore
   const wrapRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch suggestions from Supabase
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
     const q = searchQuery.trim().toLowerCase();
-
     if (q.length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
     }
-
     debounceRef.current = setTimeout(async () => {
       const { data, error } = await supabase
         .from("services")
         .select("name, search_keywords")
         .eq("is_active", true)
         .or(`name.ilike.%${q}%,search_keywords.cs.{${q}}`)
-        .limit(4);
-
+        .limit(5);
       if (error || !data) return;
-
       const results: Suggestion[] = [];
       const seen = new Set<string>();
-
       for (const service of data) {
         if (seen.has(service.name)) continue;
         seen.add(service.name);
-
-        // Find which keyword matched
         const matchedKeyword =
           service.search_keywords?.find((kw: string) =>
             kw.toLowerCase().includes(q),
           ) ?? service.name;
-
         results.push({ name: service.name, matchedKeyword });
       }
-
       setSuggestions(results);
       setShowSuggestions(results.length > 0);
       setActiveIndex(-1);
     }, 250);
-
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -86,19 +76,32 @@ const Hero = () => {
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node))
         setShowSuggestions(false);
-      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // Close on any scroll while open
+  useEffect(() => {
+    const handleScroll = () => {
+      if (showSuggestions) setShowSuggestions(false);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [showSuggestions]);
+
+  const closeSuggestions = () => {
+    setShowSuggestions(false);
+    setActiveIndex(-1);
+  };
+
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const q = searchQuery.trim();
     if (q) {
-      setShowSuggestions(false);
+      closeSuggestions();
       const params = new URLSearchParams();
       params.append("q", q);
       if (selectedCity !== "All Cities") params.append("city", selectedCity);
@@ -108,7 +111,8 @@ const Hero = () => {
 
   const handleSuggestionClick = (name: string) => {
     setSearchQuery(name);
-    setShowSuggestions(false);
+    setSavedQuery(name);
+    closeSuggestions();
     const params = new URLSearchParams();
     params.append("q", name);
     if (selectedCity !== "All Cities") params.append("city", selectedCity);
@@ -116,30 +120,52 @@ const Hero = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      setSearchQuery(savedQuery); // restore original typed query
+      closeSuggestions();
+      return;
+    }
     if (!showSuggestions || suggestions.length === 0) return;
-
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
+      if (activeIndex === -1) setSavedQuery(searchQuery); // save before nav starts
+      const next = Math.min(activeIndex + 1, suggestions.length - 1);
+      setActiveIndex(next);
+      setSearchQuery(suggestions[next].name); // live update input
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveIndex((prev) => Math.max(prev - 1, -1));
-    } else if (e.key === "Enter" && activeIndex >= 0) {
-      e.preventDefault();
-      handleSuggestionClick(suggestions[activeIndex].name);
-    } else if (e.key === "Escape") {
-      setShowSuggestions(false);
+      if (activeIndex <= 0) {
+        setActiveIndex(-1);
+        setSearchQuery(savedQuery); // restore on way back up
+      } else {
+        const prev = activeIndex - 1;
+        setActiveIndex(prev);
+        setSearchQuery(suggestions[prev].name); // live update input
+      }
+    } else if (e.key === "Enter") {
+      if (activeIndex >= 0) {
+        e.preventDefault();
+        handleSuggestionClick(suggestions[activeIndex].name);
+      } else {
+        closeSuggestions();
+      }
     }
   };
 
+  // Highlight completion (non-typed part) in accent, typed part stays normal
   const highlightMatch = (text: string, query: string) => {
     const idx = text.toLowerCase().indexOf(query.toLowerCase());
     if (idx === -1) return <span>{text}</span>;
+    const before = text.slice(0, idx);
+    const matched = text.slice(idx, idx + query.length);
+    const after = text.slice(idx + query.length);
     return (
       <>
-        {text.slice(0, idx)}
-        <strong>{text.slice(idx, idx + query.length)}</strong>
-        {text.slice(idx + query.length)}
+        {before}
+        <span style={{ color: "var(--color-primary)" }}>{matched}</span>
+        <strong style={{ color: "var(--color-accent)", fontWeight: 700 }}>
+          {after}
+        </strong>
       </>
     );
   };
@@ -217,10 +243,7 @@ const Hero = () => {
           margin-bottom: 36px;
         }
 
-        /* wrapper for input + dropdown */
-        .hero-input-outer {
-          position: relative;
-        }
+        .hero-input-outer { position: relative; }
 
         .hero-input-wrap {
           display: flex;
@@ -279,8 +302,8 @@ const Hero = () => {
 
         .hero-suggestion-item {
           display: flex;
-          flex-direction: column;
-          gap: 2px;
+          align-items: center;
+          gap: 10px;
           padding: 12px 24px;
           cursor: pointer;
           transition: background var(--transition-fast);
@@ -294,10 +317,13 @@ const Hero = () => {
           background: var(--color-accent-soft);
         }
 
+        .hero-suggestion-icon { color: var(--color-text-secondary); flex-shrink: 0; }
+
         .hero-suggestion-name {
           font-size: 14px;
           font-weight: 600;
           color: var(--color-primary);
+          flex: 1;
         }
 
         .hero-suggestion-name strong {
@@ -305,16 +331,21 @@ const Hero = () => {
           font-weight: 700;
         }
 
-        .hero-suggestion-keyword {
-          font-size: 12px;
+        /* Footer "Search for X" row */
+        .hero-suggestion-footer {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 11px 24px;
+          cursor: pointer;
+          border-top: 1px solid var(--color-border);
+          font-size: 13px;
           color: var(--color-text-secondary);
-          font-weight: 400;
+          transition: background var(--transition-fast);
         }
 
-        .hero-suggestion-keyword strong {
-          color: var(--color-accent);
-          font-weight: 600;
-        }
+        .hero-suggestion-footer:hover { background: var(--color-bg-section); }
+        .hero-suggestion-footer strong { color: var(--color-primary); font-weight: 600; }
 
         /* ── CITY + BUTTON ROW ────────────────────────────── */
         .hero-search-row {
@@ -387,7 +418,6 @@ const Hero = () => {
 
         /* ── STATS ────────────────────────────────────────── */
         .hero-stats { display: flex; gap: 36px; flex-wrap: wrap; }
-
         .hero-stat { display: flex; align-items: center; gap: 8px; }
         .hero-stat-icon { color: var(--color-accent); flex-shrink: 0; }
 
@@ -516,7 +546,7 @@ const Hero = () => {
               {/* Service input + suggestions */}
               <div className="hero-input-outer" ref={wrapRef}>
                 <div
-                  className={`hero-input-wrap ${showSuggestions ? "has-suggestions" : ""}`}
+                  className={`hero-input-wrap${showSuggestions ? " has-suggestions" : ""}`}
                 >
                   <Search
                     size={20}
@@ -528,7 +558,12 @@ const Hero = () => {
                     placeholder="What service do you need?"
                     className="hero-input"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setSavedQuery(e.target.value); // keep savedQuery in sync while typing
+                      if (e.target.value.trim().length === 0)
+                        closeSuggestions();
+                    }}
                     onKeyDown={handleKeyDown}
                     onFocus={() =>
                       suggestions.length > 0 && setShowSuggestions(true)
@@ -543,15 +578,34 @@ const Hero = () => {
                     {suggestions.map((s, i) => (
                       <div
                         key={s.name}
-                        className={`hero-suggestion-item ${i === activeIndex ? "active" : ""}`}
+                        className={`hero-suggestion-item${i === activeIndex ? " active" : ""}`}
                         onMouseDown={() => handleSuggestionClick(s.name)}
                         onMouseEnter={() => setActiveIndex(i)}
                       >
+                        <Search
+                          size={13}
+                          className="hero-suggestion-icon"
+                          strokeWidth={2}
+                        />
                         <span className="hero-suggestion-name">
-                          {highlightMatch(s.name, searchQuery.trim())}
+                          {highlightMatch(s.name, savedQuery.trim())}
                         </span>
                       </div>
                     ))}
+                    {/* Footer — broad search fallback */}
+                    <div
+                      className="hero-suggestion-footer"
+                      onMouseDown={handleSearch}
+                    >
+                      <Search
+                        size={13}
+                        className="hero-suggestion-icon"
+                        strokeWidth={2}
+                      />
+                      <span>
+                        Search for "<strong>{savedQuery.trim()}</strong>"
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -567,7 +621,10 @@ const Hero = () => {
                   <select
                     className="hero-city-select"
                     value={selectedCity}
-                    onChange={(e) => setSelectedCity(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedCity(e.target.value);
+                      closeSuggestions(); // close dropdown when city changes
+                    }}
                     aria-label="Select city"
                   >
                     {ZIMBABWE_CITIES.map((city) => (
