@@ -404,15 +404,15 @@ const ProviderCTA = () => {
               {/* Stats */}
               <div className="pcta-stats">
                 <div className="pcta-stat">
-                  <div className="pcta-stat-number">500+</div>
+                  <div className="pcta-stat-number">100+</div>
                   <div className="pcta-stat-label">Active Providers</div>
                 </div>
                 <div className="pcta-stat">
-                  <div className="pcta-stat-number">10K+</div>
+                  <div className="pcta-stat-number">1K+</div>
                   <div className="pcta-stat-label">Customer Searches</div>
                 </div>
                 <div className="pcta-stat">
-                  <div className="pcta-stat-number">4.8★</div>
+                  <div className="pcta-stat-number">4.5★</div>
                   <div className="pcta-stat-label">Avg Provider Rating</div>
                 </div>
               </div>
