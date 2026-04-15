@@ -22,6 +22,8 @@ import {
   X,
   Clock,
   CheckCircle2,
+  Globe,
+  MapPin,
 } from "lucide-react";
 import { useDarkMode } from "../../contexts/DarkModeContext";
 import { supabase } from "../../lib/supabaseClient";
@@ -43,6 +45,10 @@ const ProviderLayout = () => {
   const [unreadReviewsCount, setUnreadReviewsCount] = useState(0);
   const [activeJobsCount, setActiveJobsCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
+
+  // ── Coverage modal state ──────────────────────────────────────────────────
+  const [showCoverageModal, setShowCoverageModal] = useState(false);
+  const [isSavingCoverage, setIsSavingCoverage] = useState(false);
 
   const { isDarkMode, toggleDarkMode } = useDarkMode();
   const layoutRef = useRef<HTMLDivElement>(null);
@@ -162,10 +168,21 @@ const ProviderLayout = () => {
     if (!currentUser?.id) return;
     const { data } = await supabase
       .from("providers")
-      .select("id, full_name, business_name, status, profile_image_url")
+      .select(
+        "id, full_name, business_name, status, profile_image_url, works_nationwide",
+      )
       .eq("user_id", currentUser.id)
       .single();
-    if (data) setProviderData(data);
+    if (data) {
+      setProviderData(data);
+      // Show coverage modal only if works_nationwide has never been set
+      if (
+        data.works_nationwide === null ||
+        data.works_nationwide === undefined
+      ) {
+        setShowCoverageModal(true);
+      }
+    }
   };
 
   const fetchCounts = async () => {
@@ -227,6 +244,22 @@ const ProviderLayout = () => {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/provider/login");
+  };
+
+  // ── Coverage modal handler ─────────────────────────────────────────────────
+  const handleCoverageSelect = async (isNationwide: boolean) => {
+    if (!providerData?.id) return;
+    setIsSavingCoverage(true);
+    await supabase
+      .from("providers")
+      .update({ works_nationwide: isNationwide })
+      .eq("id", providerData.id);
+    setProviderData((prev: any) => ({
+      ...prev,
+      works_nationwide: isNationwide,
+    }));
+    setIsSavingCoverage(false);
+    setShowCoverageModal(false);
   };
 
   const businessName = providerData?.business_name || "";
@@ -391,6 +424,7 @@ const ProviderLayout = () => {
         @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideInRight { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+        @keyframes coverageModalIn { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
         :root {
           --bg-primary: #f8f9fa; --bg-secondary: #ffffff;
@@ -527,7 +561,6 @@ const ProviderLayout = () => {
         .topbar-clock { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: var(--card-bg); border: 1.5px solid var(--border-color); border-radius: 40px; }
         .topbar-clock-time { font-size: 14px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: 0.3px; }
         .topbar-clock-date { font-size: 12px; color: var(--text-tertiary); font-weight: 600; }
-
         .search-bar { flex: 1; max-width: 400px; position: relative; }
         .search-input { width: 100%; padding: 10px 16px 10px 40px; border: 1.5px solid var(--border-color); border-radius: 10px; font-size: 14px; font-weight: 500; color: var(--text-primary); transition: all 0.2s ease; background: var(--search-bg); outline: none; font-family: inherit; }
         .search-input:focus { border-color: var(--orange-primary); background: var(--card-bg); box-shadow: 0 0 0 3px rgba(255,107,53,0.1); }
@@ -675,6 +708,65 @@ const ProviderLayout = () => {
         }
         .status-dot { width: 5px; height: 5px; border-radius: 50%; background: #10b981; }
 
+        /* ===== COVERAGE MODAL ===== */
+        .coverage-modal-backdrop {
+          position: fixed; inset: 0;
+          background: rgba(0,0,0,0.55);
+          backdrop-filter: blur(4px);
+          z-index: 9999;
+          display: flex; align-items: center; justify-content: center;
+          padding: 16px;
+        }
+        .coverage-modal {
+          background: var(--card-bg);
+          border-radius: 20px;
+          border: 1.5px solid var(--border-color);
+          box-shadow: 0 24px 64px rgba(0,0,0,0.18);
+          padding: 32px 28px;
+          max-width: 440px;
+          width: 100%;
+          animation: coverageModalIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        .coverage-modal-icon {
+          width: 52px; height: 52px; border-radius: 14px;
+          background: var(--orange-light); color: var(--orange-primary);
+          display: flex; align-items: center; justify-content: center;
+          margin: 0 auto 16px;
+        }
+        .coverage-modal h2 {
+          font-size: 20px; font-weight: 800; color: var(--text-primary);
+          margin-bottom: 8px; letter-spacing: -0.4px; text-align: center;
+        }
+        .coverage-modal p {
+          font-size: 14px; color: var(--text-secondary);
+          line-height: 1.6; max-width: 320px; margin: 0 auto;
+          text-align: center;
+        }
+        .coverage-options { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+        .coverage-option {
+          display: flex; align-items: center; gap: 14px;
+          padding: 16px 18px; border-radius: 12px; cursor: pointer;
+          border: 1.5px solid var(--border-color); background: var(--card-bg);
+          text-align: left; width: 100%;
+          transition: border-color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+          font-family: inherit;
+        }
+        .coverage-option:hover:not(:disabled) {
+          border-color: var(--orange-primary);
+          background: var(--orange-light);
+          transform: translateY(-1px);
+        }
+        .coverage-option:active:not(:disabled) { transform: translateY(0); }
+        .coverage-option:disabled { opacity: 0.55; cursor: not-allowed; }
+        .coverage-option-icon {
+          width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+          background: rgba(255,107,53,0.1); color: var(--orange-primary);
+          display: flex; align-items: center; justify-content: center;
+        }
+        .coverage-option-title { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+        .coverage-option-desc { font-size: 13px; color: var(--text-secondary); }
+        .coverage-saving { text-align: center; font-size: 13px; color: var(--text-tertiary); margin-top: 14px; }
+
         /* ===== RESPONSIVE ===== */
         @media (max-width: 1024px) {
           .top-bar { padding: 16px 20px; }
@@ -696,6 +788,7 @@ const ProviderLayout = () => {
         @media (max-width: 480px) {
           .mobile-header-primary { padding: 8px 12px; }
           .mobile-biz-name { font-size: 14px; max-width: 100px; }
+          .coverage-modal { padding: 24px 18px; }
         }
         @media (max-width: 360px) {
           .mobile-biz-name { max-width: 80px; }
@@ -908,7 +1001,6 @@ const ProviderLayout = () => {
                   )}
                 </button>
 
-                {/* ✅ Inlined — no more NotificationPanel component re-mount */}
                 {showNotifications && (
                   <div className="notification-dropdown">
                     <div className="notification-header">
@@ -1066,7 +1158,6 @@ const ProviderLayout = () => {
                     )}
                   </button>
 
-                  {/* ✅ Inlined — same JSX, no component wrapper */}
                   {showNotifications && (
                     <div className="notification-dropdown">
                       <div className="notification-header">
@@ -1317,6 +1408,62 @@ const ProviderLayout = () => {
 
           <Outlet />
         </main>
+
+        {/* ===== COVERAGE MODAL ===== */}
+        {showCoverageModal && (
+          <div className="coverage-modal-backdrop">
+            <div className="coverage-modal">
+              <div className="coverage-modal-icon">
+                <MapPin size={24} strokeWidth={2.5} />
+              </div>
+              <h2>Where do you work?</h2>
+              <p>
+                Let customers know your coverage area so you only receive
+                relevant job requests.
+              </p>
+
+              <div className="coverage-options">
+                {/* Nationwide */}
+                <button
+                  className="coverage-option"
+                  onClick={() => handleCoverageSelect(true)}
+                  disabled={isSavingCoverage}
+                >
+                  <div className="coverage-option-icon">
+                    <Globe size={20} strokeWidth={2.5} />
+                  </div>
+                  <div>
+                    <div className="coverage-option-title">Nationwide</div>
+                    <div className="coverage-option-desc">
+                      I can work anywhere in Zimbabwe
+                    </div>
+                  </div>
+                </button>
+
+                {/* Local Only */}
+                <button
+                  className="coverage-option"
+                  onClick={() => handleCoverageSelect(false)}
+                  disabled={isSavingCoverage}
+                >
+                  <div className="coverage-option-icon">
+                    <MapPin size={20} strokeWidth={2.5} />
+                  </div>
+                  <div>
+                    <div className="coverage-option-title">Local Only</div>
+                    <div className="coverage-option-desc">
+                      I serve specific areas or cities only
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {isSavingCoverage && (
+                <p className="coverage-saving">Saving your preference…</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
